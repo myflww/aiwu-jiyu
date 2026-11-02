@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>爱屋及鱼</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+<div class="app hidden" id="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">鱼</div>
+      <div>
+        <div class="brand-name">爱屋及鱼</div>
+        <div class="brand-sub">AstrBot + NapCat</div>
+      </div>
+    </div>
+    <button class="nav-item active" data-view="overview"><span class="dot"></span>概览</button>
+    <button class="nav-item" data-view="whitelist"><span class="dot"></span>白名单</button>
+    <button class="nav-item" data-view="settings"><span class="dot"></span>设置</button>
+    <button class="nav-item" data-view="logs"><span class="dot"></span>日志</button>
+    <button class="nav-item" data-view="lovehouse"><span class="dot"></span>爱之屋</button>
+    <button class="nav-item" data-view="artifacts"><span class="dot"></span>产物</button>
+    <button class="nav-item" data-view="plugins"><span class="dot"></span>插件</button>
+    <div class="sidebar-foot">
+      本机控制台<br>
+      <span id="sideVersion">v1.0</span>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div>
+        <h1 id="pageTitle">概览</h1>
+        <div class="sub" id="pageSub">大肥鱼住在这台电脑里</div>
+      </div>
+      <div class="top-actions">
+        <span class="pill"><span class="dot" id="pillAstrbot"></span>AstrBot</span>
+        <span class="pill"><span class="dot" id="pillNapcat"></span>NapCat</span>
+        <button class="ghost" id="btnRestart">重启</button>
+        <button class="primary" id="btnStart">全部启动</button>
+        <button class="danger" id="btnStop">全部停止</button>
+      </div>
+    </div>
+
+    <section id="view-overview">
+      <div class="grid cols-4">
+        <div class="card tight">
+          <h2>AstrBot</h2>
+          <div class="desc" id="ovAstrbotDesc">检测中</div>
+          <div class="metric" id="ovAstrbot">-</div>
+        </div>
+        <div class="card tight">
+          <h2>NapCat</h2>
+          <div class="desc" id="ovNapcatDesc">检测中</div>
+          <div class="metric" id="ovNapcat">-</div>
+        </div>
+        <div class="card tight">
+          <h2>大肥鱼账号</h2>
+          <div class="desc" id="ovAccountDesc">未登录</div>
+          <div class="metric" id="ovAccount">-</div>
+        </div>
+        <div class="card tight">
+          <h2>白名单</h2>
+          <div class="desc" id="ovWhitelistDesc">只允许名单内会话</div>
+          <div class="metric" id="ovWhitelist">-</div>
+        </div>
+      </div>
+
+      <div class="section card">
+        <div class="row between wrap">
+          <div>
+            <h2>内存占用</h2>
+            <div class="desc" id="memDesc">正在读取系统内存…</div>
+          </div>
+          <span class="badge" id="memBadge">-</span>
+        </div>
+        <div class="meter" id="memMeter"><span id="memBar"></span></div>
+        <div class="row wrap" id="memProcesses" style="margin-top:10px"></div>
+      </div>
+
+      <div class="section card">
+        <div class="row between wrap">
+          <div>
+            <h2>电脑权限</h2>
+            <div class="desc" id="pcDesc">未开启；开启后她可以在指定工作目录里执行任务、生成文件。</div>
+          </div>
+          <div class="row">
+            <span class="badge gray" id="pcBadge">未开启</span>
+            <button class="primary" id="pcManage">管理权限</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="section grid cols-2">
+        <div class="card">
+          <div class="row between">
+            <div>
+              <h2>她是谁</h2>
+              <div class="desc">蓝色鲸鱼娘，住在 QQ 里。当前人格：大肥鱼。</div>
+            </div>
+            <span class="badge green" id="ovPersonaBadge">已启用</span>
+          </div>
+          <dl class="kv" style="margin-top:14px">
+            <dt>机器人昵称</dt><dd id="ovNickname">-</dd>
+            <dt>机器人 QQ</dt><dd id="ovBotQQ" class="mono">-</dd>
+            <dt>主人 QQ</dt><dd id="ovOwner" class="mono">-</dd>
+            <dt>模型</dt><dd id="ovModel">-</dd>
+          </dl>
+          <div class="row" style="margin-top:16px">
+            <button class="soft" id="btnRelogin">重新扫码登录</button>
+            <button class="ghost hidden" id="btnQuickLogin">尝试自动登录</button>
+            <button class="ghost" id="btnOpenAstrbot">打开 AstrBot 面板</button>
+          </div>
+        </div>
+        <div class="card">
+          <h2>运行状态</h2>
+          <div class="desc">关闭这个窗口不会停掉她；停掉服务才会下线。</div>
+          <dl class="kv" style="margin-top:14px">
+            <dt>AstrBot 端口</dt><dd>6185</dd>
+            <dt>NapCat 端口</dt><dd>6099</dd>
+            <dt>OneBot 端口</dt><dd>6199</dd>
+            <dt>安装目录</dt><dd id="ovInstall" class="mono small">-</dd>
+          </dl>
+          <div class="row" style="margin-top:16px">
+            <button class="ghost" id="btnOpenNapcat">打开 NapCat 后台</button>
+            <button class="ghost" id="btnOpenFolder">打开运行目录</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-whitelist" class="hidden">
+      <div class="card">
+        <div class="row between wrap">
+          <div>
+            <h2>只和我聊天</h2>
+            <div class="desc">开启后，只有白名单里的私聊和群能唤醒她；主人始终放行。</div>
+          </div>
+          <label class="row" style="gap:8px">
+            <input type="checkbox" id="wlEnable" style="width:auto">
+            <span class="small">启用白名单</span>
+          </label>
+        </div>
+        <div class="notice blue" style="margin-top:12px">
+          白名单在 AstrBot 里同时控制私聊与群聊。群聊建议只放你常待的几个群，避免她到处接话。
+        </div>
+      </div>
+
+      <div class="section grid cols-2">
+        <div class="card">
+          <h2>添加白名单</h2>
+          <div class="desc">私聊填 QQ 号，群聊填群号。加人、删人、开关点完立即生效，后台会自动重启一次 AstrBot。</div>
+          <div class="stack" style="margin-top:12px">
+            <label class="field"><span>类型</span>
+              <select id="wlType">
+                <option value="private">私聊（QQ 号）</option>
+                <option value="group">群聊（群号）</option>
+              </select>
+            </label>
+            <label class="field"><span>号码</span>
+              <input type="text" id="wlId" placeholder="例如 123456789">
+            </label>
+            <button class="primary" id="wlAddBtn">添加到白名单</button>
+          </div>
+          <div class="notice" style="margin-top:12px">
+            只加你信任的人。加到私聊的人可以直接和她聊天；群聊则整个群都能唤醒她。
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="row between">
+            <div>
+              <h2>从最近联系人添加</h2>
+              <div class="desc" id="contactsDesc">登录后可以读取好友和群列表。</div>
+            </div>
+            <button class="ghost" id="contactsRefresh">刷新</button>
+          </div>
+          <div class="input-row" style="margin-top:10px">
+            <input type="text" id="contactsSearch" placeholder="搜索昵称、备注或号码">
+          </div>
+          <div class="list" id="contactsList" style="margin-top:10px; max-height:320px; overflow:auto;"></div>
+        </div>
+      </div>
+
+      <div class="section card">
+        <div class="row between">
+          <h2>当前白名单</h2>
+          <button class="primary" id="wlApplyBtn">重启 AstrBot</button>
+        </div>
+        <div class="desc" id="wlSummary">-</div>
+        <div class="list" id="wlList" style="margin-top:12px"></div>
+      </div>
+    </section>
+
+    <section id="view-settings" class="hidden">
+      <div class="grid cols-2">
+        <div class="card">
+          <h2>模型</h2>
+          <div class="desc">DeepSeek Key 会用 Windows DPAPI 加密保存，不写日志。</div>
+          <div class="stack" style="margin-top:12px">
+            <label class="field"><span>API Key</span>
+              <input type="password" id="setKey" placeholder="留空表示不修改">
+            </label>
+            <label class="field"><span>模型</span>
+              <select id="setModel">
+                <option value="deepseek-chat">deepseek-chat</option>
+                <option value="deepseek-reasoner">deepseek-reasoner</option>
+              </select>
+            </label>
+            <label class="field"><span>API Base</span>
+              <input type="text" id="setApiBase" value="https://api.deepseek.com/v1">
+            </label>
+            <div class="hint">当前 Key：<span id="setKeyMask" class="mono">-</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>主人</h2>
+          <div class="desc">只有这个 QQ 会被标记为主人，并始终绕过白名单。</div>
+          <div class="stack" style="margin-top:12px">
+            <label class="field"><span>主人 QQ</span>
+              <input type="text" id="setOwner" placeholder="例如 123456789">
+            </label>
+          </div>
+          <div class="notice" style="margin-top:12px">
+            主人只有一个，始终全权。想让别人也能使唤她干活，去「白名单 → 权限」给对应 QQ 开管理员权限。
+          </div>
+        </div>
+      </div>
+      <div class="section card">
+        <div class="row between wrap">
+          <div>
+            <h2>启动与安装</h2>
+            <div class="desc">关闭窗口会缩到系统托盘；开机自启会静默启动到托盘。</div>
+          </div>
+          <div class="row wrap" style="gap:16px">
+            <label class="row" style="gap:8px">
+              <input type="checkbox" id="setAutostart" style="width:auto">
+              <span class="small">开机自动启动</span>
+            </label>
+            <label class="row" style="gap:8px">
+              <input type="checkbox" id="setAutoLogin" style="width:auto">
+              <span class="small">自动登录已授权的小号</span>
+            </label>
+          </div>
+        </div>
+        <dl class="kv" style="margin-top:12px">
+          <dt>安装目录</dt><dd id="setInstallDir" class="mono small">-</dd>
+        </dl>
+        <div class="hint" id="setAutostartHint">当前用户级自启动，不需要管理员权限。</div>
+        <div class="hint" id="quickLoginHint">正在读取已授权的 QQ…</div>
+      </div>
+      <div class="section card">
+        <div class="row between wrap">
+          <div>
+            <h2>大肥鱼工作目录</h2>
+            <div class="desc">她生成的软件、文件都放这里；电脑权限也限制在这个目录内。</div>
+          </div>
+          <button class="ghost" id="setWorkspaceBrowse">浏览</button>
+        </div>
+        <div class="input-row" style="margin-top:10px">
+          <input type="text" id="setWorkspace" placeholder="例如 D:\Dafeiyu\workspace">
+          <button class="primary" id="setWorkspaceSave">保存目录</button>
+        </div>
+        <div class="hint" id="setWorkspaceHint">-</div>
+      </div>
+      <div class="section card">
+        <div class="row between wrap">
+          <div>
+            <h2>保存并应用</h2>
+            <div class="desc">会写入 AstrBot 配置并重启 AstrBot；NapCat 不受影响。</div>
+          </div>
+          <button class="primary" id="settingsSave">保存并重启 AstrBot</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-logs" class="hidden">
+      <div class="card">
+        <div class="log-tabs">
+          <button class="log-tab active" data-log="astrbot">AstrBot</button>
+          <button class="log-tab" data-log="napcat">NapCat</button>
+        </div>
+        <pre class="log" id="logView">加载中…</pre>
+      </div>
+    </section>
+
+    <section id="view-lovehouse" class="hidden">
+      <div class="card">
+        <div class="row between wrap">
+          <div>
+            <h2>爱之屋 · 长期记忆</h2>
+            <div class="desc" id="lhDesc">正在检测本机爱之屋…</div>
+          </div>
+          <div class="row">
+            <span class="badge amber" id="lhBadge">检测中</span>
+            <button class="ghost" id="lhRefresh">刷新</button>
+          </div>
+        </div>
+        <div class="grid cols-3" style="margin-top:14px">
+          <div class="card tight">
+            <div class="desc">安装版本</div>
+            <div class="metric" id="lhVersion">-</div>
+          </div>
+          <div class="card tight">
+            <div class="desc">本机服务</div>
+            <div class="metric" id="lhRunning">-</div>
+          </div>
+          <div class="card tight">
+            <div class="desc">当前记忆库</div>
+            <div class="metric" id="lhLibrary">-</div>
+          </div>
+        </div>
+        <div class="row wrap" style="margin-top:14px">
+          <button class="primary" id="lhStart">启动爱之屋</button>
+          <button class="ghost" id="lhOpen">打开爱之屋</button>
+          <button class="ghost" id="lhOpenFolder">打开数据目录</button>
+        </div>
+        <div class="notice blue" id="lhUpdateNote" style="margin-top:12px; display:none"></div>
+      </div>
+
+      <div class="section grid cols-2">
+        <div class="card">
+          <div class="row between">
+            <div>
+              <h2>选择记忆库</h2>
+              <div class="desc">连接会固定到选中的库；不同库是独立存档。</div>
+            </div>
+            <button class="ghost" id="lhLibRefresh">刷新</button>
+          </div>
+          <div class="list" id="lhLibraries" style="margin-top:12px; max-height:320px; overflow:auto"></div>
+          <div class="input-row" style="margin-top:10px">
+            <input type="text" id="lhNewName" placeholder="新记忆库名称，例如 大肥鱼">
+            <button class="ghost" id="lhCreate">新建</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>一键连接 AstrBot</h2>
+          <div class="desc">安装官方爱之屋插件，并把当前记忆库绑定到 AstrBot 的目标会话。</div>
+          <label class="field" style="margin-top:12px"><span>允许的会话 UMO（每行一个）</span>
+            <textarea id="lhUmos" rows="4" placeholder="qq-987654321:FriendMessage:123456789"></textarea>
+          </label>
+          <div class="hint">默认填主人私聊。群聊在目标群发送 <span class="mono">/sid</span>，把完整结果逐行加进来。</div>
+          <button class="primary" id="lhConnect" style="margin-top:12px">连接并安装插件</button>
+          <div class="notice" id="lhOrganizerNotice" style="margin-top:12px">
+            连接后还要在爱之屋的“记忆整理”里配置模型 API，原文才会被整理成可召回的记忆。
+          </div>
+        </div>
+      </div>
+
+      <div class="section card">
+        <div class="row between">
+          <div>
+            <h2>连接状态</h2>
+            <div class="desc" id="lhSourceDesc">还没有连接。</div>
+          </div>
+          <button class="ghost" id="lhSourceRefresh">刷新</button>
+        </div>
+        <div class="list" id="lhSources" style="margin-top:12px"></div>
+      </div>
+    </section>
+
+    <section id="view-artifacts" class="hidden">
+      <div class="card">
+        <div class="row between wrap">
+          <div>
+            <h2>产物</h2>
+            <div class="desc" id="artifactDesc">她生成的软件、文件会出现在这里。</div>
+          </div>
+          <div class="row">
+            <button class="ghost" id="artifactRefresh">刷新</button>
+            <button class="ghost" id="artifactFolder">打开工作目录</button>
+          </div>
+        </div>
+        <div class="list" id="artifactList" style="margin-top:14px"></div>
+      </div>
+    </section>
+
+    <section id="view-plugins" class="hidden">
+      <div class="card">
+        <div class="row between wrap">
+          <div>
+            <h2>AstrBot 插件</h2>
+            <div class="desc">读取 <span class="mono">runtime/astrbot/data/plugins</span>；爱之屋插件由连接向导安装。</div>
+          </div>
+          <div class="row wrap">
+            <button class="ghost" id="pluginsRefresh">刷新</button>
+            <button class="ghost" id="pluginsFolder">打开插件目录</button>
+            <button class="primary" id="pluginsInstallLh">安装插件文件</button>
+          </div>
+        </div>
+        <div class="list" id="pluginsList" style="margin-top:14px"></div>
+      </div>
+      <div class="section card">
+        <div class="row between">
+          <div>
+            <h2>插件目录</h2>
+            <div class="desc">新增或禁用插件后，重启 AstrBot 生效。</div>
+          </div>
+          <button class="ghost" id="pluginsRestart">重启 AstrBot</button>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="wizard-wrap hidden" id="wizard">
+  <div class="wizard">
+    <div class="wizard-head">
+      <div>
+        <h1>把大肥鱼装进这台电脑</h1>
+        <div class="sub">从零安装 AstrBot + NapCat，填 Key、扫码、设白名单，一次完成。</div>
+      </div>
+      <div class="steps" id="wizardSteps"></div>
+    </div>
+    <div class="wizard-body" id="wizardBody"></div>
+    <div class="wizard-foot">
+      <div class="hint" id="wizardHint"></div>
+      <div class="row">
+        <button class="ghost hidden" id="wizardBack">上一步</button>
+        <button class="primary" id="wizardNext">继续</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="modal-back" id="modalBack">
+  <div class="modal">
+    <h3 id="modalTitle">提示</h3>
+    <div id="modalBody" class="hint"></div>
+    <div class="row" style="justify-content:flex-end;margin-top:16px">
+      <button class="ghost" id="modalCancel">取消</button>
+      <button class="primary" id="modalOk">确定</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

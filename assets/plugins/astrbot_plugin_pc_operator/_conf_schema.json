@@ -1,0 +1,44 @@
+{
+  "enabled": {
+    "type": "bool",
+    "description": "允许大肥鱼在授权后使用这台电脑",
+    "default": false,
+    "hint": "默认关闭。开启后主人和一个或多个授权管理员可以在私聊里调用工作目录内的工具。"
+  },
+  "owner_qq": {
+    "type": "string",
+    "description": "主人 QQ",
+    "default": "",
+    "hint": "主人拥有全部权限；群聊默认拒绝。"
+  },
+  "members": {
+    "type": "dict",
+    "description": "授权管理员",
+    "default": {},
+    "hint": "形如 {\"123456789\": {\"read\": true, \"write\": true, \"run\": false}}。由桌面端「白名单 → 权限」写入，一般不需要手工改。"
+  },
+  "workspace": {
+    "type": "string",
+    "description": "工作目录",
+    "default": "",
+    "hint": "所有文件和命令都被限制在这个目录内；留空使用 %LOCALAPPDATA%\\Dafeiyu\\workspace。"
+  },
+  "timeout_s": {
+    "type": "int",
+    "description": "命令超时秒数",
+    "default": 60,
+    "hint": "5 到 300 秒。"
+  },
+  "max_output_chars": {
+    "type": "int",
+    "description": "返回输出上限",
+    "default": 8000,
+    "hint": "避免超长输出塞满上下文。"
+  },
+  "private_only": {
+    "type": "bool",
+    "description": "只允许私聊",
+    "default": true,
+    "hint": "建议保持开启；群聊里其他人也可能诱导模型调用工具。"
+  }
+}

@@ -1,0 +1,45 @@
+# Local state, credentials, downloaded runtimes and generated user content
+/config.json
+/config.*.json
+!/config.example.json
+/runtime/
+/bin/
+/run/
+/data/
+/workspace/
+/logs/
+/downloads/
+/dist/
+.env
+.env.*
+!.env.example
+*.log
+*.db
+*.sqlite
+*.sqlite3
+*.pem
+*.key
+
+# Build outputs and downloaded third-party binaries
+/build/.venv/
+/build/dafeiyu/
+/build/aiwu-jiyu/
+/build/vendor/
+/assets/vendor/
+*.exe
+*.dll
+*.zip
+*.7z
+
+# Development caches and temporary files
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tmp*/
+.workbuddy/
+.DS_Store
+Thumbs.db
