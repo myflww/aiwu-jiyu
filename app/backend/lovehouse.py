@@ -7,7 +7,6 @@ import http.client
 import json
 import os
 import re
-import shutil
 import subprocess
 import time
 from ctypes import wintypes
@@ -15,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from backend import config_store, processes
-from backend.paths import ASSETS, ASTRBOT
+from backend.paths import ASTRBOT
 
 KNOWN_LATEST = "0.10.2rc1"
 LOCALAPPDATA = Path(os.environ.get("LOCALAPPDATA", ""))
@@ -318,21 +317,12 @@ def create_astrbot_source(library_id: str, umos: list[str], name: str = "大肥�
 
 
 def install_plugin(config: dict) -> dict:
-    source = ASSETS / "plugins" / PLUGIN_NAME
-    if not source.is_dir():
-        raise LoveHouseError("安装包内缺少爱之屋 AstrBot 插件")
-    plugins_dir = ASTRBOT / "data" / "plugins"
+    from backend import plugins
+
+    plugins.install_bundled(plugin_ids=[PLUGIN_NAME])
     config_dir = ASTRBOT / "data" / "config"
-    plugins_dir.mkdir(parents=True, exist_ok=True)
     config_dir.mkdir(parents=True, exist_ok=True)
-    target = plugins_dir / PLUGIN_NAME
-    if target.exists():
-        backup_root = ASTRBOT / "data" / "plugin_backups"
-        backup_root.mkdir(parents=True, exist_ok=True)
-        backup = backup_root / f"{PLUGIN_NAME}.bak-{int(time.time())}"
-        shutil.copytree(target, backup)
-        shutil.rmtree(target)
-    shutil.copytree(source, target)
+    target = plugins.plugin_path(PLUGIN_NAME)
 
     config_path = config_dir / PLUGIN_CONFIG
     existing: dict = {}

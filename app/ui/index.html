@@ -8,290 +8,171 @@
 </head>
 <body>
 
+<svg class="icon-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<!-- Lucide v0.468.0, ISC. See LICENSE-lucide.txt. -->
+<symbol id="i-home" viewBox="0 0 24 24">  <path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" />
+  <path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+</symbol>
+<symbol id="i-chat" viewBox="0 0 24 24">  <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
+</symbol>
+<symbol id="i-book" viewBox="0 0 24 24">  <path d="M12 7v14" />
+  <path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z" />
+</symbol>
+<symbol id="i-folder" viewBox="0 0 24 24">  <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />
+</symbol>
+<symbol id="i-puzzle" viewBox="0 0 24 24">  <path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z" />
+</symbol>
+<symbol id="i-settings" viewBox="0 0 24 24">  <path d="M20 7h-9" />
+  <path d="M14 17H5" />
+  <circle cx="17" cy="17" r="3" />
+  <circle cx="7" cy="7" r="3" />
+</symbol>
+<symbol id="i-log" viewBox="0 0 24 24">  <polyline points="4 17 10 11 4 5" />
+  <line x1="12" x2="20" y1="19" y2="19" />
+</symbol>
+<symbol id="i-shield" viewBox="0 0 24 24">  <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+  <path d="m9 12 2 2 4-4" />
+</symbol>
+<symbol id="i-arrow" viewBox="0 0 24 24">  <path d="M5 12h14" />
+  <path d="m12 5 7 7-7 7" />
+</symbol>
+<symbol id="i-spark" viewBox="0 0 24 24">  <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
+  <path d="M20 3v4" />
+  <path d="M22 5h-4" />
+  <path d="M4 17v2" />
+  <path d="M5 18H3" />
+</symbol>
+<symbol id="i-fish" viewBox="0 0 24 24">  <path d="M6.5 12c.94-3.46 4.94-6 8.5-6 3.56 0 6.06 2.54 7 6-.94 3.47-3.44 6-7 6s-7.56-2.53-8.5-6Z" />
+  <path d="M18 12v.5" />
+  <path d="M16 17.93a9.77 9.77 0 0 1 0-11.86" />
+  <path d="M7 10.67C7 8 5.58 5.97 2.73 5.5c-1 1.5-1 5 .23 6.5-1.24 1.5-1.24 5-.23 6.5C5.58 18.03 7 16 7 13.33" />
+  <path d="M10.46 7.26C10.2 5.88 9.17 4.24 8 3h5.8a2 2 0 0 1 1.98 1.67l.23 1.4" />
+  <path d="m16.01 17.93-.23 1.4A2 2 0 0 1 13.8 21H9.5a5.96 5.96 0 0 0 1.49-3.98" />
+</symbol>
+<symbol id="i-download" viewBox="0 0 24 24">
+  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+  <polyline points="7 10 12 15 17 10" />
+  <line x1="12" x2="12" y1="15" y2="3" />
+</symbol>
+<symbol id="i-refresh" viewBox="0 0 24 24">
+  <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+  <path d="M21 3v5h-5" />
+  <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+  <path d="M8 16H3v5" />
+</symbol>
+<symbol id="i-power" viewBox="0 0 24 24">
+  <path d="M12 2v10" />
+  <path d="M18.4 6.6a9 9 0 1 1-12.77.04" />
+</symbol>
+</svg>
 <div class="app hidden" id="app">
-  <aside class="sidebar">
+  <aside class="sidebar" aria-label="主导航">
     <div class="brand">
-      <div class="brand-mark">鱼</div>
-      <div>
-        <div class="brand-name">爱屋及鱼</div>
-        <div class="brand-sub">AstrBot + NapCat</div>
-      </div>
+      <div class="brand-mark"><img src="/assets/ui/app-icon.png" alt="" onerror="this.style.display='none'"><svg class="icon" aria-hidden="true"><use href="#i-fish"></use></svg></div>
+      <div><div class="brand-name">爱屋及鱼</div><div class="brand-sub">给陪伴一个小小的家</div></div>
     </div>
-    <button class="nav-item active" data-view="overview"><span class="dot"></span>概览</button>
-    <button class="nav-item" data-view="whitelist"><span class="dot"></span>白名单</button>
-    <button class="nav-item" data-view="settings"><span class="dot"></span>设置</button>
-    <button class="nav-item" data-view="logs"><span class="dot"></span>日志</button>
-    <button class="nav-item" data-view="lovehouse"><span class="dot"></span>爱之屋</button>
-    <button class="nav-item" data-view="artifacts"><span class="dot"></span>产物</button>
-    <button class="nav-item" data-view="plugins"><span class="dot"></span>插件</button>
-    <div class="sidebar-foot">
-      本机控制台<br>
-      <span id="sideVersion">v1.0</span>
+    <div class="nav-caption">我的小天地</div>
+    <button class="nav-item active" data-view="overview"><svg class="icon" aria-hidden="true"><use href="#i-home"></use></svg><span>我的肥鱼</span><span class="nav-active-dot"></span></button>
+    <button class="nav-item" data-view="whitelist"><svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg><span>聊天权限</span></button>
+    <button class="nav-item" data-view="lovehouse"><svg class="icon" aria-hidden="true"><use href="#i-book"></use></svg><span>记忆小屋</span></button>
+    <button class="nav-item" data-view="artifacts"><svg class="icon" aria-hidden="true"><use href="#i-folder"></use></svg><span>作品箱</span></button>
+    <div class="nav-caption nav-caption-tools">打理小家</div>
+    <button class="nav-item" data-view="plugins"><svg class="icon" aria-hidden="true"><use href="#i-puzzle"></use></svg><span>插件百宝箱</span></button>
+    <button class="nav-item" data-view="settings"><svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg><span>设置</span></button>
+    <button class="nav-item" data-view="logs"><svg class="icon" aria-hidden="true"><use href="#i-log"></use></svg><span>诊断日志</span></button>
+    <div class="sidebar-companion">
+      <div class="sidebar-art"><img id="sidebarMascot" src="/assets/ui/dafeiyu-rest.png" alt="抱着小鱼休息的大肥鱼" onerror="this.style.display='none'"></div>
+      <p id="sidebarMascotCaption" role="status" aria-live="polite">正在看看小家的状态</p>
+      <span id="sidebarMascotNote">在这台电脑里，安心住下。</span>
     </div>
+    <div class="sidebar-footer"><div class="sidebar-foot"><span class="local-dot"></span> 本机桌面版 <span id="sideVersion">v1.1.0</span></div><button class="sidebar-update" id="sideUpdate"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg><span id="sideUpdateLabel">检查更新</span><span class="update-dot hidden" id="sideUpdateDot"></span></button></div>
   </aside>
 
   <main class="main">
     <div class="topbar">
-      <div>
-        <h1 id="pageTitle">概览</h1>
-        <div class="sub" id="pageSub">大肥鱼住在这台电脑里</div>
-      </div>
-      <div class="top-actions">
-        <span class="pill"><span class="dot" id="pillAstrbot"></span>AstrBot</span>
-        <span class="pill"><span class="dot" id="pillNapcat"></span>NapCat</span>
-        <button class="ghost" id="btnRestart">重启</button>
-        <button class="primary" id="btnStart">全部启动</button>
-        <button class="danger" id="btnStop">全部停止</button>
-      </div>
+      <div><div class="page-eyebrow">爱屋及鱼 / 我的日常</div><h1 id="pageTitle">我的肥鱼</h1><div class="sub" id="pageSub">把琐碎的日常，过成有回应的每一天。</div></div>
+      <div class="top-actions"><span class="local-label"><span class="local-dot"></span><span id="localServiceLabel">正在连接小家</span></span><div class="top-avatar"><img src="/assets/ui/app-icon.png" alt="大肥鱼头像" onerror="this.style.display='none'"><svg class="icon" aria-hidden="true"><use href="#i-fish"></use></svg></div></div>
+    </div>
+    <div class="connection-banner hidden" id="connectionBanner" role="status">暂时连不上本机服务，正在重新连接。<button class="text-button" id="connectionRetry">立即重试</button></div>
+    <div class="update-banner hidden" id="updateBanner" aria-label="有可选的软件更新">
+      <div class="update-banner-mark"><svg class="icon" aria-hidden="true"><use href="#i-spark"></use></svg></div>
+      <div class="update-banner-copy"><b id="updateBannerTitle">发现新版本</b><p id="updateBannerMessage" role="status" aria-live="polite">你可以现在更新，也可以继续使用当前版本。</p><div class="update-banner-progress hidden" id="updateBannerProgressWrap"><div class="update-progress-track"><span id="updateBannerProgress"></span></div></div></div>
+      <div class="update-banner-actions"><button class="primary" id="updateBannerAction">下载更新</button><button class="text-button" id="updateLater">稍后提醒</button></div>
     </div>
 
-    <section id="view-overview">
-      <div class="grid cols-4">
-        <div class="card tight">
-          <h2>AstrBot</h2>
-          <div class="desc" id="ovAstrbotDesc">检测中</div>
-          <div class="metric" id="ovAstrbot">-</div>
+    <section id="view-overview" aria-label="我的肥鱼">
+      <div class="companion-hero">
+        <div class="hero-copy">
+          <span class="hero-kicker"><span class="local-dot" id="heroStatusDot"></span><span id="heroStatus" role="status" aria-live="polite">正在看看大肥鱼的状态</span></span>
+          <h2 id="heroTitle">今天，也有<br>大肥鱼陪着你。</h2>
+          <p id="heroDescription">一只蓝色鲸鱼娘，和一个专属于你的小小世界。</p>
+          <div class="hero-actions"><button class="primary hero-primary" id="btnStart"><svg class="icon" aria-hidden="true"><use href="#i-power"></use></svg>一键开启</button><button class="hero-stop" id="btnStop" disabled title="关闭聊天服务，软件窗口会保留"><svg class="icon" aria-hidden="true"><use href="#i-power"></use></svg>一键关闭</button><button class="hero-text-button" data-go="lovehouse">去记忆小屋 <span aria-hidden="true">↗</span></button></div>
+          <div class="hero-footnote" id="heroFootnote">连接 QQ 后，就可以去和她打个招呼。</div>
         </div>
-        <div class="card tight">
-          <h2>NapCat</h2>
-          <div class="desc" id="ovNapcatDesc">检测中</div>
-          <div class="metric" id="ovNapcat">-</div>
-        </div>
-        <div class="card tight">
-          <h2>大肥鱼账号</h2>
-          <div class="desc" id="ovAccountDesc">未登录</div>
-          <div class="metric" id="ovAccount">-</div>
-        </div>
-        <div class="card tight">
-          <h2>白名单</h2>
-          <div class="desc" id="ovWhitelistDesc">只允许名单内会话</div>
-          <div class="metric" id="ovWhitelist">-</div>
-        </div>
+        <div class="hero-art" aria-hidden="true"><span class="hero-orbit orbit-one"></span><span class="hero-orbit orbit-two"></span><span class="art-spark spark-one"><svg class="icon"><use href="#i-spark"></use></svg></span><span class="art-spark spark-two"><svg class="icon"><use href="#i-spark"></use></svg></span><span class="mascot-bubble" id="mascotBubble">今天想聊点什么？</span><img id="heroMascot" src="/assets/ui/dafeiyu-welcome.png" alt="" onerror="this.style.display='none';this.parentElement.classList.add('art-fallback')"><svg class="mascot-fallback"><use href="#i-fish"></use></svg></div>
       </div>
 
-      <div class="section card">
-        <div class="row between wrap">
-          <div>
-            <h2>内存占用</h2>
-            <div class="desc" id="memDesc">正在读取系统内存…</div>
-          </div>
-          <span class="badge" id="memBadge">-</span>
-        </div>
-        <div class="meter" id="memMeter"><span id="memBar"></span></div>
-        <div class="row wrap" id="memProcesses" style="margin-top:10px"></div>
+      <div class="overview-stats section">
+        <div class="card account-card"><div class="stat-icon blue"><svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg></div><div class="stat-content"><div class="stat-label">她的 QQ 小号</div><div class="metric" id="ovAccount">检测中</div><div class="desc" id="ovAccountDesc">正在读取登录状态…</div></div><button class="text-button" id="btnRelogin">扫码登录 <span aria-hidden="true">↗</span></button><button class="ghost hidden" id="btnQuickLogin">尝试自动登录</button></div>
+        <div class="card chat-range-card"><div class="stat-icon pink"><svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg></div><div class="stat-content"><div class="stat-label">可以和她聊天的人</div><div class="metric" id="ovWhitelist">—</div><div class="desc" id="ovWhitelistDesc">正在读取聊天权限…</div></div><button class="text-button" data-go="whitelist">管理 <span aria-hidden="true">↗</span></button></div>
       </div>
 
-      <div class="section card">
-        <div class="row between wrap">
-          <div>
-            <h2>电脑权限</h2>
-            <div class="desc" id="pcDesc">未开启；开启后她可以在指定工作目录里执行任务、生成文件。</div>
-          </div>
-          <div class="row">
-            <span class="badge gray" id="pcBadge">未开启</span>
-            <button class="primary" id="pcManage">管理权限</button>
-          </div>
-        </div>
+      <div class="section section-head"><h2>把小日子安排好</h2><span class="hint">陪你聊天，也陪你做点小事</span></div>
+      <div class="grid cols-2 feature-grid">
+        <div class="card feature-card permission-card"><div class="row between"><div class="feature-icon"><svg class="icon" aria-hidden="true"><use href="#i-folder"></use></svg></div><span class="badge gray" id="pcBadge">未开启</span></div><h2>一起动手，做点喜欢的事</h2><div class="desc" id="pcDesc">开启电脑权限后，她可以在工作目录里帮你处理文件。</div><div class="feature-footer"><button class="soft" id="pcManage">设置电脑权限 <span aria-hidden="true">↗</span></button><span class="feature-note">由你决定，随时可关</span></div></div>
+        <div class="card feature-card memory-card"><div class="memory-copy"><span class="tiny-label">OUR LITTLE MEMORIES</span><h2>让每次相伴，<br>都有迹可循。</h2><p class="desc">把聊过的故事，慢慢收进记忆小屋。</p><button class="soft coral" data-go="lovehouse">打开记忆小屋 <span aria-hidden="true">↗</span></button></div><img class="memory-mascot" src="/assets/ui/dafeiyu-memory.png" alt="捧着回忆本的大肥鱼" onerror="this.style.display='none'"></div>
       </div>
 
-      <div class="section grid cols-2">
-        <div class="card">
-          <div class="row between">
-            <div>
-              <h2>她是谁</h2>
-              <div class="desc">蓝色鲸鱼娘，住在 QQ 里。当前人格：大肥鱼。</div>
-            </div>
-            <span class="badge green" id="ovPersonaBadge">已启用</span>
-          </div>
-          <dl class="kv" style="margin-top:14px">
-            <dt>机器人昵称</dt><dd id="ovNickname">-</dd>
-            <dt>机器人 QQ</dt><dd id="ovBotQQ" class="mono">-</dd>
-            <dt>主人 QQ</dt><dd id="ovOwner" class="mono">-</dd>
-            <dt>模型</dt><dd id="ovModel">-</dd>
-          </dl>
-          <div class="row" style="margin-top:16px">
-            <button class="soft" id="btnRelogin">重新扫码登录</button>
-            <button class="ghost hidden" id="btnQuickLogin">尝试自动登录</button>
-            <button class="ghost" id="btnOpenAstrbot">打开 AstrBot 面板</button>
-          </div>
-        </div>
-        <div class="card">
-          <h2>运行状态</h2>
-          <div class="desc">关闭这个窗口不会停掉她；停掉服务才会下线。</div>
-          <dl class="kv" style="margin-top:14px">
-            <dt>AstrBot 端口</dt><dd>6185</dd>
-            <dt>NapCat 端口</dt><dd>6099</dd>
-            <dt>OneBot 端口</dt><dd>6199</dd>
-            <dt>安装目录</dt><dd id="ovInstall" class="mono small">-</dd>
-          </dl>
-          <div class="row" style="margin-top:16px">
-            <button class="ghost" id="btnOpenNapcat">打开 NapCat 后台</button>
-            <button class="ghost" id="btnOpenFolder">打开运行目录</button>
-          </div>
-        </div>
-      </div>
+      <details class="section card disclosure profile-disclosure"><summary><span class="summary-heading"><svg class="icon" aria-hidden="true"><use href="#i-spark"></use></svg>我们的小档案 <span class="badge green" id="ovPersonaBadge">读取中</span></span><span class="summary-meta">人格、主人与模型 <span class="chevron"></span></span></summary><div class="disclosure-body"><p class="desc">蓝色鲸鱼娘，住在 QQ 里。当前人格：大肥鱼。</p><dl class="kv profile-kv"><dt>她的昵称</dt><dd id="ovNickname">—</dd><dt>她的 QQ</dt><dd id="ovBotQQ" class="mono">—</dd><dt>主人 QQ</dt><dd id="ovOwner" class="mono">—</dd><dt>对话模型</dt><dd id="ovModel">—</dd></dl></div></details>
+
+      <details class="section card disclosure technical-details"><summary><span class="summary-heading"><svg class="icon" aria-hidden="true"><use href="#i-log"></use></svg>运行与诊断</span><span class="summary-meta">服务、内存与高级管理 <span class="chevron"></span></span></summary><div class="disclosure-body"><div class="notice blue">关闭窗口会留在系统托盘，服务会继续运行。需要下线时，点击首页的“一键关闭”。</div><div class="grid cols-2 technical-service-grid"><div><div class="row between"><h2>AstrBot · 对话服务</h2><span class="pill"><span class="dot" id="pillAstrbot"></span><span id="ovAstrbot">检测中</span></span></div><div class="desc" id="ovAstrbotDesc">—</div></div><div><div class="row between"><h2>NapCat · QQ 连接</h2><span class="pill"><span class="dot" id="pillNapcat"></span><span id="ovNapcat">检测中</span></span></div><div class="desc" id="ovNapcatDesc">—</div></div></div><div class="section"><div class="row between"><div><h2>这台电脑的内存</h2><div class="desc" id="memDesc">正在读取…</div></div><span class="badge" id="memBadge">—</span></div><div class="meter" id="memMeter"><span id="memBar"></span></div><div class="row wrap" id="memProcesses" style="margin-top:10px"></div></div><dl class="kv technical-kv"><dt>本机端口</dt><dd>AstrBot 6185 / NapCat 6099 / OneBot 6199</dd><dt>安装目录</dt><dd id="ovInstall" class="mono small">—</dd></dl><div class="row wrap technical-actions"><button class="ghost" id="btnOpenAstrbot">对话服务面板</button><button class="ghost" id="btnOpenNapcat">QQ 连接面板</button><button class="ghost" id="btnOpenFolder">运行目录</button><span class="action-spacer"></span><button class="ghost" id="btnRestart">重新连接服务</button></div></div></details>
+      <div class="home-signature"><svg class="icon" aria-hidden="true"><use href="#i-fish"></use></svg> 好好生活，慢慢相伴。</div>
     </section>
-
     <section id="view-whitelist" class="hidden">
-      <div class="card">
-        <div class="row between wrap">
-          <div>
-            <h2>只和我聊天</h2>
-            <div class="desc">开启后，只有白名单里的私聊和群能唤醒她；主人始终放行。</div>
-          </div>
-          <label class="row" style="gap:8px">
-            <input type="checkbox" id="wlEnable" style="width:auto">
-            <span class="small">启用白名单</span>
-          </label>
-        </div>
-        <div class="notice blue" style="margin-top:12px">
-          白名单在 AstrBot 里同时控制私聊与群聊。群聊建议只放你常待的几个群，避免她到处接话。
-        </div>
-      </div>
-
-      <div class="section grid cols-2">
-        <div class="card">
-          <h2>添加白名单</h2>
-          <div class="desc">私聊填 QQ 号，群聊填群号。加人、删人、开关点完立即生效，后台会自动重启一次 AstrBot。</div>
-          <div class="stack" style="margin-top:12px">
-            <label class="field"><span>类型</span>
-              <select id="wlType">
-                <option value="private">私聊（QQ 号）</option>
-                <option value="group">群聊（群号）</option>
-              </select>
-            </label>
-            <label class="field"><span>号码</span>
-              <input type="text" id="wlId" placeholder="例如 123456789">
-            </label>
-            <button class="primary" id="wlAddBtn">添加到白名单</button>
-          </div>
-          <div class="notice" style="margin-top:12px">
-            只加你信任的人。加到私聊的人可以直接和她聊天；群聊则整个群都能唤醒她。
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="row between">
-            <div>
-              <h2>从最近联系人添加</h2>
-              <div class="desc" id="contactsDesc">登录后可以读取好友和群列表。</div>
-            </div>
-            <button class="ghost" id="contactsRefresh">刷新</button>
-          </div>
-          <div class="input-row" style="margin-top:10px">
-            <input type="text" id="contactsSearch" placeholder="搜索昵称、备注或号码">
-          </div>
-          <div class="list" id="contactsList" style="margin-top:10px; max-height:320px; overflow:auto;"></div>
-        </div>
-      </div>
-
-      <div class="section card">
-        <div class="row between">
-          <h2>当前白名单</h2>
-          <button class="primary" id="wlApplyBtn">重启 AstrBot</button>
-        </div>
-        <div class="desc" id="wlSummary">-</div>
-        <div class="list" id="wlList" style="margin-top:12px"></div>
-      </div>
-    </section>
+  <div class="page-intro permission-intro"><div><span class="tiny-label">YOUR TRUSTED CIRCLE</span><h2>小圈子的门钥匙，<br>交给你保管。</h2><p>她会回应谁，又能帮谁做事，都由你决定。<br>聊天名单和电脑权限分开管理，想聊聊天，不用开放电脑操作。</p></div><img src="/assets/ui/dafeiyu-permissions.png" alt="拿着小钥匙的大肥鱼" onerror="this.src='/assets/ui/dafeiyu-welcome.png';this.onerror=null"></div>
+  <div class="permission-summary"><div class="guardian-summary"><svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg><div><span>小家的主人</span><b id="wlOwnerSummary">尚未设置</b></div><span class="badge green">始终可聊天</span></div><div><span>受邀私聊</span><b id="wlPrivateCount">0</b><small>位伙伴</small></div><div><span>受邀群聊</span><b id="wlGroupCount">0</b><small>个群</small></div></div>
+  <div class="permission-layout">
+    <div class="permission-members card"><div class="row between wrap"><div><h2>已经邀请的伙伴</h2><div class="desc" id="wlSummary">正在读取名单…</div></div><button class="ghost" id="wlApplyBtn">重新应用</button></div><div class="list" id="wlList" style="margin-top:18px"></div><div class="permission-legend"><span class="legend-dot chat"></span>可以聊天<span class="legend-dot files"></span>电脑操作需额外授权</div></div>
+    <div class="permission-controls stack"><div class="card circle-switch-card"><div class="row between"><h2>只回应小圈子</h2><label class="switch-control"><input type="checkbox" id="wlEnable" aria-label="只回应名单中的私聊与群聊"><span class="switch-visual"></span></label></div><p class="desc">开启后，只回应名单里的 QQ 和群聊。主人始终可以聊天。</p><div class="notice blue">添加一个群后，群里所有人都能唤醒她。请只邀请你信任的群聊。</div></div>
+    <div class="card invite-card"><span class="tiny-label">MAKE ROOM FOR A FRIEND</span><h2>邀请一个聊天伙伴</h2><div class="desc">更改后会自动应用，对话服务会短暂重启。</div><div class="stack" style="margin-top:16px"><label class="field"><span>邀请到哪里</span><select id="wlType"><option value="private">私聊 · 填 QQ 号</option><option value="group">群聊 · 填群号</option></select></label><label class="field"><span>QQ 号或群号</span><input type="text" id="wlId" inputmode="numeric" placeholder="例如 123456789"></label><button class="primary" id="wlAddBtn">邀请到小圈子 <svg class="icon" aria-hidden="true"><use href="#i-arrow"></use></svg></button></div></div></div>
+  </div>
+  <div class="section card contacts-card"><div class="row between wrap"><div><h2>从熟悉的人里挑选</h2><div class="desc" id="contactsDesc">连接 QQ 小号后，就能从好友和群聊中快捷邀请。</div></div><button class="ghost" id="contactsRefresh"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg>刷新联系人</button></div><div class="contacts-search"><svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg><input type="text" id="contactsSearch" aria-label="搜索联系人" placeholder="找找好友昵称、备注、QQ 号或群号"></div><div class="list contacts-grid" id="contactsList"></div></div>
+</section>
 
     <section id="view-settings" class="hidden">
-      <div class="grid cols-2">
-        <div class="card">
-          <h2>模型</h2>
-          <div class="desc">DeepSeek Key 会用 Windows DPAPI 加密保存，不写日志。</div>
-          <div class="stack" style="margin-top:12px">
-            <label class="field"><span>API Key</span>
-              <input type="password" id="setKey" placeholder="留空表示不修改">
-            </label>
-            <label class="field"><span>模型</span>
-              <select id="setModel">
-                <option value="deepseek-chat">deepseek-chat</option>
-                <option value="deepseek-reasoner">deepseek-reasoner</option>
-              </select>
-            </label>
-            <label class="field"><span>API Base</span>
-              <input type="text" id="setApiBase" value="https://api.deepseek.com/v1">
-            </label>
-            <div class="hint">当前 Key：<span id="setKeyMask" class="mono">-</span></div>
-          </div>
-        </div>
-        <div class="card">
-          <h2>主人</h2>
-          <div class="desc">只有这个 QQ 会被标记为主人，并始终绕过白名单。</div>
-          <div class="stack" style="margin-top:12px">
-            <label class="field"><span>主人 QQ</span>
-              <input type="text" id="setOwner" placeholder="例如 123456789">
-            </label>
-          </div>
-          <div class="notice" style="margin-top:12px">
-            主人只有一个，始终全权。想让别人也能使唤她干活，去「白名单 → 权限」给对应 QQ 开管理员权限。
-          </div>
-        </div>
+  <div class="page-intro settings-intro"><div><span class="tiny-label">A HOME THAT FEELS LIKE YOU</span><h2>把她的小家，<br>布置成你的习惯。</h2><p>对话的方式、每天的开始、作品放在哪里。<br>慢慢调整，找到你们最舒服的相处方式。</p></div><img src="/assets/ui/dafeiyu-settings.png" alt="拿着小工具打理房间的大肥鱼" onerror="this.src='/assets/ui/dafeiyu-welcome.png';this.onerror=null"></div>
+  <div class="settings-section-nav" aria-label="设置分组"><button data-settings-anchor="settingsConversation">对话模型</button><button data-settings-anchor="settingsIdentity">主人身份</button><button data-settings-anchor="settingsDaily">启动习惯</button><button data-settings-anchor="settingsFiles">作品位置</button><button data-settings-anchor="updateSettings">软件更新</button></div>
+  <div class="settings-form-grid"><div class="card settings-model-card" id="settingsConversation"><div class="setting-card-heading"><span class="setting-number">01</span><div><h2>用什么和她对话</h2><div class="desc">连接 DeepSeek。API Key 会加密保存在本机。</div></div></div><div class="stack"><label class="field"><span>DeepSeek API Key</span><input type="password" id="setKey" autocomplete="off" placeholder="留空保留已保存的 Key"></label><div class="key-status"><span class="local-dot"></span>当前 Key <span id="setKeyMask" class="mono">未保存</span></div><label class="field"><span>对话模型</span><select id="setModel"><option value="deepseek-chat">deepseek-chat · 日常对话</option><option value="deepseek-reasoner">deepseek-reasoner · 深度推理</option></select></label><details class="inline-advanced"><summary>自定义服务地址</summary><label class="field"><span>服务地址（API Base）</span><input type="text" id="setApiBase" value="https://api.deepseek.com/v1"></label></details></div></div>
+  <div class="card settings-identity-card" id="settingsIdentity"><div class="setting-card-heading"><span class="setting-number pink">02</span><div><h2>让她认准你</h2><div class="desc">填写你用来和她聊天的 QQ 主号。</div></div></div><div class="identity-portrait"><img src="/assets/ui/app-icon.png" alt="大肥鱼头像"><div><b>大肥鱼的小家</b><span>一个主人，一份专属的回应。</span></div></div><label class="field"><span>主人 QQ</span><input type="text" id="setOwner" inputmode="numeric" placeholder="你的 QQ 主号，例如 123456789"></label><div class="notice">主人始终可以聊天。开启电脑权限后，主人可以使用全部操作权限；其他伙伴需要在“聊天权限”中逐项授权。</div></div>
+  <div class="card" id="settingsDaily"><div class="setting-card-heading"><span class="setting-number">03</span><div><h2>每天，怎么开始</h2><div class="desc">这里的开关更改后立即生效。</div></div></div><label class="setting-switch-row"><div><b>开机时，带上她</b><span>登录 Windows 后，自动启动到系统托盘。</span></div><input type="checkbox" id="setAutostart"></label><label class="setting-switch-row"><div><b>记住已授权的 QQ 小号</b><span>启动时优先尝试快速登录，失败时再扫码。</span></div><input type="checkbox" id="setAutoLogin"></label><div class="hint" id="setAutostartHint">正在读取启动设置…</div><div class="hint" id="quickLoginHint">正在读取已授权的 QQ…</div><details class="inline-advanced"><summary>查看安装位置</summary><code class="folder-path" id="setInstallDir">—</code></details></div>
+  <div class="card" id="settingsFiles"><div class="setting-card-heading"><span class="setting-number pink">04</span><div><h2>给作品，一个位置</h2><div class="desc">她生成的文件会放在这个工作目录里。</div></div></div><label class="field"><span>大肥鱼工作目录</span><input type="text" id="setWorkspace" placeholder="例如 D:\AiwuJiyu\workspace"></label><div class="row wrap workspace-settings-actions"><button class="ghost" id="setWorkspaceBrowse">选择文件夹</button><button class="soft" id="setWorkspaceSave">保存目录</button><button class="text-button" data-go="artifacts">去看看作品箱 ↗</button></div><div class="hint" id="setWorkspaceHint">正在读取工作目录…</div><div class="notice blue">作品目录单独保存。是否允许她操作电脑，请在“我的肥鱼”里设置电脑权限。</div></div></div>
+      <div class="section card update-settings" id="updateSettings">
+        <div class="row between wrap"><div><h2>小家的新版本</h2><div class="desc">自动检查新版本，有更新时提醒你。下载和安装都由你决定。</div></div><label class="update-auto-toggle"><input type="checkbox" id="updateAutoCheck" checked><span>自动检查更新</span></label></div>
+        <div class="update-version-row"><span>当前版本 <b id="updateCurrentVersion">v1.1.0</b></span><span class="badge gray" id="updateVersionBadge">等待检查</span></div>
+        <div class="update-status-message" id="updateMessage" role="status" aria-live="polite">正在读取更新设置…</div>
+        <div class="update-download-progress hidden" id="updateProgressWrap"><div class="row between"><span>下载进度</span><span id="updatePercent">0%</span></div><div class="update-progress-track" role="progressbar" aria-label="更新下载进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="updateProgressTrack"><span id="updateProgress"></span></div></div>
+        <div class="row wrap update-settings-actions"><button class="ghost" id="updateCheck"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg>检查更新</button><button class="primary hidden" id="updateDownload"><svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>下载更新</button><button class="primary hidden" id="updateInstall">安装更新</button><button class="text-button hidden" id="updateIgnore">忽略这个版本</button><a id="updateReleaseLink" href="https://github.com/myflww/aiwu-jiyu/releases" target="_blank" rel="noopener noreferrer">查看发布记录 ↗</a></div>
+        <div class="hint update-install-note hidden" id="updateInstallNote">安装时会关闭本窗口，聊天服务继续运行。安装完成后即可打开新版本。</div>
+        <div class="hint" id="updateCheckedAt"></div>
       </div>
-      <div class="section card">
-        <div class="row between wrap">
-          <div>
-            <h2>启动与安装</h2>
-            <div class="desc">关闭窗口会缩到系统托盘；开机自启会静默启动到托盘。</div>
-          </div>
-          <div class="row wrap" style="gap:16px">
-            <label class="row" style="gap:8px">
-              <input type="checkbox" id="setAutostart" style="width:auto">
-              <span class="small">开机自动启动</span>
-            </label>
-            <label class="row" style="gap:8px">
-              <input type="checkbox" id="setAutoLogin" style="width:auto">
-              <span class="small">自动登录已授权的小号</span>
-            </label>
-          </div>
-        </div>
-        <dl class="kv" style="margin-top:12px">
-          <dt>安装目录</dt><dd id="setInstallDir" class="mono small">-</dd>
-        </dl>
-        <div class="hint" id="setAutostartHint">当前用户级自启动，不需要管理员权限。</div>
-        <div class="hint" id="quickLoginHint">正在读取已授权的 QQ…</div>
-      </div>
-      <div class="section card">
-        <div class="row between wrap">
-          <div>
-            <h2>大肥鱼工作目录</h2>
-            <div class="desc">她生成的软件、文件都放这里；电脑权限也限制在这个目录内。</div>
-          </div>
-          <button class="ghost" id="setWorkspaceBrowse">浏览</button>
-        </div>
-        <div class="input-row" style="margin-top:10px">
-          <input type="text" id="setWorkspace" placeholder="例如 D:\Dafeiyu\workspace">
-          <button class="primary" id="setWorkspaceSave">保存目录</button>
-        </div>
-        <div class="hint" id="setWorkspaceHint">-</div>
-      </div>
-      <div class="section card">
-        <div class="row between wrap">
-          <div>
-            <h2>保存并应用</h2>
-            <div class="desc">会写入 AstrBot 配置并重启 AstrBot；NapCat 不受影响。</div>
-          </div>
-          <button class="primary" id="settingsSave">保存并重启 AstrBot</button>
-        </div>
-      </div>
-    </section>
+
+  <div class="settings-savebar"><div><b id="settingsSaveState">把新的相处方式，保存下来</b><span>保存模型和主人 QQ，会短暂重启对话服务。QQ 登录保持连接。</span></div><button class="primary" id="settingsSave"><svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>保存对话设置</button></div>
+</section>
 
     <section id="view-logs" class="hidden">
-      <div class="card">
-        <div class="log-tabs">
-          <button class="log-tab active" data-log="astrbot">AstrBot</button>
-          <button class="log-tab" data-log="napcat">NapCat</button>
-        </div>
-        <pre class="log" id="logView">加载中…</pre>
-      </div>
-    </section>
+  <div class="page-intro diagnostics-intro"><div><span class="tiny-label">A LITTLE CHECKUP FOR OUR HOME</span><h2>遇到小波折，<br>一起找找原因。</h2><p>她没回应，或是 QQ 连接有点慢？<br>先看看服务状态，再从这里找到最近的运行记录。</p></div><img src="/assets/ui/dafeiyu-diagnostics.png" alt="拿着放大镜检查小家的大肥鱼" onerror="this.src='/assets/ui/dafeiyu-welcome.png';this.onerror=null"></div>
+  <div class="diagnostic-quick-status"><div><span class="local-dot" id="logAstrbotDot"></span><b>对话服务</b><span id="logAstrbotState">检测中</span></div><div><span class="local-dot" id="logNapcatDot"></span><b>QQ 连接</b><span id="logNapcatState">检测中</span></div><button class="text-button" data-go="overview">返回首页管理服务 ↗</button></div>
+  <div class="diagnostics-console card"><div class="console-topbar"><div class="log-tabs"><button class="log-tab active" data-log="astrbot">对话服务 <span>AstrBot</span></button><button class="log-tab" data-log="napcat">QQ 连接 <span>NapCat</span></button></div><div class="console-tools"><label><input type="checkbox" id="logFollow" checked>跟随新记录</label><button class="ghost" id="logRefresh" aria-label="刷新运行记录"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg></button><button class="ghost" id="logCopy">复制记录</button></div></div><div class="console-context"><span><span class="console-live-dot"></span><span id="logContext">对话服务 · 本机运行记录</span></span><span id="logUpdatedAt">等待读取</span></div><pre class="log" id="logView" tabindex="0" aria-label="运行日志内容">正在读取最近的运行记录…</pre><div class="console-footer"><span id="logLineCount">0 行记录</span><span>每 3 秒自动刷新 · 仅显示本机服务日志</span></div></div>
+  <div class="diagnostic-tip"><svg class="icon" aria-hidden="true"><use href="#i-book"></use></svg><p><b>想请别人帮忙排查？</b>可以复制相关记录。分享前，请先检查其中是否包含你的 QQ 号、文件路径或其他私人信息。</p></div>
+</section>
 
     <section id="view-lovehouse" class="hidden">
+      <div class="page-intro memory-intro"><div><span class="tiny-label">OUR LITTLE MEMORIES</span><h2>把相伴，慢慢写成故事。</h2><p>通过本机爱之屋，保存和整理指定会话的经历。<br>先选一本记忆库，再把你们的聊天连接进来。</p></div><img src="/assets/ui/dafeiyu-memory.png" alt="捧着回忆本的大肥鱼" onerror="this.style.display='none'"></div>
+<div class="memory-journey"><div id="lhJourneyInstall"><span class="journey-number">1</span><div><b>准备小屋</b><span id="lhStageInstall">安装并启动爱之屋</span></div><svg class="icon" aria-hidden="true"><use href="#i-arrow"></use></svg></div><div id="lhJourneyLibrary"><span class="journey-number">2</span><div><b>选一本回忆</b><span id="lhStageLibrary">选择或新建记忆库</span></div><svg class="icon" aria-hidden="true"><use href="#i-arrow"></use></svg></div><div id="lhJourneyConnect"><span class="journey-number">3</span><div><b>连接这段陪伴</b><span id="lhStageConnect">登记要保存的会话</span></div></div></div>
       <div class="card">
         <div class="row between wrap">
           <div>
-            <h2>爱之屋 · 长期记忆</h2>
+            <h2>记忆小屋的状态</h2>
             <div class="desc" id="lhDesc">正在检测本机爱之屋…</div>
           </div>
           <div class="row">
@@ -314,10 +195,11 @@
           </div>
         </div>
         <div class="row wrap" style="margin-top:14px">
-          <button class="primary" id="lhStart">启动爱之屋</button>
-          <button class="ghost" id="lhOpen">打开爱之屋</button>
-          <button class="ghost" id="lhOpenFolder">打开数据目录</button>
+          <button class="primary" id="lhStart" disabled>启动爱之屋</button>
+          <button class="ghost" id="lhOpen" disabled>打开爱之屋</button>
+          <button class="ghost" id="lhOpenFolder" disabled>打开数据目录</button>
         </div>
+        <div class="notice blue hidden" id="lhInstallNote" style="margin-top:12px">记忆小屋需要本机爱之屋提供支持。<a href="https://github.com/myflww/love-house/releases" target="_blank" rel="noopener noreferrer">前往官方发布页安装爱之屋 ↗</a>，安装后回到这里点击“刷新”。</div>
         <div class="notice blue" id="lhUpdateNote" style="margin-top:12px; display:none"></div>
       </div>
 
@@ -333,18 +215,18 @@
           <div class="list" id="lhLibraries" style="margin-top:12px; max-height:320px; overflow:auto"></div>
           <div class="input-row" style="margin-top:10px">
             <input type="text" id="lhNewName" placeholder="新记忆库名称，例如 大肥鱼">
-            <button class="ghost" id="lhCreate">新建</button>
+            <button class="ghost" id="lhCreate" disabled>新建</button>
           </div>
         </div>
 
         <div class="card">
-          <h2>一键连接 AstrBot</h2>
-          <div class="desc">安装官方爱之屋插件，并把当前记忆库绑定到 AstrBot 的目标会话。</div>
-          <label class="field" style="margin-top:12px"><span>允许的会话 UMO（每行一个）</span>
+          <h2>把这段陪伴连接进来</h2>
+            <div class="desc">使用随应用准备好的记忆插件，登记需要保存的 QQ 会话。</div>
+          <label class="field" style="margin-top:12px"><span>需要保存的会话标识（UMO，每行一个）</span>
             <textarea id="lhUmos" rows="4" placeholder="qq-987654321:FriendMessage:123456789"></textarea>
           </label>
           <div class="hint">默认填主人私聊。群聊在目标群发送 <span class="mono">/sid</span>，把完整结果逐行加进来。</div>
-          <button class="primary" id="lhConnect" style="margin-top:12px">连接并安装插件</button>
+          <button class="primary" id="lhConnect" style="margin-top:12px" disabled>连接这段陪伴</button>
           <div class="notice" id="lhOrganizerNotice" style="margin-top:12px">
             连接后还要在爱之屋的“记忆整理”里配置模型 API，原文才会被整理成可召回的记忆。
           </div>
@@ -364,55 +246,30 @@
     </section>
 
     <section id="view-artifacts" class="hidden">
-      <div class="card">
-        <div class="row between wrap">
-          <div>
-            <h2>产物</h2>
-            <div class="desc" id="artifactDesc">她生成的软件、文件会出现在这里。</div>
-          </div>
-          <div class="row">
-            <button class="ghost" id="artifactRefresh">刷新</button>
-            <button class="ghost" id="artifactFolder">打开工作目录</button>
-          </div>
-        </div>
-        <div class="list" id="artifactList" style="margin-top:14px"></div>
-      </div>
-    </section>
+  <div class="page-intro artifacts-intro"><div><span class="tiny-label">LITTLE THINGS WE MADE TOGETHER</span><h2>一起做成的小事，<br>都有自己的位置。</h2><p>网页、脚本、文档，或是一份认真准备的小礼物。<br>她在工作目录里生成的文件，都会收在这里。</p></div><img src="/assets/ui/dafeiyu-rest.png" alt="抱着小鱼守着作品箱的大肥鱼" onerror="this.style.display='none'"></div>
+  <div class="artifact-workspace card"><div class="workspace-folder-icon"><svg class="icon" aria-hidden="true"><use href="#i-folder"></use></svg></div><div class="workspace-copy"><span>作品的家 · 工作目录</span><code id="artifactWorkspace">正在读取…</code><div class="desc" id="artifactDesc">生成的文件会收在这里。</div></div><button class="ghost" id="artifactFolder">打开文件夹 <span aria-hidden="true">↗</span></button></div>
+  <div class="artifact-permission-note"><span class="badge gray" id="artifactPermissionBadge">正在读取权限</span><span id="artifactPermissionText">需要处理文件时，由你决定是否开启电脑权限。</span><button class="text-button" id="artifactSetup">设置电脑权限 ↗</button></div>
+  <div class="section-head artifact-heading"><div><h2>你们的小作品 <span class="count-pill" id="artifactCount">0</span></h2><div class="hint">按最近修改排序，打开看看新的进展。</div></div><button class="ghost" id="artifactRefresh"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg>刷新作品</button></div><div class="artifact-file-grid" id="artifactList"></div>
+</section>
 
     <section id="view-plugins" class="hidden">
-      <div class="card">
-        <div class="row between wrap">
-          <div>
-            <h2>AstrBot 插件</h2>
-            <div class="desc">读取 <span class="mono">runtime/astrbot/data/plugins</span>；爱之屋插件由连接向导安装。</div>
-          </div>
-          <div class="row wrap">
-            <button class="ghost" id="pluginsRefresh">刷新</button>
-            <button class="ghost" id="pluginsFolder">打开插件目录</button>
-            <button class="primary" id="pluginsInstallLh">安装插件文件</button>
-          </div>
-        </div>
-        <div class="list" id="pluginsList" style="margin-top:14px"></div>
-      </div>
-      <div class="section card">
-        <div class="row between">
-          <div>
-            <h2>插件目录</h2>
-            <div class="desc">新增或禁用插件后，重启 AstrBot 生效。</div>
-          </div>
-          <button class="ghost" id="pluginsRestart">重启 AstrBot</button>
-        </div>
-      </div>
-    </section>
+  <div class="page-intro plugins-intro"><div><span class="tiny-label">A LITTLE BOX OF POSSIBILITIES</span><h2>小本领，<br>已经装进百宝箱。</h2><p>表情、一起动手、记住相伴的经历。<br>插件随应用附带，敏感能力由你主动配置与授权。</p></div><img src="/assets/ui/dafeiyu-welcome.png" alt="开心介绍百宝箱的大肥鱼" onerror="this.style.display='none'"></div>
+  <div class="plugin-page-toolbar"><div><span class="badge green">随应用附带</span><span class="hint" id="pluginsDesc">正在看看百宝箱里有哪些小本领…</span></div><button class="ghost" id="pluginsRefresh"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg>刷新状态</button></div>
+  <div class="plugin-capability-grid" id="pluginsList"></div>
+  <div class="section hidden" id="pluginExtraSection"><div class="section-head"><h2>后来加入的小本领</h2><span class="hint">你在本机另外安装的插件</span></div><div class="list" id="pluginExtraList"></div></div>
+  <div class="plugin-activation-note"><svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg><div><b>已经安装，和已经授权，是两件事。</b><p>电脑操作默认关闭；记忆只连接你登记的会话。你可以先聊天，再慢慢配置其他能力。</p></div></div>
+  <details class="section card disclosure plugin-maintenance"><summary><span class="summary-heading"><svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg>百宝箱维护</span><span class="summary-meta">文件修复与服务管理 <span class="chevron"></span></span></summary><div class="disclosure-body"><p class="desc">首次设置时会自动部署随包插件。遇到记忆插件文件缺失时可以修复；新增或停用插件后，重启对话服务使更改生效。</p><div class="row wrap" style="margin-top:15px"><button class="ghost" id="pluginsFolder">打开插件文件夹</button><button class="ghost" id="pluginsInstallLh">修复记忆插件文件</button><button class="soft" id="pluginsRestart">重启对话服务</button></div></div></details>
+</section>
   </main>
 </div>
 
 <div class="wizard-wrap hidden" id="wizard">
   <div class="wizard">
     <div class="wizard-head">
-      <div>
-        <h1>把大肥鱼装进这台电脑</h1>
-        <div class="sub">从零安装 AstrBot + NapCat，填 Key、扫码、设白名单，一次完成。</div>
+      <div class="wizard-brand">
+        <img src="/assets/ui/app-icon.png" alt="爱屋及鱼图标" onerror="this.style.display='none'">
+        <div><h1>欢迎来到爱屋及鱼</h1>
+        <div class="sub">一步步安顿好她的小家。连接完成后，就去 QQ 和她聊聊吧。</div></div>
       </div>
       <div class="steps" id="wizardSteps"></div>
     </div>
@@ -427,9 +284,9 @@
   </div>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 <div class="modal-back" id="modalBack">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <h3 id="modalTitle">提示</h3>
     <div id="modalBody" class="hint"></div>
     <div class="row" style="justify-content:flex-end;margin-top:16px">

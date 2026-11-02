@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -118,20 +117,10 @@ def _write_plugin_config(data: dict[str, Any]) -> Path:
 
 
 def _install_plugin() -> Path:
-    source = ASSETS / "plugins" / PLUGIN_NAME
-    if not source.is_dir():
-        raise RuntimeError("安装包内缺少电脑操作插件")
-    plugins = ASTRBOT / "data" / "plugins"
-    plugins.mkdir(parents=True, exist_ok=True)
-    target = plugins / PLUGIN_NAME
-    if target.exists():
-        backups = ASTRBOT / "data" / "plugin_backups"
-        backups.mkdir(parents=True, exist_ok=True)
-        backup = backups / f"{PLUGIN_NAME}.bak-{int(time.time())}"
-        shutil.copytree(target, backup)
-        shutil.rmtree(target)
-    shutil.copytree(source, target)
-    return target
+    from backend import plugins
+
+    plugins.install_bundled(plugin_ids=[PLUGIN_NAME])
+    return plugins.plugin_path(PLUGIN_NAME)
 
 
 def _restart_astrbot() -> None:

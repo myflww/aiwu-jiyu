@@ -15,7 +15,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from backend import config_store, downloader, processes
+from backend import config_store, downloader, plugins, processes
 from backend.paths import (
     APP_HOME,
     ASSETS,
@@ -264,12 +264,8 @@ def _install_napcat() -> None:
 
 def _copy_assets() -> None:
     STATE.update(step="安装人格与插件", progress=86)
-    plugins = ASTRBOT / "data" / "plugins"
-    plugins.mkdir(parents=True, exist_ok=True)
-    source = ASSETS / "plugins" / "astrbot_plugin_face_convert"
-    target = plugins / "astrbot_plugin_face_convert"
-    if source.exists() and not target.exists():
-        shutil.copytree(source, target)
+    result = plugins.install_bundled()
+    STATE.update(line=f"已准备 {len(result['plugins'])} 个随附插件，无需逐个下载")
 
 
 def _init_astrbot() -> None:

@@ -14,17 +14,177 @@ let settingsDirty = false;
 let lovehouseState = null;
 let lovehouseSelected = "";
 let pluginList = [];
+let qrModalWatch = null;
+let qrFlowGeneration = 0;
+let modalReturnFocus = null;
+let localConnected = false;
+let updateState = null;
+let updateRequestPending = false;
+let updateStatusLoading = false;
+let updateReachable = false;
 
-const STEP_NAMES = ["准备", "安装", "模型", "扫码", "主人", "完成"];
+const STEP_NAMES = ["安家", "准备小家", "对话模型", "连接 QQ", "认识你", "出发"];
 const VIEW_META = {
-  overview: ["概览", "大肥鱼住在这台电脑里"],
-  whitelist: ["白名单", "只让信任的人唤醒她"],
-  settings: ["设置", "模型、主人与启动方式"],
-  logs: ["日志", "AstrBot 与 NapCat 的实时输出"],
-  lovehouse: ["爱之屋", "长期记忆库、同步与直连"],
-  artifacts: ["产物", "大肥鱼生成的软件和文件"],
-  plugins: ["插件", "AstrBot 插件清单"],
+  overview: ["我的肥鱼", "把琐碎的日常，过成有回应的每一天。"],
+  whitelist: ["聊天权限", "只给信任的人，留一扇聊天的小窗。"],
+  settings: ["设置", "她的小家，按你的习惯来布置。"],
+  logs: ["诊断日志", "连接遇到小波折时，来这里看看。"],
+  lovehouse: ["记忆小屋", "把聊过的故事，好好收起来。"],
+  artifacts: ["作品箱", "一起动手完成的小作品，都在这里。"],
+  plugins: ["插件百宝箱", "给日常陪伴，加一点实用的小本领。"],
 };
+
+function setConnectionStatus(connected) {
+  localConnected = connected;
+  $("connectionBanner")?.classList.toggle("hidden", connected);
+  if ($("localServiceLabel")) $("localServiceLabel").textContent = connected ? "本机服务已连接" : "正在重新连接";
+  if (updateState) renderUpdates();
+}
+
+async function withBusy(button, label, action) {
+  if (!button || button.dataset.busy === "true") return;
+  const previous = button.innerHTML;
+  button.dataset.busy = "true";
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  button.textContent = label;
+  if (state && ["btnStart", "btnStop", "btnRestart"].includes(button.id)) renderOverview();
+  try { return await action(); }
+  catch (err) { toast(err.message || String(err)); }
+  finally {
+    button.dataset.busy = "false";
+    button.removeAttribute("aria-busy");
+    button.disabled = false;
+    button.innerHTML = previous;
+    if (state) renderOverview();
+  }
+}
+
+function emptyState(title, description, options = {}) {
+  return `<div class="empty-state${options.error ? " error" : ""}">${options.art ? '<img src="/assets/ui/dafeiyu-rest.png" alt="休息中的大肥鱼" onerror="this.style.display=\'none\'">' : ""}<h3>${esc(title)}</h3><p>${esc(description)}</p></div>`;
+}
+
+function setText(id, value) {
+  const element = $(id);
+  if (element && element.textContent !== value) element.textContent = value;
+}
+
+function setMascotImage(id, filename, alt = "") {
+  const image = $(id);
+  if (!image) return;
+  const source = `/assets/ui/${filename}`;
+  if (image.getAttribute("src") !== source) {
+    image.src = source;
+    image.style.display = "";
+  }
+  image.dataset.pose = filename;
+  image.alt = alt;
+}
+
+function versionLabel(version) {
+  return version ? `v${String(version).replace(/^v/i, "")}` : "—";
+}
+
+function renderUpdates() {
+  const u = updateState || {};
+  const available = !!u.available;
+  const verified = !!(u.downloaded && u.download_verified);
+  const downloading = !!u.downloading;
+  const checking = !!u.checking;
+  const busy = updateRequestPending || checking || downloading;
+  const progress = Math.max(0, Math.min(100, Number(u.progress) || 0));
+  const latest = versionLabel(u.latest_version);
+  if (u.current_version) {
+    setText("sideVersion", versionLabel(u.current_version));
+    setText("updateCurrentVersion", versionLabel(u.current_version));
+  }
+  if (!updateRequestPending && typeof u.auto_check === "boolean") $("updateAutoCheck").checked = u.auto_check;
+  $("updateAutoCheck").disabled = updateRequestPending || !localConnected;
+  const fresh = available && u.ignored_version !== u.latest_version;
+  $("sideUpdateDot").classList.toggle("hidden", !fresh);
+  $("sideUpdate").classList.toggle("has-update", fresh);
+  setText("sideUpdateLabel", downloading ? `更新下载中 ${progress}%` : verified ? "更新已备好 · 查看" : fresh ? "发现新版本 · 查看" : checking ? "正在检查更新" : "检查更新");
+  let message = u.message || "自动检查只会提醒，更新与否由你决定。";
+  if (u.error) message = `更新暂未完成：${u.error}`;
+  else if (downloading) message = `正在下载 ${latest}（${progress}%），你可以继续使用软件。`;
+  else if (verified) message = "更新包已通过校验。安装时本窗口会关闭，聊天服务继续运行。";
+  else if (checking) message = "正在看看小家有没有新版本，请稍等。";
+  else if (available) message = `${latest} 已发布。你可以现在更新，也可以继续使用当前版本。`;
+  else if (u.checked_at && u.latest_version) message = "没有发现比当前版本更新的正式版本。";
+  setText("updateMessage", message);
+  $("updateMessage").classList.toggle("has-error", !!u.error);
+  setText("updateVersionBadge", checking ? "检查中" : downloading ? "正在下载" : u.error ? "请稍后重试" : verified ? "更新已备好" : available ? `可更新至 ${latest}` : u.checked_at ? "暂无新版本" : "等待检查");
+  $("updateVersionBadge").className = "badge " + (u.error ? "red" : verified ? "green" : available || checking ? "amber" : "gray");
+  $("updateCheck").disabled = busy || !localConnected;
+  setText("updateCheck", checking ? "正在检查…" : "检查更新");
+  $("updateDownload").classList.toggle("hidden", !available || verified);
+  $("updateDownload").disabled = busy || !updateReachable || !localConnected;
+  setText("updateDownload", downloading ? `正在下载 ${progress}%` : u.error ? "重试下载" : "下载更新");
+  $("updateInstall").classList.toggle("hidden", !verified);
+  $("updateInstall").disabled = !verified || busy || !updateReachable || !localConnected;
+  $("updateIgnore").classList.toggle("hidden", !available || verified || downloading);
+  $("updateIgnore").disabled = busy;
+  $("updateInstallNote").classList.toggle("hidden", !verified);
+  $("updateProgressWrap").classList.toggle("hidden", !downloading);
+  $("updateProgress").style.width = `${progress}%`;
+  $("updateProgressTrack").setAttribute("aria-valuenow", String(progress));
+  setText("updatePercent", `${progress}%`);
+  setText("updateCheckedAt", u.checked_at ? `上次检查：${fmtDate(u.checked_at)}` : "首次联网检查后，会在这里显示检查时间。");
+  const releaseURL = /^https:\/\/github\.com\/myflww\/aiwu-jiyu\/releases(?:\/|$)/.test(u.release_url || "") ? u.release_url : "https://github.com/myflww/aiwu-jiyu/releases";
+  $("updateReleaseLink").href = releaseURL;
+  $("updateBanner").classList.toggle("hidden", !(available && u.notify));
+  setText("updateBannerTitle", verified ? `${latest} 已准备好，随时可以更新` : `小家有新版本啦 · ${latest}`);
+  setText("updateBannerMessage", message);
+  $("updateBannerProgressWrap").classList.toggle("hidden", !downloading);
+  $("updateBannerProgress").style.width = `${progress}%`;
+  setText("updateBannerAction", downloading ? `正在下载 ${progress}%` : verified ? "安装更新" : u.error ? "重试下载" : "下载更新");
+  $("updateBannerAction").disabled = busy || !updateReachable || !localConnected;
+  $("updateLater").disabled = updateRequestPending;
+}
+
+async function loadUpdateStatus() {
+  if (updateStatusLoading || updateRequestPending) return;
+  updateStatusLoading = true;
+  try {
+    updateState = await api("/api/updates");
+    updateReachable = true;
+    renderUpdates();
+  } catch (err) {
+    updateReachable = false;
+    renderUpdates();
+    setText("updateMessage", "暂时读不到更新信息。稍后可以点击“检查更新”重试。");
+  } finally { updateStatusLoading = false; }
+}
+
+async function runUpdateAction(action) {
+  if (updateRequestPending) return;
+  if (action === "install" && !(updateState?.downloaded && updateState?.download_verified)) {
+    toast("先下载并校验更新包，再来安装。");
+    return;
+  }
+  updateRequestPending = true;
+  renderUpdates();
+  try {
+    updateState = await api(`/api/updates/${action}`, { method: "POST", body: JSON.stringify({}) });
+    updateReachable = true;
+    if (action === "install") toast("正在启动更新安装，软件窗口即将关闭。聊天服务继续运行。");
+  } catch (err) {
+    updateState = { ...(updateState || {}), error: err.message || String(err) };
+    toast(err.message || String(err));
+  } finally { updateRequestPending = false; renderUpdates(); }
+}
+
+async function saveUpdatePreferences(preferences, successMessage) {
+  if (updateRequestPending) return;
+  updateRequestPending = true;
+  renderUpdates();
+  try {
+    updateState = await api("/api/updates/settings", { method: "POST", body: JSON.stringify(preferences) });
+    updateReachable = true;
+    if (successMessage) toast(successMessage);
+  } catch (err) { toast(err.message || String(err)); }
+  finally { updateRequestPending = false; renderUpdates(); }
+}
 
 function toast(text) {
   const el = $("toast");
@@ -68,6 +228,8 @@ async function refreshState(silent = true) {
   try {
     const next = await api("/api/state");
     state = next;
+    renderCompanionState();
+    setConnectionStatus(true);
     renderPills();
     if (!silent) return state;
     if (!$("app").classList.contains("hidden")) {
@@ -77,6 +239,7 @@ async function refreshState(silent = true) {
     }
     return state;
   } catch (err) {
+    setConnectionStatus(false);
     if (!silent) throw err;
     return null;
   }
@@ -95,7 +258,11 @@ function renderPills() {
 }
 
 function showView(name) {
-  $$(".nav-item").forEach((btn) => btn.classList.toggle("active", btn.dataset.view === name));
+  $$(".nav-item").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.view === name);
+    if (btn.dataset.view === name) btn.setAttribute("aria-current", "page");
+    else btn.removeAttribute("aria-current");
+  });
   ["overview", "whitelist", "settings", "logs", "lovehouse", "artifacts", "plugins"].forEach((key) => {
     const section = $("view-" + key);
     if (section) section.classList.toggle("hidden", key !== name);
@@ -103,6 +270,7 @@ function showView(name) {
   const [title, sub] = VIEW_META[name] || ["", ""];
   $("pageTitle").textContent = title;
   $("pageSub").textContent = sub;
+  document.title = `${title} · 爱屋及鱼`;
   clearInterval(logTimer);
   logTimer = null;
   if (name === "overview") renderOverview();
@@ -139,14 +307,14 @@ function renderWizard() {
 
   $("wizardBack").classList.toggle("hidden", wizardStep === 0 || wizardStep === 1);
   $("wizardNext").classList.remove("hidden");
-  $("wizardNext").textContent = wizardStep === 5 ? "进入控制台" : "继续";
+  $("wizardNext").textContent = wizardStep === 5 ? "进入我的小家" : "继续";
   $("wizardHint").textContent = "";
 
   const body = $("wizardBody");
   if (wizardStep === 0) {
     body.innerHTML = `
-      <h2>先确认安装位置</h2>
-      <p class="lead">运行时会装在这个目录，AstrBot、NapCat、日志和配置都放在一起，不污染系统 Python。</p>
+      <h2>选一个她住下来的地方</h2>
+      <p class="lead">聊天服务、连接配置和运行记录，都会安放在这个文件夹里。建议选一个空间充足的位置。</p>
       <label class="field" style="margin-bottom:16px"><span>安装目录</span>
         <div class="input-row">
           <input type="text" id="wizardInstallDir" value="${esc(state?.install || "")}" placeholder="例如 D:\\Dafeiyu">
@@ -154,19 +322,19 @@ function renderWizard() {
         </div>
       </label>
       <dl class="kv">
-        <dt>安装内容</dt><dd>AstrBot 4.29.4 + Python 3.13 + NapCat 4.18.42</dd>
-        <dt>需要网络</dt><dd>首次安装约 300MB，走国内镜像</dd>
+        <dt>我们会准备</dt><dd>对话服务、QQ 连接服务和独立运行环境</dd>
+        <dt>需要网络</dt><dd>首次安装会联网下载，请保持连接</dd>
         <dt>需要准备</dt><dd>一个 QQ 小号、一个 DeepSeek API Key</dd>
       </dl>
       <div class="notice" style="margin-top:16px">
         NapCat 走的是个人号协议，不要用主号登录机器人；主号只作为“主人”和白名单使用。
       </div>`;
-    $("wizardBrowse").addEventListener("click", chooseFolder);
+    $("wizardBrowse").addEventListener("click", () => chooseFolder());
     $("wizardNext").textContent = state?.installed ? "使用已有运行环境" : "开始安装";
   } else if (wizardStep === 1) {
     body.innerHTML = `
-      <h2>正在安装运行环境</h2>
-      <p class="lead">这一步会下载 uv、Python 3.13、AstrBot 和 NapCat。可以切到别的窗口，安装不会停。</p>
+      <h2>正在收拾她的小家</h2>
+      <p class="lead">我们正在下载并准备聊天所需的服务。可以先去忙别的，保持这个窗口打开就好。</p>
       <div class="progress"><span id="installBar"></span></div>
       <div class="row between" style="margin-top:10px">
         <div class="small muted" id="installStep">准备中…</div>
@@ -177,8 +345,8 @@ function renderWizard() {
     startInstallPolling();
   } else if (wizardStep === 2) {
     body.innerHTML = `
-      <h2>给她一颗大脑</h2>
-      <p class="lead">填 DeepSeek API Key。Key 会用 Windows DPAPI 加密保存在本机，不写日志、不上传。</p>
+      <h2>让她听见，也能回应</h2>
+      <p class="lead">填入你的 DeepSeek API Key，连接对话模型。Key 会加密保存在本机，用于请求你选择的模型服务。</p>
       <div class="stack">
         <label class="field"><span>API Key</span>
           <input type="password" id="wizardKey" placeholder="sk-..." autocomplete="off">
@@ -186,7 +354,7 @@ function renderWizard() {
         <label class="field"><span>模型</span>
           <select id="wizardModel">
             <option value="deepseek-chat">deepseek-chat（日常对话）</option>
-            <option value="deepseek-reasoner">deepseek-reasoner（更慢更贵）</option>
+            <option value="deepseek-reasoner">deepseek-reasoner（深度推理）</option>
           </select>
         </label>
       </div>
@@ -197,7 +365,7 @@ function renderWizard() {
     $("wizardNext").textContent = "保存并继续";
   } else if (wizardStep === 3) {
     body.innerHTML = `
-      <h2>让小号登录 QQ</h2>
+      <h2>和她连上线</h2>
       <p class="lead">手机 QQ 先切换到小号，再扫下面的码。登录成功后她会自动接上 AstrBot。</p>
       <div class="qr-box">
         <div class="qr-frame"><img id="wizardQr" alt="QQ 登录二维码"></div>
@@ -218,27 +386,27 @@ function renderWizard() {
     $("qrRefresh").addEventListener("click", () => reloadQr("wizardQr"));
   } else if (wizardStep === 4) {
     body.innerHTML = `
-      <h2>谁能跟她说话</h2>
+      <h2>让她先认识你</h2>
       <p class="lead">填你的主号 QQ。她会把你设为主人，并自动加入私聊白名单；其他人默认不回应。</p>
       <div class="stack">
         <label class="field"><span>主人 QQ</span>
           <input type="text" id="wizardOwner" placeholder="例如 123456789" value="${esc(state?.owner_qq || "")}">
         </label>
-        <div class="notice green">白名单默认只放你一个人。以后可以在“白名单”页从好友/群列表里快捷添加。</div>
+        <div class="notice green">聊天权限默认只放你一个人。以后可以在“聊天权限”页，邀请信任的好友和群聊。</div>
       </div>`;
     $("wizardNext").textContent = "保存并继续";
   } else if (wizardStep === 5) {
     body.innerHTML = `
-      <h2>准备完成</h2>
-      <p class="lead">最后一步会启动 AstrBot，确认人格和插件，然后进入控制台。</p>
+      <h2>小家准备好了，出发吧</h2>
+      <p class="lead">最后会启动对话服务、检查人格和插件。完成后，就可以去 QQ 和大肥鱼打个招呼。</p>
       <dl class="kv">
         <dt>机器人</dt><dd>${esc(state?.bot_nickname || "大肥鱼")} <span class="mono">${esc(state?.bot_qq || "")}</span></dd>
         <dt>主人</dt><dd class="mono">${esc(state?.owner_qq || "")}</dd>
         <dt>模型</dt><dd>${esc(state?.model?.model || "deepseek-chat")}</dd>
         <dt>白名单</dt><dd>${esc((state?.whitelist?.private || []).length)} 个私聊 / ${esc((state?.whitelist?.groups || []).length)} 个群</dd>
       </dl>
-      <div class="notice" style="margin-top:16px">进入控制台后，关闭窗口不会让她下线；要停服务请点“全部停止”。</div>`;
-    $("wizardNext").textContent = "进入控制台";
+      <div class="notice blue" style="margin-top:16px">关闭窗口后，服务会继续运行。想让她下线休息，可以在首页点击“一键关闭”，让她下线休息。</div>`;
+    $("wizardNext").textContent = "进入我的小家";
   }
 }
 
@@ -396,16 +564,20 @@ function reloadQr(imgId) {
 }
 
 function startQrFlow(imgId, badgeId, tipId) {
+  const generation = ++qrFlowGeneration;
   clearInterval(qrTimer);
   clearInterval(qrRefreshTimer);
   qrTimer = null;
   qrRefreshTimer = null;
   ensureServices().then(() => {
+    if (generation !== qrFlowGeneration || !$(imgId)) return;
     reloadQr(imgId);
     const tick = async () => {
+      if (generation !== qrFlowGeneration || !$(imgId)) return;
       try {
         const res = await fetch(`/api/qr/status?t=${Date.now()}`);
         const payload = await res.json();
+        if (generation !== qrFlowGeneration || !$(imgId)) return;
         const data = payload.data || {};
         if (data.isLogin) {
           clearInterval(qrTimer);
@@ -428,25 +600,93 @@ function startQrFlow(imgId, badgeId, tipId) {
   });
 }
 
+function renderCompanionState() {
+  if (!state) return;
+  const a = state.status?.astrbot || {}, n = state.status?.napcat || {};
+  const loggedIn = !!state.napcat?.logged_in;
+  const online = !!(a.up && n.up && loggedIn);
+  const needsSetup = state.installed === false;
+  const stopping = $("btnStop").dataset.busy === "true";
+  const starting = $("btnStart").dataset.busy === "true" || $("btnRestart").dataset.busy === "true";
+  const serviceAwake = !!(a.up || n.up);
+  document.body.dataset.companion = stopping ? "stopping" : starting ? "starting" : needsSetup ? "new" : online ? "online" : serviceAwake ? "connecting" : "resting";
+  const mascotPose = !needsSetup && !serviceAwake && !starting ? "dafeiyu-rest.png" : "dafeiyu-welcome.png";
+  setMascotImage("sidebarMascot", mascotPose, !serviceAwake && !needsSetup ? "休息中的大肥鱼" : "醒着的大肥鱼");
+  setMascotImage("heroMascot", mascotPose);
+  setText("sidebarMascotCaption", stopping ? "正在收好小家，准备休息" : starting ? "正在醒来，等她一下下" : needsSetup ? "先把小家，安顿好" : online ? "醒着，陪你过每一天" : serviceAwake ? "已经醒来，正在等连接" : "大肥鱼正在休息");
+  setText("sidebarMascotNote", online ? "去 QQ，和她聊聊今天吧。" : needsSetup ? "从一次简单的设置开始。" : serviceAwake ? loggedIn ? "对话服务连接中…" : "连接 QQ 后，就能回应你。" : "想她的时候，一键开启。 ");
+}
+
 function renderOverview() {
   if (!state) return;
   const a = state.status?.astrbot || {};
   const n = state.status?.napcat || {};
+  const loggedIn = !!state.napcat?.logged_in;
+  const online = !!(a.up && n.up && loggedIn);
+  const needsSetup = state.installed === false;
+  renderCompanionState();
+  const primary = $("btnStart");
+  let actionLabel = "一键开启";
+  let heroTitle = "小家准备好，<br>就等你叫醒她。";
+  let description = "启动对话和 QQ 连接服务，让日常陪伴继续。";
+  let statusText = "大肥鱼正在休息";
+  let footnote = "关闭窗口后，她也会在系统托盘里等你。";
+  if (needsSetup) {
+    actionLabel = "开始首次设置";
+    heroTitle = "先把小家，<br>安顿好吧。";
+    description = "选好安家的位置，再连接对话模型和 QQ 小号。";
+    statusText = state.preview ? "先逛逛她的小家 · 尚未安装" : "欢迎来到爱屋及鱼";
+    footnote = "准备一个 QQ 小号和 DeepSeek API Key，就可以开始。";
+  } else if (!state.has_key) {
+    actionLabel = "设置对话模型";
+    heroTitle = "认识你的第一步，<br>从一句回应开始。";
+    description = "保存对话模型的 API Key，让她能听懂你的话。";
+    statusText = "还差一步，准备对话模型";
+    footnote = "Key 会加密保存在这台电脑上。";
+  } else if (a.up && n.up && !loggedIn) {
+    actionLabel = "扫码连接 QQ";
+    heroTitle = "小家就绪，<br>等你来敲门。";
+    description = "用手机 QQ 小号扫码，让大肥鱼和你连上线。";
+    statusText = "服务已启动 · 等待 QQ 登录";
+    footnote = "请先在手机 QQ 切换到小号，再扫码。";
+  } else if (online) {
+    actionLabel = "已开启 · 正在陪你";
+    heroTitle = "今天，也有<br>大肥鱼陪着你。";
+    description = "聊聊今天的小事，或者一起动手，做点喜欢的事。";
+    statusText = "大肥鱼在线 · 随时接住你的话";
+    footnote = "打开 QQ，给她的小号发一条消息吧。";
+  }
+  $("heroTitle").innerHTML = heroTitle;
+  $("heroDescription").textContent = description;
+  setText("heroStatus", statusText);
+  $("heroFootnote").textContent = footnote + " 一键关闭只停聊天服务，窗口会保留。";
+  $("heroStatusDot").classList.toggle("asleep", !online);
+  $("mascotBubble").textContent = online ? "今天想聊点什么？" : needsSetup ? "这里，以后就是家啦。" : "我在等你哦。";
+  if (primary.dataset.busy !== "true") {
+    primary.innerHTML = `<svg class="icon" aria-hidden="true"><use href="#i-power"></use></svg>${esc(actionLabel)}`;
+    primary.disabled = online || $("btnStop").dataset.busy === "true" || $("btnRestart").dataset.busy === "true";
+    primary.classList.toggle("connected", online);
+  }
+  if ($("btnStop").dataset.busy !== "true") {
+    $("btnStop").disabled = !(a.up || n.up) || primary.dataset.busy === "true" || $("btnRestart").dataset.busy === "true";
+    $("btnStop").title = a.up || n.up ? "让她下线休息；只停止聊天服务，软件窗口会保留" : "聊天服务尚未开启";
+  }
   $("ovAstrbot").textContent = a.up ? "运行中" : "已停止";
   $("ovAstrbotDesc").textContent = a.up ? `PID ${a.pid}` : "端口 6185";
   $("ovNapcat").textContent = n.up ? "运行中" : "已停止";
   $("ovNapcatDesc").textContent = n.up ? `PID ${n.pid}` : "端口 6099";
-  $("ovAccount").textContent = state.napcat?.logged_in ? (state.napcat.nickname || "已登录") : "未登录";
-  $("ovAccountDesc").textContent = state.napcat?.qq || "扫码后才能接消息";
-  $("ovWhitelist").textContent = `${(state.whitelist?.private || []).length} / ${(state.whitelist?.groups || []).length}`;
-  $("ovWhitelistDesc").textContent = state.whitelist?.enable ? "私聊 / 群聊（已启用）" : "白名单已关闭";
+  $("ovAccount").textContent = loggedIn ? (state.napcat.nickname || "QQ 已登录") : "等待连接";
+  $("ovAccountDesc").textContent = state.napcat?.qq ? `QQ ${state.napcat.qq}` : "扫码登录后，她就能收到消息";
+  $("btnRelogin").textContent = needsSetup ? "先完成设置 ↗" : loggedIn ? "切换登录 ↗" : "扫码登录 ↗";
+  $("ovWhitelist").innerHTML = `${(state.whitelist?.private || []).length} <small>位私聊 · ${(state.whitelist?.groups || []).length} 个群</small>`;
+  $("ovWhitelistDesc").textContent = state.whitelist?.enable ? "只回应名单中的人，主人始终可以聊天" : "聊天限制已关闭，请留意群聊与陌生人消息";
   $("ovNickname").textContent = state.bot_nickname || "大肥鱼";
   $("ovBotQQ").textContent = state.bot_qq || "-";
   $("ovOwner").textContent = state.owner_qq || "-";
   $("ovModel").textContent = state.model?.model || "-";
   $("ovInstall").textContent = state.install || "-";
-  $("ovPersonaBadge").textContent = state.setup_complete ? "已启用" : "待完成";
-  $("ovPersonaBadge").className = "badge " + (state.setup_complete ? "green" : "amber");
+  $("ovPersonaBadge").textContent = state.installed === false ? "等待安家" : state.setup_complete ? "人格已准备" : "待完成";
+  $("ovPersonaBadge").className = "badge " + (state.installed !== false && state.setup_complete ? "green" : "amber");
   const quickBtn = $("btnQuickLogin");
   if (quickBtn) {
     const show = !state.napcat?.logged_in && !!state.bot_qq;
@@ -482,15 +722,20 @@ function renderOverview() {
   $("pcBadge").textContent = pc.enabled ? "已开启" : "未开启";
   $("pcBadge").className = "badge " + (pc.enabled ? "green" : "gray");
   $("pcDesc").textContent = pc.enabled
-    ? `主人 + ${adminCount} 个管理员；工作目录：${pc.workspace}`
-    : "未开启；开启后她可以在指定工作目录里执行任务、生成文件。";
+    ? `电脑权限已开启。主人${adminCount ? `和 ${adminCount} 位管理员` : ""}可以让她在工作目录里处理文件。`
+    : "需要她处理文件时，再开启电脑权限。工作目录和管理员权限，都由你来决定。";
+  renderDiagnosticsStatus();
 }
 
 function renderWhitelist() {
   if (!state) return;
+  setText("wlOwnerSummary", state.owner_qq || "尚未设置主人 QQ");
+  setText("wlPrivateCount", String((state.whitelist?.private || []).length));
+  setText("wlGroupCount", String((state.whitelist?.groups || []).length));
   $("wlEnable").checked = !!state.whitelist?.enable;
   $("wlSummary").textContent = `私聊 ${ (state.whitelist?.private || []).length } 个 · 群聊 ${ (state.whitelist?.groups || []).length } 个`;
   const members = state.members || {};
+  const pcEnabled = !!state.pc_access?.enabled;
   const level = (id) => {
     const perm = members[id];
     if (!perm) return "仅聊天";
@@ -498,14 +743,16 @@ function renderWhitelist() {
     if (perm.read) parts.push("读取");
     if (perm.write) parts.push("写文件");
     if (perm.run) parts.push("执行命令");
-    return parts.length ? "管理员 · " + parts.join(" + ") : "仅聊天";
+    return parts.length
+      ? pcEnabled ? "管理员 · " + parts.join(" + ") : "已预设 " + parts.join(" + ") + " · 电脑权限未开启"
+      : "仅聊天";
   };
   const entries = [];
   (state.whitelist?.private || []).forEach((id) => entries.push({ type: "private", id, label: id === state.owner_qq ? "主人" : "私聊" }));
   (state.whitelist?.groups || []).forEach((id) => entries.push({ type: "group", id, label: "群聊" }));
   const list = $("wlList");
   if (!entries.length) {
-    list.innerHTML = `<div class="hint">还没有白名单。先从上面加一个 QQ 号。</div>`;
+    list.innerHTML = emptyState("给信任的人，留一个位置", "在上方填写 QQ 号或群号，就能邀请他们和大肥鱼聊天。主人始终可以聊天。");
     return;
   }
   list.innerHTML = entries.map((entry) => {
@@ -517,7 +764,7 @@ function renderWhitelist() {
     }
     if (entry.id === state.owner_qq) {
       return `<div class="list-item">
-        <div class="who"><b>私聊 <span class="mono">${esc(entry.id)}</span></b><span>主人 · 始终放行 · 全部权限</span></div>
+        <div class="who"><b>私聊 <span class="mono">${esc(entry.id)}</span></b><span>主人 · 始终可聊天 · ${pcEnabled ? "电脑操作已授权（全部权限）" : "电脑权限未开启"}</span></div>
         <span class="badge green">主人</span>
       </div>`;
     }
@@ -549,6 +796,7 @@ function openMemberModal(id) {
       </div>
     </label>`;
   openModal(`权限 · ${id}`, `
+    ${state?.pc_access?.enabled ? "" : '<div class="notice blue" style="margin-bottom:12px">电脑权限总开关还未开启。本次只保存该伙伴的权限预设；你主动开启电脑权限后，预设才可用于操作。</div>'}
     <div class="notice" style="margin-bottom:12px">
       只限「大肥鱼工作目录」内的操作；每次调用都会记进审计。关机、格式化、删盘、改注册表、结束进程这类高危命令对所有人都拦截，主人也一样。
     </div>
@@ -601,7 +849,7 @@ async function addWhitelist(type, id) {
     await refreshState(false);
     renderWhitelist();
     loadContacts();
-    toast("已加入白名单，已生效");
+    toast("已邀请到聊天小圈子，权限已生效");
   } catch (err) { toast(err.message || String(err)); }
 }
 
@@ -639,13 +887,13 @@ function renderContacts() {
   }).slice(0, 80);
   $("contactsDesc").textContent = contacts.logged_in
     ? `已读取 ${(contacts.friends || []).length} 个好友、${(contacts.groups || []).length} 个群`
-    : "NapCat 未登录，先扫码后再刷新";
+    : "QQ 小号还没登录，扫码后再刷新";
   if (!filtered.length) {
     if (!contacts.logged_in) {
-      list.innerHTML = `<div class="hint">登录 NapCat 后这里会出现好友和群</div>
-        <button class="ghost" id="contactsScan" style="margin-top:8px">去扫码登录</button>`;
+      list.innerHTML = `<div class="hint">连接 QQ 小号后，这里会出现好友和群。</div>
+        <button class="ghost" id="contactsScan" style="margin-top:8px">${state?.installed === false ? "先完成首次设置" : "去扫码登录"}</button>`;
       const scan = $("contactsScan");
-      if (scan) scan.addEventListener("click", openQrModal);
+      if (scan) scan.addEventListener("click", () => state?.installed === false ? showWizard(0) : openQrModal());
     } else {
       list.innerHTML = `<div class="hint">没有匹配的联系人</div>`;
     }
@@ -690,8 +938,10 @@ function renderSettings() {
   $("setWorkspace").value = pc.workspace || "";
   $("setWorkspaceHint").textContent = pc.enabled
     ? `电脑权限已开启；主人 + ${Object.keys(state.members || {}).length} 个管理员可调用，命令超时 ${pc.timeout_s || 60}s。`
-    : "电脑权限未开启；可以先保存工作目录，需要时再到概览页授权。";
+    : "电脑权限未开启；可以先保存工作目录，需要时再到“我的肥鱼”页授权。";
   settingsDirty = false;
+  setText("settingsSaveState", "把新的相处方式，保存下来");
+  renderUpdates();
 }
 
 async function loadQuickLoginInfo() {
@@ -742,12 +992,32 @@ function renderLoveHouse(data) {
   $("lhVersion").textContent = version;
   $("lhRunning").textContent = data.running ? "运行中" : "未启动";
   const selected = (data.libraries || []).find((item) => item.id === lovehouseSelected);
+  setText("lhStageInstall", data.running ? "爱之屋正在运行" : data.installed ? "已安装，等待启动" : "先安装本机爱之屋");
+  setText("lhStageLibrary", selected ? selected.name : "选择或新建一本记忆库");
+  setText("lhStageConnect", !data.running ? "小屋准备好后，再连接会话" : !selected ? "选好记忆库，再登记会话" : "登记要保存的 QQ 会话");
+  $("lhJourneyInstall").classList.toggle("done", !!data.running);
+  $("lhJourneyLibrary").classList.toggle("done", !!selected);
+  $("lhJourneyConnect").classList.remove("done");
   $("lhLibrary").textContent = selected ? selected.name : "-";
   $("lhDesc").textContent = data.installed
     ? `已安装 ${version}${latest && version !== latest ? `，最新 ${latest}` : ""}；数据目录 ${data.data_dir}`
-    : "没有在本机找到 LoveHouse.exe，请先安装 0.10.2rc1 或更新版本。";
+    : "这台电脑上还没有找到爱之屋。先安装爱之屋，再来布置记忆小屋。";
   $("lhBadge").className = "badge " + (data.running ? "green" : data.installed ? "amber" : "red");
   $("lhBadge").textContent = data.running ? "服务在线" : data.installed ? "未启动" : "未安装";
+  $("lhInstallNote").classList.toggle("hidden", !!data.installed);
+  const availability = [
+    ["lhStart", !data.installed || data.running, !data.installed ? "请先安装爱之屋" : "爱之屋已经在运行了"],
+    ["lhOpen", !data.installed, "请先安装爱之屋"],
+    ["lhOpenFolder", !data.installed, "安装爱之屋后才能打开数据目录"],
+    ["lhCreate", !data.installed || !data.running, !data.installed ? "请先安装爱之屋" : "请先启动爱之屋"],
+    ["lhConnect", !data.installed || !data.running || !selected || state?.installed === false,
+      !data.installed ? "请先安装爱之屋" : !data.running ? "请先启动爱之屋" : !selected ? "请先选择或新建记忆库" : "请先完成爱屋及鱼的首次设置"],
+    ["lhSourceRefresh", !data.running || !selected, !data.running ? "请先启动爱之屋" : "请先选择记忆库"],
+  ];
+  availability.forEach(([id, disabled, reason]) => {
+    $(id).disabled = !!disabled;
+    $(id).title = disabled ? reason : "";
+  });
   const note = $("lhUpdateNote");
   if (data.update_available && latest) {
     note.style.display = "block";
@@ -761,7 +1031,9 @@ function renderLovehouseLibraries() {
   const list = $("lhLibraries");
   const libraries = (lovehouseState?.libraries || []).filter((item) => !item.is_demo);
   if (!libraries.length) {
-    list.innerHTML = `<div class="hint">没有可选记忆库。启动爱之屋后刷新，或在下面新建一个。</div>`;
+    list.innerHTML = lovehouseState?.installed
+      ? emptyState("第一本回忆，还等你来命名", "先启动爱之屋，再在下方为大肥鱼新建一个记忆库。")
+      : emptyState("记忆小屋，还等你来安家", "通过上方的官方发布页安装爱之屋。安装完成后，点击刷新，就可以开始准备第一本回忆。");
     return;
   }
   list.innerHTML = libraries.map((item) => `
@@ -790,9 +1062,12 @@ async function loadLovehouseSources() {
   try {
     const data = await api(`/api/lovehouse/sources?library_id=${encodeURIComponent(lovehouseSelected)}`);
     const sources = data.sources?.sources || [];
+    const activeSources = sources.filter(item => item.enabled && !item.revoked);
+    setText("lhStageConnect", activeSources.length ? `已登记 ${activeSources.length} 段会话` : "登记要保存的 QQ 会话");
+    $("lhJourneyConnect").classList.toggle("done", !!activeSources.length);
     $("lhSourceDesc").textContent = sources.length
       ? `当前库有 ${sources.length} 个已登记来源。`
-      : "还没有连接。选好记忆库后点右上“连接并安装插件”。";
+      : "还没有连接。选好记忆库后，点击“连接这段陪伴”，登记要保存的会话。";
     $("lhSources").innerHTML = sources.length
       ? sources.map((item) => {
         const capture = item.capture && typeof item.capture === "object" ? item.capture : {};
@@ -876,25 +1151,38 @@ async function loadPlugins() {
     pluginList = data.plugins || [];
     renderPlugins();
   } catch (err) {
-    $("pluginsList").innerHTML = `<div class="hint">${esc(err.message || String(err))}</div>`;
+    $("pluginsList").innerHTML = emptyState("暂时没能打开百宝箱", err.message || "请检查本机服务，再点击刷新试试。", { error: true });
   }
 }
 
 function renderPlugins() {
   const list = $("pluginsList");
-  if (!pluginList.length) {
-    list.innerHTML = `<div class="hint">插件目录为空，或 AstrBot 运行时尚未安装。</div>`;
-    return;
+  const cards = {
+    astrbot_plugin_face_convert: { title: "表情小魔法", caption: "让话语，也有小表情", desc: "把 [流泪]、[doge] 等文字表情，变成 QQ 里的真实表情。", art: "dafeiyu-welcome.png", theme: "blue", action: "", actionLabel: "随对话服务加载" },
+    astrbot_plugin_pc_operator: { title: "一起动手", caption: "把一个想法，慢慢做出来", desc: "在你指定的工作目录里，读写文件、运行任务。电脑权限默认关闭。", art: "dafeiyu-settings.png", theme: "pink", action: "pc", actionLabel: "设置电脑权限" },
+    astrbot_plugin_love_house: { title: "记忆小信箱", caption: "把相伴，留在日常里", desc: "将你明确登记的会话经历，交给记忆小屋保存和整理。", art: "dafeiyu-memory.png", theme: "cream", action: "memory", actionLabel: "去连接记忆小屋" },
+  };
+  const included = pluginList.filter(item => item.bundled || cards[item.id]);
+  const extras = pluginList.filter(item => !included.includes(item));
+  setText("pluginsDesc", `${included.length} 个随包小本领 · ${included.filter(item => item.installed !== false).length} 个已部署${extras.length ? ` · 另有 ${extras.length} 个本机插件` : ""}`);
+  if (!included.length) {
+    list.innerHTML = emptyState("正在准备随包附带的小本领", "首次设置会自动部署随包插件。电脑操作与记忆连接仍需要你主动配置和授权。");
+  } else {
+    list.innerHTML = included.map(item => {
+      const card = cards[item.id] || { title: item.name, caption: "随应用一起住进小家", desc: item.desc, art: "dafeiyu-welcome.png", theme: "blue", action: "", actionLabel: "随对话服务加载" };
+      const installed = item.installed !== false;
+      const status = !installed ? "首次设置后自动安装" : !item.enabled ? "插件文件已安装 · 当前停用" : card.action === "pc" ? (state?.pc_access?.enabled ? "电脑权限已开启" : "等待你主动授权") : card.action === "memory" ? "登记会话后，才会保存经历" : "随对话服务加载，无需单独授权";
+      return `<article class="plugin-capability-card ${esc(card.theme)}"><div class="plugin-card-top"><span class="badge">随应用附带</span><img src="/assets/ui/${esc(card.art)}" alt="" onerror="this.src='/assets/ui/dafeiyu-welcome.png';this.onerror=null"></div><div class="plugin-card-body"><span class="plugin-caption">${esc(card.caption)}</span><h3>${esc(card.title)}</h3><p>${esc(card.desc)}</p><div class="plugin-module-status"><span class="local-dot${installed ? "" : " asleep"}"></span>${esc(status)}</div><div class="plugin-card-footer">${card.action ? `<button class="soft" data-plugin-action="${card.action}">${esc(!installed ? "先完成首次设置" : card.actionLabel)} ↗</button>` : '<span class="plugin-no-action">聊天时，就能用到的小本领</span>'}<span class="badge ${installed ? item.enabled ? "green" : "gray" : "amber"}">${installed ? "已安装" : "待首次设置"}</span></div><details class="plugin-metadata"><summary>插件信息</summary><div><span>${esc(item.name || item.id)} ${esc(item.version || "")}</span><span>作者：${esc(item.author || "未注明")}</span><code>${esc(item.id)}</code></div></details></div></article>`;
+    }).join("");
+    list.querySelectorAll("[data-plugin-action]").forEach(btn => btn.addEventListener("click", () => {
+      if (state?.installed === false) { showWizard(0); return; }
+      if (btn.dataset.pluginAction === "pc") openPcModal();
+      else showView("lovehouse");
+    }));
   }
-  list.innerHTML = pluginList.map((item) => `
-    <div class="list-item">
-      <div class="who">
-        <b>${esc(item.name)} ${item.version ? `<span class="badge gray">${esc(item.version)}</span>` : ""}</b>
-        <span>${esc(item.desc || item.id)}</span>
-        <span class="mono">${esc(item.path)}</span>
-      </div>
-      <span class="badge ${item.enabled ? "green" : "gray"}">${item.enabled ? "已安装" : "已停用"}</span>
-    </div>`).join("");
+  $("pluginExtraSection").classList.toggle("hidden", !extras.length);
+  $("pluginExtraList").innerHTML = extras.map(item => `<div class="list-item"><div class="who"><b>${esc(item.name || item.id)} ${item.version ? `<span class="badge gray">${esc(item.version)}</span>` : ""}</b><span>${esc(item.desc || "")}</span><span>${esc(item.author || "")} · ${esc(item.id)}</span></div><span class="badge ${item.enabled ? "green" : "gray"}">${item.enabled ? "已安装" : "已停用"}</span></div>`).join("");
+  ["pluginsFolder", "pluginsInstallLh", "pluginsRestart"].forEach(id => { $(id).disabled = state?.installed === false; $(id).title = state?.installed === false ? "首次设置完成后可维护插件" : ""; });
 }
 
 function fmtFileSize(bytes) {
@@ -907,39 +1195,34 @@ function fmtFileSize(bytes) {
 async function loadArtifacts() {
   const list = $("artifactList");
   if (!list) return;
+  list.setAttribute("aria-busy", "true");
+  if (!list.innerHTML.trim()) list.innerHTML = emptyState("正在打开作品箱", "看看你们最近又完成了什么。");
   try {
     const data = await api("/api/artifacts");
-    $("artifactDesc").textContent = data.workspace ? `工作目录：${data.workspace}` : "还没有设置工作目录。";
+    setText("artifactWorkspace", data.workspace || "还没有设置工作目录");
+    setText("artifactDesc", data.workspace ? "文件保存在你选择的本机工作目录里。" : "先在设置里，给作品选一个存放的位置。");
+    $("artifactFolder").disabled = !data.workspace;
+    $("artifactFolder").title = data.workspace ? "打开本机工作目录" : "请先设置作品目录";
+    const pcEnabled = !!state?.pc_access?.enabled;
+    setText("artifactPermissionBadge", pcEnabled ? "电脑权限已开启" : "电脑权限未开启");
+    $("artifactPermissionBadge").className = "badge " + (pcEnabled ? "green" : "gray");
+    setText("artifactPermissionText", pcEnabled ? "可以去 QQ，请她在工作目录里处理文件。" : "先聊天也很好。需要一起动手时，再由你开启电脑权限。");
+    setText("artifactSetup", state?.installed === false ? "先完成首次设置 ↗" : pcEnabled ? "管理电脑权限 ↗" : "设置电脑权限 ↗");
     const items = data.items || [];
+    setText("artifactCount", String(items.length));
     if (!items.length) {
-      list.innerHTML = `<div class="hint">还没有产物。先在概览页开启电脑权限，再让她在工作目录里生成文件。</div>`;
+      list.classList.add("is-empty");
+      list.innerHTML = emptyState("第一件小作品，等你们一起完成", "开启电脑权限后，去 QQ 请她在工作目录里生成文件。完成的作品会出现在这里。", { art: true });
       return;
     }
-    list.innerHTML = items.map((item) => `
-      <div class="list-item">
-        <div class="who">
-          <b>${esc(item.name)} ${item.kind ? `<span class="badge gray">${esc(item.kind)}</span>` : ""}</b>
-          <span class="mono">${esc(item.path)}</span>
-          <span>${fmtFileSize(item.size)} · ${fmtDate(new Date(item.modified * 1000))}</span>
-        </div>
-        <div class="row">
-          <button class="ghost" data-open="${esc(item.path)}">打开</button>
-          <button class="ghost" data-reveal="${esc(item.path)}">定位</button>
-        </div>
-      </div>`).join("");
-    list.querySelectorAll("[data-open]").forEach((btn) => {
-      btn.addEventListener("click", () => api("/api/artifacts/open", {
-        method: "POST", body: JSON.stringify({ path: btn.dataset.open }),
-      }).catch((err) => toast(err.message || String(err))));
-    });
-    list.querySelectorAll("[data-reveal]").forEach((btn) => {
-      btn.addEventListener("click", () => api("/api/artifacts/reveal", {
-        method: "POST", body: JSON.stringify({ path: btn.dataset.reveal }),
-      }).catch((err) => toast(err.message || String(err))));
-    });
+    list.classList.remove("is-empty");
+    list.innerHTML = items.map(item => `<article class="artifact-file-card"><div class="file-card-heading"><div class="file-glyph"><svg class="icon" aria-hidden="true"><use href="#i-folder"></use></svg></div><span class="badge gray">${esc(item.kind || "文件")}</span></div><h3 title="${esc(item.name)}">${esc(item.name)}</h3><div class="file-meta"><span>${fmtFileSize(item.size)}</span><span>${item.modified ? esc(fmtDate(new Date(item.modified * 1000))) : "时间未提供"}</span></div><details class="file-path"><summary>查看文件位置</summary><code>${esc(item.path)}</code></details><div class="file-actions"><button class="soft" data-open="${esc(item.path)}">打开作品 <span aria-hidden="true">↗</span></button><button class="text-button" data-reveal="${esc(item.path)}">在文件夹中显示</button></div></article>`).join("");
+    list.querySelectorAll("[data-open]").forEach(btn => btn.addEventListener("click", () => api("/api/artifacts/open", { method: "POST", body: JSON.stringify({ path: btn.dataset.open }) }).catch(err => toast(err.message || String(err)))));
+    list.querySelectorAll("[data-reveal]").forEach(btn => btn.addEventListener("click", () => api("/api/artifacts/reveal", { method: "POST", body: JSON.stringify({ path: btn.dataset.reveal }) }).catch(err => toast(err.message || String(err)))));
   } catch (err) {
-    list.innerHTML = `<div class="hint">${esc(err.message || String(err))}</div>`;
-  }
+    list.classList.add("is-empty");
+    list.innerHTML = emptyState("作品箱暂时没打开", err.message || "请检查工作目录，或点击刷新重试。", { error: true });
+  } finally { list.removeAttribute("aria-busy"); }
 }
 
 function openPcModal() {
@@ -965,7 +1248,7 @@ function openPcModal() {
   openModal("电脑权限", `
     <div class="notice" style="margin-bottom:12px">
       开启后，主人和被授权的管理员可以让大肥鱼在下面这个工作目录里读写文件、执行 PowerShell 命令。
-      管理员的权限在「白名单 → 权限」里逐项分配。
+      管理员的权限在「聊天权限 → 调整权限」里逐项分配。
       这不是操作系统沙箱：命令仍以当前 Windows 用户权限运行，只建议在你自己的电脑上、只对主人开启。
     </div>
     <div class="stack">
@@ -1059,54 +1342,106 @@ async function saveSettings() {
   } catch (err) { toast(err.message || String(err)); }
 }
 
+function renderDiagnosticsStatus() {
+  const a = !!state?.status?.astrbot?.up, n = !!state?.status?.napcat?.up;
+  setText("logAstrbotState", a ? "正在运行" : "已停止");
+  setText("logNapcatState", n ? "正在运行" : "已停止");
+  $("logAstrbotDot").classList.toggle("asleep", !a);
+  $("logNapcatDot").classList.toggle("asleep", !n);
+  setText("logContext", `${currentLog === "astrbot" ? "对话服务" : "QQ 连接"} · ${(currentLog === "astrbot" ? a : n) ? "正在运行" : "服务已停止"}`);
+}
+
 async function loadLog() {
+  renderDiagnosticsStatus();
   try {
-    const text = await (await fetch(`/api/logs?name=${currentLog}&t=${Date.now()}`)).text();
+    const response = await fetch(`/api/logs?name=${currentLog}&t=${Date.now()}`);
+    if (!response.ok) throw new Error(`暂时读不到运行记录（${response.status}）`);
+    const text = await response.text();
     const el = $("logView");
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-    el.textContent = text || "暂无日志";
-    if (nearBottom) el.scrollTop = el.scrollHeight;
-  } catch (err) { /* ignore */ }
+    const follow = $("logFollow").checked;
+    const display = text || "这里暂时还没有运行记录。\n\n启动服务后，新的记录会自动出现在这里。";
+    if (el.textContent !== display) el.textContent = display;
+    if (follow) el.scrollTop = el.scrollHeight;
+    setText("logLineCount", `${text ? text.split(/\r?\n/).filter(Boolean).length : 0} 行记录`);
+    setText("logUpdatedAt", `更新于 ${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`);
+    $("logCopy").disabled = !text;
+    $("logView").dataset.hasLogs = text ? "true" : "false";
+  } catch (err) {
+    setText("logUpdatedAt", err.message || "暂时无法读取，点击刷新重试");
+  }
+}
+
+async function copyLogs() {
+  const text = $("logView").textContent;
+  if (!text || $("logView").dataset.hasLogs !== "true") { toast("还没有可以复制的运行记录。"); return; }
+  try { await navigator.clipboard.writeText(text); toast("运行记录已复制。分享前，记得检查私人信息。"); }
+  catch (err) {
+    openModal("复制运行记录", `<p>可以选中下面的记录，再按 Ctrl+C 复制。</p><textarea id="logCopyText" rows="10" readonly>${esc(text)}</textarea>`);
+    $("modalOk").textContent = "完成";
+    $("logCopyText").focus(); $("logCopyText").select();
+  }
 }
 
 function openModal(title, body, onOk) {
+  if (!$("modalBack").classList.contains("show")) modalReturnFocus = document.activeElement;
   $("modalTitle").textContent = title;
-  $("modalBody").innerHTML = body;
+  const permission = title.includes("权限");
+  const logs = title.includes("运行记录");
+  const art = permission ? "dafeiyu-permissions.png" : logs ? "dafeiyu-diagnostics.png" : "dafeiyu-settings.png";
+  const introTitle = permission ? "小家的钥匙，握在你手里" : logs ? "一起，把小波折弄明白" : "按你喜欢的方式，打理小家";
+  const introCopy = permission ? "先看清范围，再给她刚刚好的权限。" : logs ? "分享运行记录前，记得检查其中的私人信息。" : "确认这次调整，再保存到这台电脑。";
+  $("modalBody").innerHTML = `<div class="modal-feature-intro"><img src="/assets/ui/${art}" alt="" onerror="this.src='/assets/ui/dafeiyu-welcome.png';this.onerror=null"><div><b>${introTitle}</b><p>${introCopy}</p></div></div>` + body;
   $("modalBack").classList.add("show");
   $("modalOk").classList.remove("hidden");
   $("modalCancel").textContent = "取消";
-  $("modalOk").onclick = async () => {
-    try { if (onOk) await onOk(); closeModal(); } catch (err) { toast(err.message || String(err)); }
-  };
+  $("modalOk").textContent = "保存设置";
+  $("modalOk").onclick = () => withBusy($("modalOk"), "正在保存…", async () => { if (onOk) await onOk(); closeModal(); });
+  const first = $("modalBody").querySelector("input,select,textarea,button");
+  (first || $("modalCancel")).focus();
 }
 
 function closeModal() {
+  if ($("modalQr")) {
+    clearInterval(qrModalWatch);
+    clearInterval(qrTimer);
+    clearInterval(qrRefreshTimer);
+    qrModalWatch = qrTimer = qrRefreshTimer = null;
+    qrFlowGeneration++;
+  }
   $("modalBack").classList.remove("show");
+  $("modalBody").innerHTML = "";
+  if (modalReturnFocus?.isConnected) modalReturnFocus.focus();
+  modalReturnFocus = null;
 }
 
 function openQrModal() {
+  if (!$("modalBack").classList.contains("show")) modalReturnFocus = document.activeElement;
+  clearInterval(qrModalWatch);
   $("modalTitle").textContent = "重新扫码登录";
   $("modalBody").innerHTML = `
-    <p class="hint">手机 QQ 先切到小号再扫。登录成功会自动关闭。</p>
+    <div class="qr-companion-head"><img src="/assets/ui/dafeiyu-welcome.png" alt="等待和你连接的大肥鱼"><p>先在手机 QQ 切换到小号，再扫下面的码。<br>连接成功后，我们就去 QQ 聊天。</p></div>
     <div class="qr-frame" style="width:260px;height:260px;margin:12px auto"><img id="modalQr" alt="二维码"></div>
     <div class="row" style="justify-content:center"><span class="badge amber" id="modalQrBadge">等待扫码</span></div>
     <div class="hint" id="modalQrTip" style="text-align:center;margin-top:8px"></div>`;
   $("modalBack").classList.add("show");
   $("modalOk").classList.add("hidden");
   $("modalCancel").textContent = "关闭";
+  $("modalCancel").focus();
   startQrFlow("modalQr", "modalQrBadge", "modalQrTip");
-  const watch = setInterval(async () => {
+  qrModalWatch = setInterval(async () => {
+    if (!$("modalQr")) { clearInterval(qrModalWatch); qrModalWatch = null; return; }
     if (!state?.napcat?.logged_in) {
       await refreshState(false);
       return;
     }
-    clearInterval(watch);
+    clearInterval(qrModalWatch);
+    qrModalWatch = null;
     clearInterval(qrTimer);
     try {
       await api("/api/qr/complete", { method: "POST", body: JSON.stringify({}) });
       await refreshState(false);
       renderOverview();
-      closeModal();
+      if ($("modalQr")) closeModal();
       toast("登录成功");
     } catch (err) { toast(err.message || String(err)); }
   }, 2500);
@@ -1114,23 +1449,57 @@ function openQrModal() {
 
 function bindEvents() {
   $$(".nav-item").forEach((btn) => btn.addEventListener("click", () => showView(btn.dataset.view)));
+  $$("[data-go]").forEach((btn) => btn.addEventListener("click", () => showView(btn.dataset.go)));
+  $$("[data-settings-anchor]").forEach(btn => btn.addEventListener("click", () => $(btn.dataset.settingsAnchor)?.scrollIntoView({ behavior: "smooth", block: "start" })));
+  $("logRefresh").addEventListener("click", loadLog);
+  $("logCopy").addEventListener("click", copyLogs);
+  $("logFollow").addEventListener("change", () => { if ($("logFollow").checked) $("logView").scrollTop = $("logView").scrollHeight; });
+  $("artifactSetup").addEventListener("click", () => state?.installed === false ? showWizard(0) : openPcModal());
+  $("sideUpdate").addEventListener("click", () => {
+    showView("settings");
+    $("updateSettings").scrollIntoView({ behavior: "smooth", block: "start" });
+    if (!updateState?.available && !updateState?.checking && !updateState?.downloading) runUpdateAction("check");
+    else loadUpdateStatus();
+  });
+  $("updateCheck").addEventListener("click", () => runUpdateAction("check"));
+  $("updateDownload").addEventListener("click", () => runUpdateAction("download"));
+  $("updateInstall").addEventListener("click", () => runUpdateAction("install"));
+  $("updateBannerAction").addEventListener("click", () => runUpdateAction(updateState?.downloaded && updateState?.download_verified ? "install" : "download"));
+  $("updateLater").addEventListener("click", () => saveUpdatePreferences({ snooze_hours: 24 }, "好，明天再提醒你。当前版本可以继续使用。"));
+  $("updateIgnore").addEventListener("click", () => {
+    if (updateState?.latest_version) saveUpdatePreferences({ ignored_version: updateState.latest_version }, "已忽略这个版本，之后的新版本仍会提醒你。");
+  });
+  $("updateAutoCheck").addEventListener("change", () => saveUpdatePreferences({ auto_check: $("updateAutoCheck").checked }, $("updateAutoCheck").checked ? "已开启新版本自动检查，只提醒、不自动安装。" : "已关闭自动检查，你仍可以手动检查更新。"));
+  $("connectionRetry").addEventListener("click", () => withBusy($("connectionRetry"), "正在重连…", async () => {
+    await refreshState(false);
+    renderOverview();
+    toast("已经重新连上小家");
+  }));
   $("wizardBack").addEventListener("click", () => goWizard(-1));
   $("wizardNext").addEventListener("click", wizardNext);
 
-  $("btnStart").addEventListener("click", async () => {
-    try { toast("正在启动…"); await api("/api/start", { method: "POST", body: JSON.stringify({}) }); await refreshState(false); renderOverview(); toast("已启动"); }
-    catch (err) { toast(err.message || String(err)); }
+  $("btnStart").addEventListener("click", () => {
+    if (!state) { toast("先重新连接本机服务，再来唤醒她。"); return; }
+    if (state.installed === false) { showWizard(0); return; }
+    if (!state.has_key) { showWizard(2); return; }
+    if (state.status?.astrbot?.up && state.status?.napcat?.up && !state.napcat?.logged_in) { openQrModal(); return; }
+    withBusy($("btnStart"), "正在唤醒她…", async () => {
+      await api("/api/start", { method: "POST", body: JSON.stringify({}) });
+      await refreshState(false);
+      toast(state?.napcat?.logged_in ? "服务已经启动，可以去 QQ 找她了。" : "服务已经启动，接下来连接 QQ 小号。 ");
+    });
   });
   $("btnStop").addEventListener("click", async () => {
-    if (!confirm("停止后她会下线，确定吗？")) return;
-    try { toast("正在停止…"); await api("/api/stop", { method: "POST", body: JSON.stringify({}) }); await refreshState(false); renderOverview(); toast("已停止"); }
-    catch (err) { toast(err.message || String(err)); }
+    await withBusy($("btnStop"), "正在关闭…", async () => {
+      await api("/api/stop", { method: "POST", body: JSON.stringify({}) }); await refreshState(false); toast("聊天服务已关闭，她已下线休息。软件窗口会保留。");
+    });
   });
   $("btnRestart").addEventListener("click", async () => {
-    try { toast("正在重启…"); await api("/api/restart", { method: "POST", body: JSON.stringify({}) }); await refreshState(false); renderOverview(); toast("已重启"); }
-    catch (err) { toast(err.message || String(err)); }
+    await withBusy($("btnRestart"), "正在重新连接…", async () => {
+      await api("/api/restart", { method: "POST", body: JSON.stringify({}) }); await refreshState(false); toast("服务已重新启动");
+    });
   });
-  $("btnRelogin").addEventListener("click", openQrModal);
+  $("btnRelogin").addEventListener("click", () => state?.installed === false ? showWizard(0) : openQrModal());
   $("btnQuickLogin").addEventListener("click", async () => {
     try {
       toast("正在尝试自动登录…");
@@ -1175,7 +1544,7 @@ function bindEvents() {
   });
   $("contactsRefresh").addEventListener("click", loadContacts);
   $("contactsSearch").addEventListener("input", renderContacts);
-  $("settingsSave").addEventListener("click", saveSettings);
+  $("settingsSave").addEventListener("click", () => withBusy($("settingsSave"), "正在保存…", saveSettings));
   $("setWorkspaceBrowse").addEventListener("click", () => chooseFolder("setWorkspace"));
   $("setWorkspaceSave").addEventListener("click", saveWorkspace);
   $("setAutostart").addEventListener("change", async () => {
@@ -1185,7 +1554,8 @@ function bindEvents() {
         body: JSON.stringify({ enabled: $("setAutostart").checked }),
       });
       state.autostart = data;
-      renderSettings();
+      $("setAutostart").checked = !!data.enabled;
+      $("setAutostartHint").textContent = data.enabled ? "已开启：下次登录 Windows 时，会在系统托盘里启动。" : "开机自动启动已关闭，你可以随时手动打开她的小家。";
       toast(data.enabled ? "已开启开机自启" : "已关闭开机自启");
     } catch (err) { toast(err.message || String(err)); }
   });
@@ -1237,27 +1607,50 @@ function bindEvents() {
   }));
   $("modalCancel").addEventListener("click", closeModal);
   $("modalBack").addEventListener("click", (event) => { if (event.target === $("modalBack")) closeModal(); });
+  document.addEventListener("keydown", (event) => {
+    if (!$("modalBack").classList.contains("show")) return;
+    if (event.key === "Escape" && $("modalOk").dataset.busy !== "true") { event.preventDefault(); closeModal(); }
+    if (event.key === "Tab") {
+      const focusable = Array.from($("modalBack").querySelectorAll('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href]')).filter((el) => el.offsetParent !== null);
+      if (!focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
+  });
   document.addEventListener("input", (event) => {
-    if (event.target.closest("#view-settings")) settingsDirty = true;
+    if (["setKey", "setModel", "setApiBase", "setOwner"].includes(event.target.id)) {
+      settingsDirty = true;
+      setText("settingsSaveState", "有新的对话设置，记得保存哦");
+    }
   });
 }
 
 async function init() {
   bindEvents();
+  let connected = false;
   try {
     await refreshState(false);
+    connected = true;
   } catch (err) {
-    $("app").innerHTML = `<div class="card" style="margin:40px">无法连接本地服务：${esc(err.message)}</div>`;
-    return;
+    showApp();
+    setConnectionStatus(false);
+    $("heroStatus").textContent = "暂时连不上本机服务";
+    $("heroTitle").innerHTML = "小家还在，<br>稍等我们重新连接。";
+    $("heroDescription").textContent = "先保持窗口打开，我们会自动重试。也可以点击上方“立即重试”。";
+    $("heroFootnote").textContent = err.message || "请检查应用是否已正常启动。";
+    $("btnStart").disabled = true;
   }
-  setInterval(() => refreshState(true), 4000);
+  loadUpdateStatus();
+  setInterval(() => { refreshState(true); loadUpdateStatus(); }, 4000);
+  if (!connected) return;
   const params = new URLSearchParams(location.search);
   const forceWizard = params.get("wizard");
   if (forceWizard !== null) {
     showWizard(Math.max(0, Math.min(5, Number(forceWizard) || 0)));
     return;
   }
-  if (state.setup_complete) {
+  if (state.setup_complete || state.preview) {
     showApp();
     const view = params.get("view");
     if (view && VIEW_META[view]) showView(view);

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import hashlib
 import sys
 import time
 import traceback
@@ -18,7 +19,7 @@ from bootstrap import apply as apply_bootstrap  # noqa: E402
 
 apply_bootstrap()
 
-from backend.paths import LOGS, ensure_dirs  # noqa: E402
+from backend.paths import APP_HOME, ASSETS, LOGS, ensure_dirs  # noqa: E402
 from backend.server import start_server  # noqa: E402
 
 
@@ -47,6 +48,34 @@ def _enable_dpi() -> None:
         pass
 
 
+def _single_instance():
+    """Keep one window per data directory; a second launch restores it."""
+    if sys.platform != "win32":
+        return None
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+    kernel32.CreateMutexW.restype = wintypes.HANDLE
+    name = hashlib.sha256(str(APP_HOME).casefold().encode("utf-8")).hexdigest()[:24]
+    handle = kernel32.CreateMutexW(None, False, "Local\\AiwuJiyu-" + name)
+    if not handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+    if ctypes.get_last_error() == 183:
+        user32 = ctypes.windll.user32
+        user32.FindWindowW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR]
+        user32.FindWindowW.restype = wintypes.HWND
+        hwnd = user32.FindWindowW(None, "爱屋及鱼")
+        if hwnd:
+            user32.ShowWindow(hwnd, 9)
+            user32.SetForegroundWindow(hwnd)
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle(handle)
+        return False
+    # Holding this handle until process exit keeps the mutex alive.
+    return handle
+
+
 def _setup_log() -> None:
     try:
         ensure_dirs()
@@ -67,13 +96,23 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--headless", action="store_true", help="run only the local server")
     parser.add_argument("--tray", action="store_true", help="start hidden in the system tray")
+    parser.add_argument("--preview", action="store_true", help="isolated interface preview, without contacting services")
+    parser.add_argument("--no-auto-start", action="store_true", help="do not start bot services on launch")
     args = parser.parse_args()
 
     _enable_dpi()
     if getattr(sys, "frozen", False):
         _setup_log()
 
-    server = start_server()
+    instance = _single_instance() if not args.headless and not args.preview else None
+    if instance is False:
+        return
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("myflww.AiwuJiyu.Desktop")
+    except Exception:
+        pass
+
+    server = start_server(preview=args.preview, auto_start=not args.no_auto_start)
     port = server.server_address[1]
     url = f"http://127.0.0.1:{port}/?t={int(time.time())}&view=overview"
     print(f"DAFEIYU_APP_URL={url}", flush=True)
@@ -84,6 +123,7 @@ def main() -> None:
                 time.sleep(3600)
         except KeyboardInterrupt:
             server.shutdown()
+            server.server_close()
         return
 
     try:
@@ -96,11 +136,13 @@ def main() -> None:
                 ctypes.windll.user32.MessageBoxW(
                     0,
                     "爱屋及鱼需要 Microsoft Edge WebView2 Runtime 才能显示窗口。\n"
-                    "安装包内已附带安装器，但这次没有安装成功；请联网后重试，"
+                    "自动准备没有完成；请联网后重试，"
                     "或从 Microsoft 官网安装 WebView2 Runtime。",
                     "爱屋及鱼",
                     0x10,
                 )
+                server.shutdown()
+                server.server_close()
                 return
         except Exception:
             pass
@@ -112,7 +154,7 @@ def main() -> None:
             width=1180,
             height=840,
             min_size=(980, 700),
-            background_color="#f4f7fb",
+            background_color="#F6F4F0",
             text_select=True,
             js_api=api,
         )
@@ -140,6 +182,7 @@ def main() -> None:
                     pass
 
         window.events.closing += on_closing
+        server.quit_callback = quit_app
 
         def on_start():
             if args.tray:
@@ -150,7 +193,7 @@ def main() -> None:
             try:
                 from tray import Tray
 
-                box["tray"] = Tray(window, quit_app)
+                box["tray"] = Tray(window, quit_app, preview=args.preview)
                 box["tray"].start()
             except Exception:
                 traceback.print_exc()
@@ -160,7 +203,13 @@ def main() -> None:
                     except Exception:
                         pass
 
-        webview.start(func=on_start, debug=False)
+        icon = ASSETS / "ui" / "app-icon.ico"
+        webview.start(func=on_start, debug=False, gui="edgechromium",
+                      icon=str(icon) if icon.is_file() else None)
+        if box["tray"]:
+            box["tray"].stop()
+        server.shutdown()
+        server.server_close()
     except Exception as exc:  # noqa: BLE001
         print(f"webview unavailable: {exc}", flush=True)
         webbrowser.open(url)
@@ -169,6 +218,7 @@ def main() -> None:
                 time.sleep(3600)
         except KeyboardInterrupt:
             server.shutdown()
+            server.server_close()
 
 
 if __name__ == "__main__":

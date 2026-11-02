@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "plugins": [
+    {
+      "id": "astrbot_plugin_face_convert",
+      "name": "QQ表情文字转换",
+      "version": "v1.3.1",
+      "author": "dafeiyu-tools",
+      "license": "MIT; see assets/LICENSE-dafeiyu-astrbot.txt",
+      "files": [
+        {
+          "path": "face_map.json",
+          "sha256": "ba9558536af8348d4f3d2dc59f9a32ecb598e1aa2dd5cefe4937b591160feb81",
+          "size": 5192
+        },
+        {
+          "path": "main.py",
+          "sha256": "c6ce2eddeb9e81a01571aab155f649b082192194ff01fabf32b6ece97dc6877a",
+          "size": 51056
+        },
+        {
+          "path": "metadata.yaml",
+          "sha256": "14666271866350107a0f432f0f35d761e495d7561d650a40d44dee85d701d821",
+          "size": 228
+        }
+      ]
+    },
+    {
+      "id": "astrbot_plugin_love_house",
+      "name": "爱之屋经历记忆（实验适配）",
+      "version": "v0.3.0",
+      "author": "myflww",
+      "license": "PolyForm-Noncommercial-1.0.0; see its LICENSE",
+      "files": [
+        {
+          "path": "__init__.py",
+          "sha256": "327b4824e5a10c06217e407ab20818ca75c7e0eee448c9ecb41b243ca3b0f108",
+          "size": 79
+        },
+        {
+          "path": "_conf_schema.json",
+          "sha256": "fb20253a4a3ab1cead34d37362640849fe1636ff20d84f532000e410b8e1d08c",
+          "size": 1891
+        },
+        {
+          "path": "bridge.py",
+          "sha256": "3fa3770c0762fc53b98b14f128ad50fee87cc629f2edf3f350b0ee97dc9f84d1",
+          "size": 17744
+        },
+        {
+          "path": "LICENSE",
+          "sha256": "c0ea4a896d2c8c394b29f9427589996db826cd501c512279ff0ed3ef48fabbe5",
+          "size": 4563
+        },
+        {
+          "path": "main.py",
+          "sha256": "5eaf1f2152541cbef9825c29f4b7ce216f47403a3bad4950e361ecb0a53487ba",
+          "size": 17972
+        },
+        {
+          "path": "metadata.yaml",
+          "sha256": "7dad7a4e19040ffb4c131d24095bfd0b65cc1550dd0aea38c8f48ec68efcf925",
+          "size": 359
+        },
+        {
+          "path": "NOTICE",
+          "sha256": "ab28aead427f833ccaaf302ad41eda51ffd35513d5c2ef67c7655967520fcc0f",
+          "size": 189
+        },
+        {
+          "path": "README.md",
+          "sha256": "99e8e0813977ed72ba0ec056b3474f57b3302776418b9925e210732db1f34c9d",
+          "size": 16228
+        },
+        {
+          "path": "source_client.py",
+          "sha256": "c14b16a70b289743d2056fea85faf65aba4d84d26d882e9331d512f10e55270c",
+          "size": 23947
+        }
+      ]
+    },
+    {
+      "id": "astrbot_plugin_pc_operator",
+      "name": "大肥鱼电脑操作（主人 + 授权管理员）",
+      "version": "v0.2.0",
+      "author": "dafeiyu",
+      "license": "Original project portions retain root LICENSE; host terms also apply",
+      "files": [
+        {
+          "path": "_conf_schema.json",
+          "sha256": "758458397168c47b4f6b3dce5088d4878aaaf34228e29f19e22caf418794bf0a",
+          "size": 1385
+        },
+        {
+          "path": "main.py",
+          "sha256": "26646c63e3d03c3374e58aab39ae5e15d1217b44dc2f1f3ad4aa8ed139837d8a",
+          "size": 11700
+        },
+        {
+          "path": "metadata.yaml",
+          "sha256": "33b801d6e321b8edf0573ea6c19b23a7a3cbb52993dce4e2f45a5d5c4eb2dc4d",
+          "size": 337
+        },
+        {
+          "path": "README.md",
+          "sha256": "0f74a238d7652772116868e42edaf99692f4d1227819b09b9a45c6316bfd7524",
+          "size": 1447
+        }
+      ]
+    }
+  ]
+}

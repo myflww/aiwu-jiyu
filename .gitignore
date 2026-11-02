@@ -9,6 +9,7 @@
 /workspace/
 /logs/
 /downloads/
+/updates/
 /dist/
 .env
 .env.*
@@ -24,6 +25,7 @@
 /build/.venv/
 /build/dafeiyu/
 /build/aiwu-jiyu/
+/build/collected-licenses/
 /build/vendor/
 /assets/vendor/
 *.exe

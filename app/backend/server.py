@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlparse
 
 from backend import autostart, config_store, installer, lovehouse, napcat_api, plugins, processes
 from backend import astrbot_api
-from backend import metrics, pc_access
+from backend import metrics, pc_access, updater
 from backend.paths import APP_HOME, ASSETS, LOGS, UI_DIR, ensure_dirs
 
 _lock = threading.Lock()
@@ -142,6 +142,7 @@ def _relocate(install_dir: str) -> dict:
     env = os.environ.copy()
     env["DAFEIYU_HOME"] = str(target)
     if getattr(sys, "frozen", False):
+        env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
         command = [sys.executable]
     else:
         command = [sys.executable, str(Path(__file__).resolve().parents[1] / "main.py")]
@@ -157,7 +158,7 @@ def _relocate(install_dir: str) -> dict:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "DafeiyuApp/1.0"
+    server_version = "AiwuJiyuApp/1.1.0"
 
     def _send(self, code: int, body: bytes, content_type: str) -> None:
         self.send_response(code)
@@ -195,12 +196,78 @@ class Handler(BaseHTTPRequestHandler):
         content_type = mimetypes.guess_type(str(candidate))[0] or "application/octet-stream"
         self._send(200, candidate.read_bytes(), content_type)
 
+    def _asset(self, path: str) -> None:
+        candidate = (ASSETS / path.lstrip("/")).resolve()
+        if ASSETS.resolve() not in candidate.parents or not candidate.is_file():
+            self._json(404, {"ok": False, "message": "Asset not found"})
+            return
+        content_type = mimetypes.guess_type(str(candidate))[0] or "application/octet-stream"
+        self._send(200, candidate.read_bytes(), content_type)
+
+    def _preview_get(self, path: str) -> None:
+        """Preview only fixture data: never inspect an installed bot or its accounts."""
+        status = {
+            "astrbot": {"up": False, "pid": None, "port": 6185},
+            "napcat": {"up": False, "pid": None, "port": 6099},
+            "onebot": {"up": False, "port": 6199},
+        }
+        pc = {"enabled": False, "workspace": "", "members": {}, "audit": []}
+        fixtures = {
+            "/api/updates": {"ok": True, "current_version": updater.current_version(), "latest_version": "",
+                             "available": False, "notify": False, "checking": False, "downloading": False,
+                             "installing": False, "progress": 0, "downloaded": False, "download_verified": False,
+                             "auto_check": True, "checked_at": None, "error": "", "message": "",
+                             "release_url": updater.REPO_URL + "/releases/latest", "ignored_version": "",
+                             "snoozed_until": 0},
+            "/api/state": {
+                "preview": True, "setup_complete": True, "installed": False,
+                "has_key": False, "owner_qq": "", "bot_qq": "", "bot_nickname": "大肥鱼",
+                "model": {"provider": "deepseek", "api_base": "https://api.deepseek.com/v1",
+                          "model": "deepseek-chat", "key_mask": ""},
+                "whitelist": {"enable": True, "private": [], "groups": []},
+                "memory": {"enabled": False, "endpoint": ""},
+                "napcat": {"logged_in": False, "qq": "", "nickname": ""},
+                "status": status, "install": "", "autostart": {"enabled": False},
+                "auto_login": False, "pc_access": pc, "members": {},
+                "metrics": {"total_mb": 0, "used_mb": 0, "available_mb": 0, "percent": 0,
+                            "astrbot_mb": 0, "napcat_mb": 0, "app_mb": 0, "lovehouse_mb": 0},
+            },
+            "/api/status": status,
+            "/api/contacts": {"ok": True, "logged_in": False, "friends": [], "groups": []},
+            "/api/plugins": {"ok": True, "plugins": []},
+            "/api/pc-access": {"ok": True, **pc},
+            "/api/artifacts": {"ok": True, "workspace": "", "items": []},
+            "/api/lovehouse/status": {"ok": True, "installed": False, "running": False,
+                                     "libraries": [], "selected_id": "", "default_umos": []},
+            "/api/autostart": {"ok": True, "supported": True, "enabled": False},
+            "/api/napcat/quick-login": {"ok": True, "auto_login": False, "bot_qq": "", "candidates": []},
+            "/api/setup/status": {"ok": True, "running": False, "done": False, "log": []},
+        }
+        if path == "/api/updates/status":
+            path = "/api/updates"
+        if path == "/api/plugins" and hasattr(plugins, "list_bundled_plugins"):
+            fixtures[path]["plugins"] = plugins.list_bundled_plugins()
+        if path == "/api/logs":
+            self._send(200, b"", "text/plain; charset=utf-8")
+        elif path in fixtures:
+            self._json(200, fixtures[path])
+        else:
+            self._json(404, {"ok": False, "message": "预览中没有连接运行服务"})
+
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path
         query = parse_qs(parsed.query)
         try:
-            if path == "/api/state":
+            if getattr(self.server, "preview", False) and path.startswith("/api/"):
+                self._preview_get(path)
+            elif path.startswith("/assets/"):
+                self._asset(path[len("/assets/"):])
+            elif path == "/favicon.ico":
+                self._asset("ui/app-icon.ico")
+            elif path in {"/api/updates", "/api/updates/status"}:
+                self._json(200, updater.get_updater().snapshot())
+            elif path == "/api/state":
                 self._json(200, state())
             elif path == "/api/setup/status":
                 self._json(200, installer.snapshot())
@@ -286,8 +353,36 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         body = self._body()
+        if getattr(self.server, "preview", False):
+            self._json(403, {"ok": False, "message": "这是界面预览，请在正式应用中设置"})
+            return
         try:
-            if path == "/api/setup/install":
+            if path.startswith("/api/updates/"):
+                origin = self.headers.get("Origin")
+                expected_origin = f"http://127.0.0.1:{self.server.server_address[1]}"
+                if (origin and origin != expected_origin) or self.headers.get("Sec-Fetch-Site") == "cross-site":
+                    self._json(403, {"ok": False, "message": "请从应用窗口操作更新"})
+                    return
+                service = updater.get_updater()
+                if path == "/api/updates/check":
+                    payload = service.check()
+                elif path == "/api/updates/download":
+                    payload = service.download()
+                elif path in {"/api/updates/settings", "/api/updates/preferences"}:
+                    payload = service.preferences(body)
+                elif path == "/api/updates/install":
+                    callback = getattr(self.server, "quit_callback", None)
+                    if not callback:
+                        raise ValueError("请在桌面应用窗口中安装更新")
+                    payload = service.install()
+                    timer = threading.Timer(1.2, callback)
+                    timer.daemon = True
+                    timer.start()
+                else:
+                    self._json(404, {"ok": False, "message": "更新接口不存在"})
+                    return
+                self._json(200, payload)
+            elif path == "/api/setup/install":
                 config = config_store.load()
                 config["install_dir"] = str(config_store.APP_HOME)
                 if body.get("api_key"):
@@ -569,15 +664,25 @@ class Handler(BaseHTTPRequestHandler):
         return
 
 
-def start_server() -> ThreadingHTTPServer:
-    ensure_dirs()
-    config = config_store.load()
-    if config_store.is_installed() and not config.get("setup_complete"):
+def start_server(*, preview: bool = False, auto_start: bool = True, auto_update: bool = True) -> ThreadingHTTPServer:
+    if not preview:
+        ensure_dirs()
+    config = {} if preview else config_store.load()
+    if not preview and config_store.is_installed() and not config.get("setup_complete"):
         config = config_store.adopt_from_astrbot(config)
         config_store.save(config)
+    if not preview and config_store.is_installed():
+        try:
+            plugins.install_bundled()
+        except Exception as exc:
+            print(f"Bundled plugin synchronization deferred: {type(exc).__name__}", flush=True)
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.preview = preview
+    server.daemon_threads = True
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
+    if not preview and auto_update:
+        updater.get_updater().start()
 
     def _kick_services():
         time.sleep(1.0)
@@ -586,6 +691,6 @@ def start_server() -> ThreadingHTTPServer:
         except Exception:
             pass
 
-    if config.get("setup_complete") and config.get("auto_login", True):
+    if not preview and auto_start and config.get("setup_complete") and config.get("auto_login", True):
         threading.Thread(target=_kick_services, daemon=True).start()
     return server

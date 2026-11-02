@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import threading
-from pathlib import Path
-
 from PIL import Image
 
 from backend import processes
@@ -12,14 +10,18 @@ from backend.paths import ASSETS
 
 
 class Tray:
-    def __init__(self, window, on_quit) -> None:
+    def __init__(self, window, on_quit, *, preview: bool = False) -> None:
         self.window = window
         self.on_quit = on_quit
         self.icon = None
+        self.preview = preview
 
     def _image(self) -> Image.Image:
-        path = ASSETS / "avatars" / "dafeiyu.png"
-        image = Image.open(path).convert("RGBA")
+        path = ASSETS / "ui" / "app-icon.ico"
+        if not path.is_file():
+            path = ASSETS / "avatars" / "dafeiyu.png"
+        with Image.open(path) as source:
+            image = source.convert("RGBA")
         return image.resize((64, 64), Image.LANCZOS)
 
     def start(self) -> None:
@@ -27,15 +29,15 @@ class Tray:
 
         menu = pystray.Menu(
             pystray.MenuItem("打开控制台", self.show, default=True),
-            pystray.MenuItem("启动大肥鱼", lambda icon=None, item=None: self._background(processes.start_all)),
-            pystray.MenuItem("停止大肥鱼", lambda icon=None, item=None: self._background(processes.stop_all)),
-            pystray.MenuItem("重新扫码", self.qr),
+            pystray.MenuItem("启动大肥鱼", lambda icon=None, item=None: self._background(processes.start_all), enabled=not self.preview),
+            pystray.MenuItem("停止大肥鱼", lambda icon=None, item=None: self._background(processes.stop_all), enabled=not self.preview),
+            pystray.MenuItem("重新扫码", self.qr, enabled=not self.preview),
             pystray.MenuItem("查看日志", self.logs),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("退出应用（服务继续）", self.quit),
-            pystray.MenuItem("退出并停止服务", self.quit_and_stop),
+            pystray.MenuItem("退出并停止服务", self.quit_and_stop, enabled=not self.preview),
         )
-        self.icon = pystray.Icon("dafeiyu", self._image(), "爱屋及鱼", menu)
+        self.icon = pystray.Icon("aiwu-jiyu", self._image(), "爱屋及鱼", menu)
         self.icon.run_detached()
 
     def _background(self, func) -> None:
@@ -44,6 +46,7 @@ class Tray:
     def show(self, icon=None, item=None) -> None:
         try:
             self.window.show()
+            self.window.restore()
         except Exception:
             pass
 

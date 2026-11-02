@@ -14,6 +14,15 @@
 - `assets/plugins/astrbot_plugin_love_house/` 来自 myflww 的爱之屋项目，
   保留该目录的 PolyForm Noncommercial License 1.0.0。来源：
   <https://github.com/myflww/love-house>。
+- 界面内嵌的 Lucide 0.468.0 SVG 图标保留 ISC 许可及原始版权声明；
+  完整文本见 `app/ui/LICENSE-lucide.txt`，随应用复制到
+  `THIRD-PARTY-LICENSES/lucide-0.468.0/LICENSE.txt`。
+  来源：<https://github.com/lucide-icons/lucide/tree/0.468.0>。
+- pywebview 的依赖 proxy_tools 0.1.0 的 wheel 仅标注 MIT 而未随附
+  完整许可文件。这里额外保留其源代码匹配的上游原文许可和版权声明，
+  见 `assets/licenses/proxy-tools-0.1.0/`；原文为 BSD 两条款式文本，
+  不将其改写为 wheel 元数据所称的 MIT。
+  来源：<https://github.com/jtushman/proxy_tools>。
 
 ## 运行时依赖
 

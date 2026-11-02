@@ -1,0 +1,71 @@
+{
+  "generator": "Built-in image_gen",
+  "character": "大肥鱼",
+  "reference": "assets/avatars/dafeiyu.png",
+  "style": "Polished 2.5-head chibi anime; navy to sky-blue wavy hair, blue eyes, white frilled maid headband, navy maid dress and white apron, blue brooch and whale tail.",
+  "assets": [
+    {
+      "file": "app-icon.png",
+      "prompt": "Close-up cheerful whale girl face and waving hand in a periwinkle rounded square with white inner rim. No text. Transparent outside rounded tile.",
+      "width": 1254,
+      "height": 1254,
+      "alpha": true
+    },
+    {
+      "file": "dafeiyu-welcome.png",
+      "prompt": "Full-body energetic blue whale girl waving and holding a rice bowl, whale tail behind, tiny bubbles and sparkles, true transparent cutout.",
+      "width": 1165,
+      "height": 1350,
+      "alpha": true
+    },
+    {
+      "file": "dafeiyu-memory.png",
+      "prompt": "Same seated chibi whale girl affectionately hugging a powder-blue keepsake notebook with one white star emblem, tiny hearts, true transparent cutout.",
+      "width": 1201,
+      "height": 1309,
+      "alpha": true
+    },
+    {
+      "file": "dafeiyu-rest.png",
+      "prompt": "Same modest chibi whale girl asleep on a powder-blue whale cushion, peaceful closed eyes, tiny moon and stars, transparent outside precise silhouettes.",
+      "width": 1536,
+      "height": 1024,
+      "alpha": true
+    },
+    {
+      "file": "app-icon.ico",
+      "derived_from": "app-icon.png",
+      "operation": "Pillow ICO format conversion only",
+      "sizes": [
+        16,
+        24,
+        32,
+        48,
+        64,
+        128,
+        256
+      ]
+    },
+    {
+      "file": "dafeiyu-permissions.png",
+      "prompt": "Same full-body chibi whale maid girl holding a tiny golden key and powder-blue heart shield, friendly protective guardian, tiny heart sparkles, true transparent cutout.",
+      "width": 1184,
+      "height": 1328,
+      "alpha": true
+    },
+    {
+      "file": "dafeiyu-settings.png",
+      "prompt": "Same full-body chibi whale maid girl carefully adjusting a small sky-blue gear with a tiny harmless wrench, playful helpful smile and tiny sparkles, true transparent cutout.",
+      "width": 1165,
+      "height": 1350,
+      "alpha": true
+    },
+    {
+      "file": "dafeiyu-diagnostics.png",
+      "prompt": "Same seated chibi whale maid girl curiously inspecting a little golden star through a magnifying glass, cheerful reassuring expression, tiny bubbles, true transparent cutout.",
+      "width": 1199,
+      "height": 1312,
+      "alpha": true
+    }
+  ]
+}

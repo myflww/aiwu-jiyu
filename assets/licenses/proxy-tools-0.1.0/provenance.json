@@ -1,0 +1,12 @@
+{
+  "component": "proxy_tools",
+  "version": "0.1.0",
+  "upstream_url": "https://raw.githubusercontent.com/jtushman/proxy_tools/db43f1e35d4f90a65c5a4d56d9e9af88212ec6e6/LICENSE.txt",
+  "license_sha256": "a428fb8a2e762af3eb0a6edbbb88e9b42ccfee80fd9b423958bcacf9b9abbfe4",
+  "wheel_license_metadata": "MIT",
+  "upstream_license_file": "BSD-2-Clause style with original unmodified upstream text",
+  "installed_source_sha256": "d1539d95e1a713c068ca81d42e047b2c76568964cf277596d4e19efb22f476be",
+  "upstream_source_sha256": "d1539d95e1a713c068ca81d42e047b2c76568964cf277596d4e19efb22f476be",
+  "source_match_normalized_newlines": true,
+  "upstream_commit": "db43f1e35d4f90a65c5a4d56d9e9af88212ec6e6"
+}
