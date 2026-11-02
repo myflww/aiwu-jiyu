@@ -3,22 +3,30 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import secrets
+import tempfile
+import threading
 import time
 import urllib.request
 from pathlib import Path
 from typing import Any
 
-from backend.paths import ASSETS, ASTRBOT, ASTRBOT_PORT, LOGS
+from backend import dpapi
+from backend.paths import ASSETS, ASTRBOT, ASTRBOT_PORT, LOGS, RUN_DIR
 from backend.config_store import PERSONA_ID
 
 BASE = f"http://127.0.0.1:{ASTRBOT_PORT}"
+_desktop_lock = threading.Lock()
 
 
-def _request(path: str, payload: dict | None = None, token: str | None = None, method: str = "POST") -> Any:
+def _request(path: str, payload: dict | None = None, token: str | None = None,
+             method: str = "POST", extra_headers: dict | None = None) -> Any:
     headers = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    headers.update(extra_headers or {})
     data = None
     if payload is not None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -27,6 +35,56 @@ def _request(path: str, payload: dict | None = None, token: str | None = None, m
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _desktop_secret(*, create: bool = False) -> str:
+    path = RUN_DIR / "astrbot-desktop-session.enc"
+    with _desktop_lock:
+        if path.is_file():
+            try:
+                secret = dpapi.unprotect(path.read_text("utf-8").strip())
+                if len(secret) >= 32:
+                    return secret
+            except Exception:
+                pass
+        if not create:
+            return ""
+        secret = secrets.token_urlsafe(48)
+        encrypted = dpapi.protect(secret)
+        if os.name == "nt" and not encrypted.startswith("dpapi:"):
+            raise RuntimeError("无法加密本地服务会话，请重试")
+        RUN_DIR.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=RUN_DIR, prefix=".desktop-session-", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(encrypted.encode("utf-8"))
+        try:
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return secret
+
+
+def desktop_environment() -> dict[str, str]:
+    return {"ASTRBOT_DESKTOP_MANAGED": "1",
+            "ASTRBOT_DESKTOP_SESSION_SECRET": _desktop_secret(create=True)}
+
+
+def dashboard_token() -> str:
+    """Use AstrBot's official loopback desktop session, with legacy fallback."""
+    secret = _desktop_secret()
+    if secret:
+        try:
+            result = _request("/api/v1/auth/desktop-session", payload={},
+                              extra_headers={"X-AstrBot-Desktop-Session": secret})
+            token = (result.get("data") or {}).get("token")
+            if token:
+                return token
+        except Exception:
+            pass
+    password = read_initial_password()
+    if password:
+        return login(password)
+    raise RuntimeError("当前服务尚未建立桌面会话")
 
 
 def wait_ready(timeout: float = 45.0) -> bool:

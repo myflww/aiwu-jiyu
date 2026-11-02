@@ -1,0 +1,42 @@
+{
+  "generator": "Built-in image_gen",
+  "version": "1.2.0",
+  "character": "大肥鱼",
+  "identity": [
+    "蓝色渐变长发",
+    "鳍状耳朵",
+    "鲸鱼尾巴",
+    "蓝色眼睛与呆毛"
+  ],
+  "reference_notes": "User-supplied visual references; original community character attribution retained in NOTICE and THIRD_PARTY_NOTICES.md. Rejected mature-face variants and rejected group welcome artwork are excluded.",
+  "assets": [
+    {
+      "file": "dafeiyu-room.webp",
+      "width": 2172,
+      "height": 724,
+      "alpha": false,
+      "production_prompt": "Wide horizontal pale-blue underwater bedroom, no character or text, tiny rice bowl and navy ribbon, whale-tail seashell, white curtain, softly painted anime interior; left 65 percent empty for controls."
+    },
+    {
+      "file": "dafeiyu-daily.webp",
+      "width": 1105,
+      "height": 1423,
+      "alpha": true,
+      "production_prompt": "Soft polished anime game illustration, rounded face, large luminous blue eyes, small mouth, blue-gradient wavy hair, fin ears, curved ahoge and whale tail. Ivory knit cardigan over opaque white camisole with whale embroidery, navy pleated skirt, white calf socks. Seated on blue cushion, naturally waving. Diffused daylight, fine linework and softly shaded fabric, no paper grain, transparent background."
+    },
+    {
+      "file": "dafeiyu-sailor.webp",
+      "width": 1024,
+      "height": 1536,
+      "alpha": true,
+      "production_prompt": "Soft luminous anime blue whale woman with gentle round face and large clear blue eyes, fin ears, blue-gradient hair, ahoge and rounded whale tail. Pale-blue sailor-collar blouse, navy piping, white ribbon and oval blue gem, navy A-line skirt, opaque white tights, blue Mary Jane shoes. Natural standing pose, notebook and tiny wave. Delicate hand-drawn rendering, transparent alpha, no text."
+    },
+    {
+      "file": "dafeiyu-chibi-sailor.webp",
+      "width": 1165,
+      "height": 1350,
+      "alpha": true,
+      "production_prompt": "Cute three-head-tall chibi blue whale mascot, big round blue eyes, curled navy-to-blue hair, fin ears, ahoge and plump whale tail. Pale-blue long-sleeve sailor blouse, navy collar with white stripes, white bow and blue oval brooch, navy pleated skirt, opaque white tights, navy Mary Jane shoes. Holding notebook and waving. Polished luminous 2D anime rendering, transparent alpha, no text."
+    }
+  ]
+}

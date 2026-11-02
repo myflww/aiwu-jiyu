@@ -7,7 +7,9 @@ from PyInstaller.utils.win32.versioninfo import (
     VarFileInfo, VarStruct,
 )
 
-root = Path(SPECPATH).resolve().parent
+# SPEC is the absolute spec filename; SPECPATH is a directory in PyInstaller.
+# Derive the project root explicitly so a changed cwd cannot add an extra parent.
+root = Path(SPEC).resolve().parents[1]
 version_text = os.environ.get("AIWU_APP_VERSION") or (root / "VERSION").read_text("utf-8").strip()
 version_tuple = tuple(int(part) for part in version_text.split(".")) + (0,)
 icon = root / "assets" / "ui" / "app-icon.ico"

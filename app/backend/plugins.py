@@ -10,16 +10,43 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 import tempfile
+import threading
 import time
 import uuid
+from contextlib import closing
+from datetime import datetime, timezone
 from pathlib import Path
 
+from backend import astrbot_api, processes
 from backend.paths import ASSETS, ASTRBOT
 
 PLUGIN_ROOT = ASTRBOT / "data" / "plugins"
 BUNDLE_ROOT = ASSETS / "plugins"
 LOVE_HOUSE = "astrbot_plugin_love_house"
+_toggle_lock = threading.RLock()
+
+
+def _inactive_modules() -> set[str]:
+    """Read only AstrBot's native switch preference, never chat/account data."""
+    database = ASTRBOT / "data" / "data_v4.db"
+    if not database.exists():
+        return set()
+    with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True, timeout=3)) as connection:
+        try:
+            row = connection.execute(
+                "SELECT value FROM preferences WHERE scope = ? AND scope_id = ? AND key = ?",
+                ("global", "global", "inactivated_plugins"),
+            ).fetchone()
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc):
+                return set()  # The first bot startup is still initializing.
+            raise
+    values = json.loads(row[0]).get("val", []) if row else []
+    if not isinstance(values, list):
+        raise RuntimeError("AstrBot 插件开关数据无效")
+    return set(values)
 
 
 def _metadata(path: Path) -> dict:
@@ -68,7 +95,8 @@ def _member(directory: Path, relative: str) -> Path:
     return target
 
 
-def _row(path: Path, *, plugin_id: str, bundled: bool, installed: bool) -> dict:
+def _row(path: Path, *, plugin_id: str, bundled: bool, installed: bool,
+         inactive: set[str] | None = None) -> dict:
     meta = _metadata(path)
     return {
         "id": plugin_id,
@@ -77,12 +105,16 @@ def _row(path: Path, *, plugin_id: str, bundled: bool, installed: bool) -> dict:
         "desc": meta.get("desc") or "",
         "author": meta.get("author") or "",
         # Host module availability is separate from its permission/configuration.
-        "enabled": installed and not path.name.endswith(".disabled"),
+        "enabled": installed and not path.name.endswith(".disabled") and not any(
+            module.startswith(f"data.plugins.{plugin_id}.") for module in (inactive or set())),
         "path": str(path) if installed else "",
         "lovehouse": plugin_id.removesuffix(".disabled") == LOVE_HOUSE,
         "bundled": bundled,
         "installed": installed,
         "pending": bundled and not installed,
+        "runtime_enabled": installed and not path.name.endswith(".disabled") and not any(
+            module.startswith(f"data.plugins.{plugin_id}.") for module in (inactive or set())),
+        "pending_change": False,
     }
 
 
@@ -98,14 +130,234 @@ def list_plugins() -> list[dict]:
     bundled = {entry["id"]: entry for entry in list_bundled_plugins()}
     result = []
     seen: set[str] = set()
+    inactive = _inactive_modules()
+    pending = _pending_entries()
     for path in sorted(PLUGIN_ROOT.iterdir()) if PLUGIN_ROOT.exists() else ():
-        if not path.is_dir() or path.name.startswith("."):
+        if not path.is_dir() or path.name.startswith((".", "__")):
             continue
         original_id = path.name.removesuffix(".disabled")
+        if original_id in seen:
+            continue
+        if not ((path / "main.py").is_file() or (path / (original_id + ".py")).is_file()):
+            continue
         seen.add(original_id)
-        result.append(_row(path, plugin_id=path.name, bundled=original_id in bundled, installed=True))
+        result.append(_row(path, plugin_id=original_id, bundled=original_id in bundled,
+                           installed=True, inactive=inactive))
+        row = result[-1]
+        if original_id in pending:
+            entry = pending[original_id]
+            row["enabled"] = entry["enabled"]
+            if isinstance(entry.get("runtime_enabled"), bool):
+                row["runtime_enabled"] = entry["runtime_enabled"]
+            # A failed hot enable can already have changed the native DB before
+            # reload fails. Only a verified application may clear this marker.
+            row["pending_change"] = True
+            row["pending"] = True
     result.extend(row for plugin_id, row in bundled.items() if plugin_id not in seen)
     return result
+
+
+def _pending_entries() -> dict[str, dict]:
+    path = ASTRBOT / "data" / "dafeiyu-plugin-switches.json"
+    if not path.is_file():
+        return {}
+    value = json.loads(path.read_text("utf-8"))
+    if not isinstance(value, dict):
+        raise RuntimeError("待应用插件开关数据无效")
+    entries = {}
+    for key, item in value.items():
+        if not isinstance(key, str) or not re.fullmatch(r"[\w-]+", key):
+            raise RuntimeError("待应用插件开关数据无效")
+        if isinstance(item, bool):
+            entries[key] = {"enabled": item, "attempted": True}  # legacy queue, unknown outcome
+        elif isinstance(item, dict) and isinstance(item.get("enabled"), bool):
+            entries[key] = item
+        else:
+            raise RuntimeError("待应用插件开关数据无效")
+    return entries
+
+
+def _pending_switches() -> dict[str, bool]:
+    return {key: entry["enabled"] for key, entry in _pending_entries().items()}
+
+
+def _save_pending(plugin_id: str, enabled: bool | None, *, runtime_enabled: bool | None = None,
+                  attempted: bool = True, baseline_enabled: bool | None = None) -> None:
+    values = _pending_entries()
+    if enabled is None:
+        values.pop(plugin_id, None)
+    else:
+        values[plugin_id] = {"enabled": enabled, "runtime_enabled": runtime_enabled,
+                             "attempted": attempted, "baseline_enabled": baseline_enabled}
+    path = ASTRBOT / "data" / "dafeiyu-plugin-switches.json"
+    _write_atomic(path, (json.dumps(values, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+
+
+def apply_pending() -> None:
+    """Apply queued switches before the managed AstrBot process is spawned."""
+    with _toggle_lock:
+        pending = _pending_switches()
+        if not pending:
+            return
+        if processes.port_up(6185):
+            raise RuntimeError("聊天服务仍在退出，请稍后重试")
+        if not (ASTRBOT / "data" / "data_v4.db").is_file():
+            return  # First launch initializes the database; apply via the live API next.
+        for plugin_id, enabled in pending.items():
+            directory = plugin_path(plugin_id)
+            if not directory.is_dir():
+                _save_pending(plugin_id, None)
+                continue
+            _set_offline(plugin_id, enabled)
+            if directory.name.endswith(".disabled") and enabled:
+                directory.rename(PLUGIN_ROOT / plugin_id)
+            _save_pending(plugin_id, None)
+
+
+def apply_pending_live() -> None:
+    # Read and apply under the same reentrant lock. Otherwise a startup worker
+    # could replay a stale snapshot after the user has changed/cancelled it.
+    with _toggle_lock:
+        for plugin_id, enabled in _pending_switches().items():
+            set_enabled(plugin_id, enabled)
+
+
+def _runtime_plugin(token: str, plugin_id: str) -> dict | None:
+    inventory = astrbot_api._request("/api/plugin/get", token=token, method="GET")
+    if inventory.get("status") != "ok":
+        raise RuntimeError("无法读取 AstrBot 插件状态")
+    data = inventory.get("data") or []
+    if not isinstance(data, list):
+        raise RuntimeError("AstrBot 插件列表格式不兼容")
+    return next((item for item in data if item.get("root_dir_name") == plugin_id
+                 or item.get("name") == plugin_id), None)
+
+
+def _set_offline(plugin_id: str, enabled: bool) -> None:
+    """Change the native preference only while AstrBot is stopped.
+
+    AstrBot caches preferences in memory, so writing its database while it is
+    running would display a switch that has not actually taken effect.
+    """
+    database = ASTRBOT / "data" / "data_v4.db"
+    if not database.is_file():
+        raise ValueError("请先启动一次聊天服务，完成插件初始化")
+    with closing(sqlite3.connect(database, timeout=3)) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            "SELECT id, value FROM preferences WHERE scope = ? AND scope_id = ? AND key = ?",
+            ("global", "global", "inactivated_plugins"),
+        ).fetchone()
+        current = json.loads(row[1]).get("val", []) if row else []
+        if not isinstance(current, list):
+            raise RuntimeError("AstrBot 插件开关数据无效")
+        directory = plugin_path(plugin_id)
+        module_name = "main" if (directory / "main.py").is_file() else plugin_id
+        module = f"data.plugins.{plugin_id}.{module_name}"
+        values = [value for value in current if not value.startswith(f"data.plugins.{plugin_id}.")]
+        if not enabled:
+            values.append(module)
+        value = json.dumps({"val": values}, ensure_ascii=False)
+        now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" ")
+        if row:
+            connection.execute("UPDATE preferences SET value = ?, updated_at = ? WHERE id = ?",
+                               (value, now, row[0]))
+        else:
+            connection.execute(
+                "INSERT INTO preferences (scope, scope_id, key, value, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                ("global", "global", "inactivated_plugins", value, now, now),
+            )
+
+
+def set_enabled(plugin_id: str, enabled: bool) -> dict:
+    """Use AstrBot's real hot switch; preserve configuration and permissions."""
+    if not isinstance(plugin_id, str) or not re.fullmatch(r"[\w-]+", plugin_id):
+        raise ValueError("插件 ID 无效")
+    if not isinstance(enabled, bool):
+        raise ValueError("enabled 必须是布尔值")
+    with _toggle_lock:
+        row = next((row for row in list_plugins() if row["id"] == plugin_id), None)
+        if not row or not row["installed"]:
+            raise ValueError("插件尚未安装")
+        directory = plugin_path(plugin_id)
+        if directory.is_symlink() or directory.resolve().parent != PLUGIN_ROOT.resolve():
+            raise ValueError("插件目录无效")
+        online = processes.port_up(6185)
+        pending = False
+        applied = not online
+        cancelled = False
+        previous = _pending_entries().get(plugin_id)
+        native_enabled = not directory.name.endswith(".disabled") and not any(
+            module.startswith(f"data.plugins.{plugin_id}.") for module in _inactive_modules())
+        if online:
+            token = None
+            attempted = False
+            observed = None
+            try:
+                if directory.name.endswith(".disabled"):
+                    raise RuntimeError("旧版插件目录需要重新加载")
+                token = astrbot_api.dashboard_token()
+                runtime = _runtime_plugin(token, plugin_id)
+                observed = bool(runtime and runtime.get("activated"))
+                if not runtime:
+                    raise ValueError("插件尚未加载，请先在诊断页重启聊天服务")
+                if observed != enabled or native_enabled != enabled:
+                    attempted = True
+                    result = astrbot_api._request(
+                        "/api/plugin/on" if enabled else "/api/plugin/off",
+                        {"name": runtime["name"]}, token=token,
+                    )
+                    if result.get("status") != "ok":
+                        raise RuntimeError(result.get("message") or "AstrBot 未能切换插件")
+                    current = _runtime_plugin(token, plugin_id)
+                    observed = bool(current and current.get("activated"))
+                    if not current or observed != enabled:
+                        raise RuntimeError("插件未能完成加载，请重启对话服务后检查")
+                _save_pending(plugin_id, None)
+                applied = True
+            except Exception:
+                # The current host may predate desktop-session support. Save
+                # intent separately; do not alter its cached DB or interrupt it.
+                if token:
+                    try:
+                        current = _runtime_plugin(token, plugin_id)
+                        observed = bool(current and current.get("activated"))
+                    except Exception:
+                        pass
+                if (previous and previous.get("attempted") is False and not attempted
+                        and enabled == previous.get("baseline_enabled") and native_enabled == enabled
+                        and (observed is None or observed == enabled)):
+                    # Cancel a purely queued edit; no native mutation was ever
+                    # attempted, so this does not claim a failed reload worked.
+                    _save_pending(plugin_id, None)
+                    cancelled = True
+                else:
+                    _save_pending(plugin_id, enabled,
+                                  runtime_enabled=observed if observed is not None else row["runtime_enabled"],
+                                  attempted=attempted or bool(previous and previous.get("attempted")),
+                                  baseline_enabled=previous.get("baseline_enabled") if previous else native_enabled)
+                    pending = True
+        else:
+            if (ASTRBOT / "data" / "data_v4.db").is_file():
+                _set_offline(plugin_id, enabled)
+                if directory.name.endswith(".disabled") and enabled:
+                    directory.rename(PLUGIN_ROOT / plugin_id)
+                _save_pending(plugin_id, None)
+            else:
+                _save_pending(plugin_id, enabled)
+                applied = False
+                pending = True
+        rows = list_plugins()
+        message = "已启用" if enabled else "已停用"
+        if cancelled:
+            message = "已取消待应用更改"
+        if pending:
+            message = "已保存，重启对话后生效"
+        return {"ok": True, "id": plugin_id, "enabled": enabled,
+                "applied": applied, "restart_required": pending, "pending": pending,
+                "runtime_enabled": next(item["runtime_enabled"] for item in rows if item["id"] == plugin_id),
+                "message": message, "plugins": rows}
 
 
 def _write_atomic(path: Path, content: bytes) -> None:

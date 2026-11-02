@@ -51,17 +51,18 @@ def main() -> None:
         instance = server.start_server(preview=True)
         connection = http.client.HTTPConnection(*instance.server_address, timeout=5)
         try:
-            for path in ("/api/state", "/api/status", "/api/lovehouse/status", "/api/plugins", "/api/updates"):
+            for path in ("/api/state", "/api/status", "/api/lovehouse/status", "/api/plugins", "/api/updates", "/api/metrics"):
                 connection.request("GET", path)
                 response = connection.getresponse()
                 assert response.status == 200, path
                 value = json.loads(response.read())
                 if path == "/api/state":
                     assert value["preview"] and not value["owner_qq"]
-            connection.request("POST", "/api/start", body=b"{}", headers={"Content-Type": "application/json"})
-            response = connection.getresponse()
-            assert response.status == 403
-            response.read()
+            for path in ("/api/start", "/api/plugins/toggle"):
+                connection.request("POST", path, body=b"{}", headers={"Content-Type": "application/json"})
+                response = connection.getresponse()
+                assert response.status == 403
+                response.read()
             connection.request("GET", "/assets/avatars/dafeiyu.png")
             response = connection.getresponse()
             assert response.status == 200 and response.read().startswith(b"\x89PNG")

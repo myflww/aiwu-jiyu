@@ -1,5 +1,5 @@
-﻿#ifndef AppVersion
-  #define AppVersion "1.1.0"
+#ifndef AppVersion
+  #define AppVersion "1.2.0"
 #endif
 #ifndef BundleDir
   #define BundleDir SourcePath + "..\dist\release\AiwuJiyu-" + AppVersion + "-Windows-x64"
@@ -35,6 +35,7 @@ CloseApplications=yes
 RestartApplications=no
 LicenseFile={#BundleDir}\LICENSE
 VersionInfoCompany=myflww
+VersionInfoVersion={#AppVersion}
 VersionInfoDescription=爱屋及鱼桌面安装程序
 VersionInfoProductName=爱屋及鱼
 

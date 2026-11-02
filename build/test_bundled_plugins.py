@@ -4,10 +4,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sqlite3
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
+from contextlib import closing
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -103,6 +106,199 @@ class BundledPluginsTests(unittest.TestCase):
         self.assertTrue(row["bundled"] and row["pending"])
         self.assertFalse(row["installed"] or row["enabled"])
         self.assertEqual(row["path"], "")
+
+    def prepare_preferences(self):
+        self.runtime.joinpath("data").mkdir(parents=True, exist_ok=True)
+        database = self.runtime / "data" / "data_v4.db"
+        with closing(sqlite3.connect(database)) as connection, connection:
+            connection.execute("CREATE TABLE preferences (id INTEGER PRIMARY KEY, scope TEXT, "
+                               "scope_id TEXT, key TEXT, value TEXT, created_at TEXT, updated_at TEXT)")
+            connection.execute("INSERT INTO preferences (scope,scope_id,key,value) VALUES (?,?,?,?)",
+                               ("global", "global", "inactivated_plugins",
+                                json.dumps({"val": ["data.plugins.some_other_plugin.main"]})))
+            connection.execute("INSERT INTO preferences (scope,scope_id,key,value) VALUES (?,?,?,?)",
+                               ("umo", "private-test", "unrelated", '{"val": "keep"}'))
+        return database
+
+    def test_offline_switch_persists_and_preserves_configuration_and_other_plugins(self):
+        self.install_for_switch()
+        database = self.prepare_preferences()
+        config = self.installed / self.plugin_id / "config.json"
+        config.write_text('{"private_setting": "keep"}', encoding="utf-8")
+        with patch.object(plugins.processes, "port_up", return_value=False):
+            disabled = plugins.set_enabled(self.plugin_id, False)
+            self.assertFalse(disabled["enabled"])
+            self.assertTrue(disabled["applied"])
+            self.assertFalse(plugins.list_plugins()[0]["enabled"])
+            enabled = plugins.set_enabled(self.plugin_id, True)
+            self.assertTrue(enabled["enabled"])
+        self.assertEqual(config.read_text("utf-8"), '{"private_setting": "keep"}')
+        self.assertEqual(plugins._inactive_modules(), {"data.plugins.some_other_plugin.main"})
+        with closing(sqlite3.connect(database)) as connection:
+            self.assertEqual(connection.execute("SELECT value FROM preferences WHERE key='unrelated'").fetchone()[0],
+                             '{"val": "keep"}')
+
+    def install_for_switch(self):
+        plugins.install_bundled()
+
+    def test_live_switch_uses_registered_name_without_restarting_services(self):
+        self.install_for_switch()
+        self.prepare_preferences()
+
+        active = True
+
+        def request(path, payload=None, token=None, method="POST"):
+            nonlocal active
+            self.assertEqual(token, "local-token")
+            if path == "/api/plugin/get":
+                return {"status": "ok", "data": [{"root_dir_name": self.plugin_id,
+                        "name": "RegisteredName", "activated": active}]}
+            self.assertEqual(path, "/api/plugin/off")
+            self.assertEqual(payload, {"name": "RegisteredName"})
+            plugins._set_offline(self.plugin_id, False)  # mimic native host persistence, in temp DB
+            active = False
+            return {"status": "ok"}
+
+        with patch.object(plugins.processes, "port_up", return_value=True), \
+             patch.object(plugins.astrbot_api, "dashboard_token", return_value="local-token"), \
+             patch.object(plugins.astrbot_api, "_request", side_effect=request), \
+             patch.object(plugins.processes, "stop_astrbot", side_effect=AssertionError("service restarted")):
+            result = plugins.set_enabled(self.plugin_id, False)
+        self.assertTrue(result["applied"])
+        self.assertFalse(result["plugins"][0]["enabled"])
+
+    def test_live_auth_failure_queues_switch_without_editing_cached_native_preferences(self):
+        self.install_for_switch()
+        self.prepare_preferences()
+        before = plugins._inactive_modules()
+        with patch.object(plugins.processes, "port_up", return_value=True), \
+             patch.object(plugins.astrbot_api, "dashboard_token", side_effect=RuntimeError("auth failure")):
+            result = plugins.set_enabled(self.plugin_id, False)
+        self.assertTrue(result["ok"] and result["pending"] and result["restart_required"])
+        self.assertFalse(result["applied"] or result["enabled"])
+        self.assertTrue(result["runtime_enabled"])
+        self.assertEqual(plugins._inactive_modules(), before)
+        row = plugins.list_plugins()[0]
+        self.assertTrue(row["pending_change"] and row["runtime_enabled"])
+        self.assertFalse(row["enabled"])
+        with patch.object(plugins.processes, "port_up", return_value=False):
+            plugins.apply_pending()
+        self.assertEqual(plugins._pending_switches(), {})
+        self.assertFalse(plugins.list_plugins()[0]["enabled"])
+
+    def test_extra_plugin_with_named_module_and_input_validation(self):
+        target = self.installed / "custom_plugin"
+        target.mkdir(parents=True)
+        (target / "custom_plugin.py").write_text("# third party\n", encoding="utf-8")
+        self.prepare_preferences()
+        with patch.object(plugins.processes, "port_up", return_value=False):
+            plugins.set_enabled("custom_plugin", False)
+            self.assertIn("data.plugins.custom_plugin.custom_plugin", plugins._inactive_modules())
+            row = next(row for row in plugins.list_plugins() if row["id"] == "custom_plugin")
+            self.assertFalse(row["enabled"] or row["bundled"])
+            with self.assertRaises(ValueError):
+                plugins.set_enabled("../outside", False)
+            with self.assertRaises(ValueError):
+                plugins.set_enabled("custom_plugin", "false")
+
+    def test_cancel_pending_switch_without_restart(self):
+        self.install_for_switch()
+        self.prepare_preferences()
+        with patch.object(plugins.processes, "port_up", return_value=True), \
+             patch.object(plugins.astrbot_api, "dashboard_token", side_effect=RuntimeError("old host")):
+            plugins.set_enabled(self.plugin_id, False)
+            result = plugins.set_enabled(self.plugin_id, True)
+        self.assertTrue(result["ok"] and result["enabled"])
+        self.assertFalse(result["applied"])
+        self.assertFalse(result["pending"] or result["restart_required"])
+        self.assertEqual(plugins._pending_switches(), {})
+
+    def test_failed_hot_enable_cannot_be_reported_applied_from_changed_database(self):
+        self.install_for_switch()
+        self.prepare_preferences()
+        plugins._set_offline(self.plugin_id, False)
+        attempts = []
+
+        def request(path, payload=None, token=None, method="POST"):
+            if path == "/api/plugin/get":
+                return {"status": "ok", "data": [{"root_dir_name": self.plugin_id,
+                        "name": "RegisteredName", "activated": False}]}
+            self.assertEqual(path, "/api/plugin/on")
+            attempts.append(path)
+            # AstrBot persists the enabled preference before attempting reload.
+            plugins._set_offline(self.plugin_id, True)
+            raise RuntimeError("native reload failed")
+
+        with patch.object(plugins.processes, "port_up", return_value=True), \
+             patch.object(plugins.astrbot_api, "dashboard_token", return_value="local-token"), \
+             patch.object(plugins.astrbot_api, "_request", side_effect=request):
+            first = plugins.set_enabled(self.plugin_id, True)
+            row = plugins.list_plugins()[0]
+            self.assertTrue(first["pending"] and row["pending_change"])
+            self.assertFalse(first["applied"] or row["runtime_enabled"])
+            self.assertNotIn(f"data.plugins.{self.plugin_id}.main", plugins._inactive_modules())
+            second = plugins.set_enabled(self.plugin_id, True)
+        self.assertEqual(len(attempts), 2, "a changed DB must not skip the real runtime retry")
+        self.assertTrue(second["pending"] and second["restart_required"])
+        self.assertFalse(second["applied"] or second["runtime_enabled"])
+
+    def test_startup_pending_worker_cannot_overwrite_later_user_cancellation(self):
+        self.install_for_switch()
+        self.prepare_preferences()
+        plugins._save_pending(self.plugin_id, False, runtime_enabled=True,
+                              attempted=False, baseline_enabled=True)
+        snapshot_ready = threading.Event()
+        continue_worker = threading.Event()
+        user_done = threading.Event()
+        original = plugins._pending_switches
+        errors = []
+
+        def snapshot():
+            result = original()
+            if threading.current_thread().name == "pending-worker":
+                snapshot_ready.set()
+                if not continue_worker.wait(3):
+                    raise AssertionError("worker test timed out")
+            return result
+
+        def run_worker():
+            try:
+                plugins.apply_pending_live()
+            except Exception as exc:
+                errors.append(exc)
+
+        def run_user():
+            try:
+                plugins.set_enabled(self.plugin_id, True)
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                user_done.set()
+
+        with patch.object(plugins.processes, "port_up", return_value=True), \
+             patch.object(plugins.astrbot_api, "dashboard_token", side_effect=RuntimeError("old host")), \
+             patch.object(plugins, "_pending_switches", side_effect=snapshot):
+            worker = threading.Thread(target=run_worker, name="pending-worker")
+            user = threading.Thread(target=run_user, name="user-change")
+            worker.start()
+            self.assertTrue(snapshot_ready.wait(3))
+            user.start()
+            completed_before_worker = user_done.wait(0.1)
+            continue_worker.set()
+            worker.join(3)
+            user.join(3)
+        self.assertFalse(worker.is_alive() or user.is_alive())
+        self.assertFalse(completed_before_worker, "snapshot/application must share one lock")
+        self.assertEqual(errors, [])
+        self.assertEqual(plugins._pending_switches(), {})
+        self.assertTrue(plugins.list_plugins()[0]["enabled"])
+
+    def test_duplicate_legacy_disabled_directory_does_not_duplicate_plugin_row(self):
+        self.install_for_switch()
+        duplicate = self.installed / (self.plugin_id + ".disabled")
+        duplicate.mkdir()
+        (duplicate / "main.py").write_text("# stale legacy directory", encoding="utf-8")
+        self.assertEqual(len(plugins.list_plugins()), 1)
 
     def test_shipped_manifest_and_safe_permission_defaults(self):
         actual = ROOT / "assets" / "plugins"

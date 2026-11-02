@@ -158,7 +158,7 @@ def _relocate(install_dir: str) -> dict:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "AiwuJiyuApp/1.1.0"
+    server_version = "AiwuJiyuApp/" + updater.current_version()
 
     def _send(self, code: int, body: bytes, content_type: str) -> None:
         self.send_response(code)
@@ -233,6 +233,10 @@ class Handler(BaseHTTPRequestHandler):
                             "astrbot_mb": 0, "napcat_mb": 0, "app_mb": 0, "lovehouse_mb": 0},
             },
             "/api/status": status,
+            "/api/metrics": {"ok": True, "available": False, "processes_available": False,
+                             "total_mb": 0, "used_mb": 0, "available_mb": 0, "percent": 0,
+                             "astrbot_mb": 0, "napcat_mb": 0, "app_mb": 0, "lovehouse_mb": 0,
+                             "bot_total_mb": 0, "app_total_mb": 0, "sampled_at": None},
             "/api/contacts": {"ok": True, "logged_in": False, "friends": [], "groups": []},
             "/api/plugins": {"ok": True, "plugins": []},
             "/api/pc-access": {"ok": True, **pc},
@@ -269,6 +273,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, updater.get_updater().snapshot())
             elif path == "/api/state":
                 self._json(200, state())
+            elif path == "/api/metrics":
+                self._json(200, {"ok": True, **metrics.snapshot()})
             elif path == "/api/setup/status":
                 self._json(200, installer.snapshot())
             elif path == "/api/status":
@@ -491,6 +497,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, result)
             elif path == "/api/plugins/install-lovehouse":
                 self._json(200, plugins.install_lovehouse())
+            elif path == "/api/plugins/toggle":
+                origin = self.headers.get("Origin")
+                expected_origin = f"http://127.0.0.1:{self.server.server_address[1]}"
+                if (origin and origin != expected_origin) or self.headers.get("Sec-Fetch-Site") == "cross-site":
+                    self._json(403, {"ok": False, "message": "请从应用窗口操作插件"})
+                    return
+                self._json(200, plugins.set_enabled(body.get("id"), body.get("enabled")))
             elif path == "/api/pc-access":
                 result = pc_access.configure(
                     enabled=bool(body.get("enabled")),
@@ -651,8 +664,6 @@ class Handler(BaseHTTPRequestHandler):
                 config_store.save(config)
                 self._json(200, {"ok": True, "memory": memory})
             elif path == "/api/open-folder":
-                import subprocess
-
                 subprocess.Popen(["explorer", str(config_store.APP_HOME)])
                 self._json(200, {"ok": True})
             else:

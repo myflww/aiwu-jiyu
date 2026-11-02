@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+import os
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -102,7 +104,7 @@ def _kill_tree(pid: int) -> None:
     )
 
 
-def _spawn(cmd: list[str], cwd: Path, log_name: str) -> subprocess.Popen:
+def _spawn(cmd: list[str], cwd: Path, log_name: str, *, environment: dict | None = None) -> subprocess.Popen:
     LOGS.mkdir(parents=True, exist_ok=True)
     handle = open(LOGS / log_name, "ab", buffering=0)
     startupinfo = subprocess.STARTUPINFO()
@@ -118,6 +120,7 @@ def _spawn(cmd: list[str], cwd: Path, log_name: str) -> subprocess.Popen:
             creationflags=NEW_GROUP | NO_WINDOW,
             startupinfo=startupinfo,
             close_fds=True,
+            env={**os.environ, **environment} if environment else None,
         )
         return process
     finally:
@@ -129,8 +132,22 @@ def start_astrbot() -> None:
         raise RuntimeError("AstrBot 运行时尚未安装")
     if port_up(ASTRBOT_PORT):
         return
-    process = _spawn([str(ASTRBOT_PYTHON), str(ASTRBOT_RUNNER), "run"], ASTRBOT, "astrbot.log")
+    from backend import astrbot_api, plugins
+
+    plugins.apply_pending()
+    process = _spawn([str(ASTRBOT_PYTHON), str(ASTRBOT_RUNNER), "run"], ASTRBOT, "astrbot.log",
+                     environment=astrbot_api.desktop_environment())
     _write_pid("astrbot", process.pid)
+
+    def _sync_pending():
+        if wait_port(ASTRBOT_PORT, 45):
+            try:
+                plugins.apply_pending_live()
+            except Exception:
+                pass  # Keep the queued intent visible for the next attempt.
+
+    if plugins._pending_switches():
+        threading.Thread(target=_sync_pending, daemon=True).start()
 
 
 def start_napcat(quick_qq: str | None = None) -> None:

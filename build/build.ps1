@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$PythonPath = $env:DAFEIYU_BUILD_PYTHON,
     [switch]$SkipDependencyInstall,
     [string]$Version = "",
@@ -15,6 +15,24 @@ function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     if ($LASTEXITCODE -ne 0) { throw "$Program failed with exit code $LASTEXITCODE" }
 }
 Write-Host "[1/5] Prepare Windows x64 build environment"
+if (-not $IsccPath) {
+    $isccCommand = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
+    if ($isccCommand) { $IsccPath = $isccCommand.Source }
+    if (-not $IsccPath) {
+        $isccCandidates = @(
+            (Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"),
+            (Join-Path $env:ProgramFiles "Inno Setup 6\ISCC.exe"),
+            (Join-Path $root "build\vendor\InnoSetup\ISCC.exe")
+        )
+        $IsccPath = $isccCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+        if (-not $IsccPath) {
+            $IsccPath = Get-ChildItem -LiteralPath (Join-Path $root "build\vendor") -Filter "ISCC.exe" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+        }
+    }
+}
+if (-not $IsccPath -or -not (Test-Path -LiteralPath $IsccPath)) {
+    throw "Inno Setup 6 is required for the update-compatible Setup package. Pass -IsccPath <ISCC.exe>."
+}
 if (-not $PythonPath) {
     $PythonPath = Join-Path $root "build\.venv\Scripts\python.exe"
     if (-not (Test-Path -LiteralPath $PythonPath)) {
@@ -39,9 +57,13 @@ if (-not (Test-Path -LiteralPath $source)) { throw "Build produced no AiwuJiyu.e
 $bundle = Join-Path $root "dist\release\AiwuJiyu-$Version-Windows-x64"
 New-Item -ItemType Directory -Path $bundle -Force | Out-Null
 Copy-Item -LiteralPath $source -Destination (Join-Path $bundle "爱屋及鱼.exe") -Force
-foreach ($name in @("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md")) {
+foreach ($name in @("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "README.md", "CONTRIBUTING.md")) {
     Copy-Item -LiteralPath (Join-Path $root $name) -Destination $bundle -Force
 }
+Invoke-Checked $PythonPath @("-c", "import shutil,sys; shutil.copytree(sys.argv[1],sys.argv[2],dirs_exist_ok=True)", (Join-Path $root "docs"), (Join-Path $bundle "docs"))
+$readmeAssets = Join-Path $bundle "assets\ui"
+New-Item -ItemType Directory -Path $readmeAssets -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $root "assets\ui\dafeiyu-daily.webp") -Destination $readmeAssets -Force
 Invoke-Checked $PythonPath @("-c", "import shutil,sys; shutil.copytree(sys.argv[1],sys.argv[2],dirs_exist_ok=True)", (Join-Path $root "build\collected-licenses"), (Join-Path $bundle "THIRD-PARTY-LICENSES"))
 Copy-Item -LiteralPath (Join-Path $root "install\install.ps1") -Destination $bundle -Force
 Copy-Item -LiteralPath (Join-Path $root "install\安装到桌面.cmd") -Destination $bundle -Force
@@ -50,13 +72,12 @@ $archive = Join-Path $root "dist\release\AiwuJiyu-$Version-Windows-x64.zip"
 Compress-Archive -LiteralPath $bundle -DestinationPath $archive -Force
 $direct = Join-Path $root "dist\release\爱屋及鱼.exe"
 Copy-Item -LiteralPath $source -Destination $direct -Force
-if ($IsccPath) {
-    Invoke-Checked $IsccPath @("/DAppVersion=$Version", "/DBundleDir=$bundle", "/DReleaseDir=$(Join-Path $root 'dist\release')", "build\installer.iss")
-}
+Invoke-Checked $IsccPath @("/DAppVersion=$Version", "/DBundleDir=$bundle", "/DReleaseDir=$(Join-Path $root 'dist\release')", "build\installer.iss")
 Write-Host "[5/5] Write release checksums"
 $artifacts = @($archive, $direct)
 $setup = Join-Path $root "dist\release\AiwuJiyu-Setup-$Version-Windows-x64.exe"
-if (Test-Path -LiteralPath $setup) { $artifacts += $setup }
+if (-not (Test-Path -LiteralPath $setup)) { throw "Build produced no update-compatible Setup installer" }
+$artifacts += $setup
 $sums = foreach ($artifact in $artifacts) {
     $hash = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant()
     "$hash  $(Split-Path -Leaf $artifact)"
@@ -64,3 +85,4 @@ $sums = foreach ($artifact in $artifacts) {
 $sums | Set-Content -LiteralPath (Join-Path $root "dist\release\SHA256SUMS.txt") -Encoding utf8
 Write-Host "Portable app: $direct"
 Write-Host "Desktop installation bundle: $archive"
+Write-Host "Update-compatible setup: $setup"
