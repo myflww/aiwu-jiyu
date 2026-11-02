@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$PythonPath = $env:DAFEIYU_BUILD_PYTHON,
     [switch]$SkipDependencyInstall,
     [string]$Version = "",
