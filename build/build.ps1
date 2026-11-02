@@ -72,9 +72,11 @@ $archive = Join-Path $root "dist\release\AiwuJiyu-$Version-Windows-x64.zip"
 Compress-Archive -LiteralPath $bundle -DestinationPath $archive -Force
 $direct = Join-Path $root "dist\release\爱屋及鱼.exe"
 Copy-Item -LiteralPath $source -Destination $direct -Force
+$download = Join-Path $root "dist\release\AiwuJiyu-$Version-Windows-x64.exe"
+Copy-Item -LiteralPath $source -Destination $download -Force
 Invoke-Checked $IsccPath @("/DAppVersion=$Version", "/DBundleDir=$bundle", "/DReleaseDir=$(Join-Path $root 'dist\release')", "build\installer.iss")
 Write-Host "[5/5] Write release checksums"
-$artifacts = @($archive, $direct)
+$artifacts = @($archive, $download)
 $setup = Join-Path $root "dist\release\AiwuJiyu-Setup-$Version-Windows-x64.exe"
 if (-not (Test-Path -LiteralPath $setup)) { throw "Build produced no update-compatible Setup installer" }
 $artifacts += $setup
