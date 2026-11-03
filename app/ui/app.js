@@ -30,6 +30,7 @@ let updateState = null;
 let updateRequestPending = false;
 let updateStatusLoading = false;
 let updateReachable = false;
+let logRetentionFetchedAt = 0;
 
 const STEP_NAMES = ["安装位置", "运行环境", "对话模型", "连接 QQ", "主人身份", "完成"];
 const VIEW_META = {
@@ -56,6 +57,33 @@ function setConnectionStatus(connected) {
   $("connectionBanner")?.classList.toggle("hidden", connected);
   if ($("localServiceLabel")) $("localServiceLabel").textContent = connected ? "本机服务已连接" : "正在重新连接";
   if (updateState) renderUpdates();
+  renderDashboardShortcuts();
+}
+
+function renderDashboardShortcuts() {
+  const services = [["AstrBot", "astrbot", "Astrbot"], ["NapCat", "napcat", "Napcat"]];
+  services.forEach(([label, key, suffix]) => {
+    const button = $("pluginsOpen" + suffix);
+    if (!button) return;
+    const up = !!state?.status?.[key]?.up;
+    button.disabled = !localConnected || !up || !!state?.preview || button.dataset.busy === "true";
+    button.title = state?.preview ? "预览模式不打开本地后台" : !localConnected ? "请先重新连接本机服务" : !up ? `${label} 未启动，请先在首页一键开启` : `在默认浏览器打开本机 ${label} 后台`;
+    $("plugins" + suffix + "Dot")?.classList.toggle("asleep", !localConnected || !up);
+  });
+  const a = !!state?.status?.astrbot?.up, n = !!state?.status?.napcat?.up;
+  setText("pluginsDashboardHint", !localConnected ? "请先重新连接本机服务，再打开后台。" : state?.preview ? "后台入口预览；正式运行时在默认浏览器打开。" : a && n ? "在默认浏览器打开，仅连接这台电脑的服务。" : !a && !n ? "服务未启动，请先在首页一键开启。" : `${a ? "NapCat" : "AstrBot"} 未启动，请先在首页一键开启。`);
+}
+
+async function openLocalDashboard(name, button) {
+  const dashboards = { astrbot: ["AstrBot", "http://127.0.0.1:6185"], napcat: ["NapCat", "http://127.0.0.1:6099"] };
+  const dashboard = dashboards[name];
+  if (!dashboard) return;
+  if (state?.preview) { toast("预览模式不打开本地后台。"); return; }
+  await withBusy(button, "正在打开…", async () => {
+    await api("/api/open-url", { method: "POST", body: JSON.stringify({ url: dashboard[1] }) });
+    toast(`已在默认浏览器打开 ${dashboard[0]} 后台`);
+  });
+  renderDashboardShortcuts();
 }
 
 async function withBusy(button, label, action) {
@@ -715,7 +743,7 @@ function renderOverview() {
   $("pcBadge").textContent = pc.enabled ? "已授权" : "未授权";
   $("pcBadge").className = "badge " + (pc.enabled ? "green" : "gray");
   $("pcDesc").textContent = pc.enabled
-    ? `已授权主人${adminCount ? `与 ${adminCount} 位管理员` : ""}操作工作目录。`
+    ? `已授权主人${adminCount ? `与 ${adminCount} 位管理员` : ""}${pc.desktop_enabled ? "使用电脑工具与桌面操控。" : "操作工作目录；完整桌面操控未开启。"}`
     : "电脑操作权限已关闭。可在此设置工作目录与操作授权。";
   renderDiagnosticsStatus();
 }
@@ -770,6 +798,7 @@ function renderWhitelist() {
     if (perm.read) parts.push("读取");
     if (perm.write) parts.push("写文件");
     if (perm.run) parts.push("执行命令");
+    if (perm.desktop) parts.push(state.pc_access?.desktop_enabled ? "桌面操控" : "桌面操控预设");
     return parts.length
       ? pcEnabled ? "管理员 · " + parts.join(" + ") : "已预设 " + parts.join(" + ") + " · 电脑权限未开启"
       : "仅聊天";
@@ -791,7 +820,7 @@ function renderWhitelist() {
     }
     if (entry.id === state.owner_qq) {
       return `<div class="list-item">
-        <div class="who"><b>私聊 <span class="mono">${esc(entry.id)}</span></b><span>主人 · 始终可聊天 · ${pcEnabled ? "电脑操作已授权（全部权限）" : "电脑权限未开启"}</span></div>
+        <div class="who"><b>私聊 <span class="mono">${esc(entry.id)}</span></b><span>主人 · 始终可聊天 · ${pcEnabled ? state.pc_access?.desktop_enabled ? "电脑操作已授权（含桌面操控）" : "已授权工作目录工具，桌面操控未开启" : "电脑权限未开启"}</span></div>
         <span class="badge green">主人</span>
       </div>`;
     }
@@ -825,43 +854,47 @@ function openMemberModal(id) {
   openModal(`权限 · ${id}`, `
     ${state?.pc_access?.enabled ? "" : '<div class="notice blue" style="margin-bottom:12px">电脑权限总开关还未开启。本次只保存该伙伴的权限预设；你主动开启电脑权限后，预设才可用于操作。</div>'}
     <div class="notice" style="margin-bottom:12px">
-      只限「大肥鱼工作目录」内的操作；每次调用都会记进审计。关机、格式化、删盘、改注册表、结束进程这类高危命令对所有人都拦截，主人也一样。
+      文件和命令工具面向工作目录；桌面操控可查看屏幕、点击、输入并操作应用。桌面操控还需要主人开启总开关，仅在私聊生效。
     </div>
     <div class="row wrap" style="gap:8px;margin-bottom:12px">
       <button class="ghost" data-preset="none">仅聊天</button>
       <button class="ghost" data-preset="assist">助手（读写文件）</button>
       <button class="ghost" data-preset="operator">操作员（读写 + 命令）</button>
+      <button class="ghost" data-preset="desktop">完整电脑操作</button>
     </div>
     <div class="stack">
       ${row("read", "读取文件", "查看工作目录里已有的文件、列目录")}
       ${row("write", "生成 / 修改文件", "在工作目录里写网页、脚本、文档等产物")}
       ${row("run", "执行命令", "运行 PowerShell（受安全策略限制，可做构建、转换、批量处理）")}
+      ${row("desktop", "桌面操控", "查看屏幕与控件，点击、滚动、输入和打开应用；操作范围覆盖当前桌面")}
     </div>
     <div class="hint" style="margin-top:12px">保存后会重启一次 AstrBot，约 10 秒。</div>
   `, async () => {
     const read = !!document.querySelector('[data-perm-key="read"]')?.checked;
     const write = !!document.querySelector('[data-perm-key="write"]')?.checked;
     const run = !!document.querySelector('[data-perm-key="run"]')?.checked;
+    const desktop = !!document.querySelector('[data-perm-key="desktop"]')?.checked;
     toast("正在保存权限并重启 AstrBot…");
     const data = await api("/api/members", {
       method: "POST",
-      body: JSON.stringify({ qq: id, read, write, run }),
+      body: JSON.stringify({ qq: id, read, write, run, desktop }),
     });
     state.members = data.members || {};
     state.whitelist = data.whitelist || state.whitelist;
     await refreshState(false);
     renderWhitelist();
-    toast(read || write || run ? `已更新 ${id} 的权限` : `${id} 已改为仅聊天`);
+    toast(read || write || run || desktop ? `已更新 ${id} 的权限` : `${id} 已改为仅聊天`);
   });
   document.querySelectorAll("[data-preset]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const preset = btn.dataset.preset;
       const values = {
-        none: { read: false, write: false, run: false },
-        assist: { read: true, write: true, run: false },
-        operator: { read: true, write: true, run: true },
+        none: { read: false, write: false, run: false, desktop: false },
+        assist: { read: true, write: true, run: false, desktop: false },
+        operator: { read: true, write: true, run: true, desktop: false },
+        desktop: { read: true, write: true, run: true, desktop: true },
       }[preset];
-      ["read", "write", "run"].forEach((key) => {
+      ["read", "write", "run", "desktop"].forEach((key) => {
         const box = document.querySelector(`[data-perm-key="${key}"]`);
         if (box) box.checked = values[key];
       });
@@ -1198,9 +1231,11 @@ async function loadPlugins() {
 
 function renderPlugins() {
   const cards = {
-    astrbot_plugin_face_convert: { title: "QQ 表情", desc: "将 [流泪]、[doge] 等文字标签转换成 QQ 表情。", icon: "spark", theme: "blue" },
-    astrbot_plugin_pc_operator: { title: "电脑操作", desc: "在授权工作目录中读写文件、运行任务。启用插件后仍需单独授权。", icon: "folder", theme: "blue", action: "pc", actionLabel: "操作权限" },
+    astrbot_plugin_face_convert: { title: "QQ 原生表情", desc: "将 [流泪]、[doge] 等文字标签转换成 QQ 自带的小表情。", icon: "spark", theme: "blue" },
+    astrbot_plugin_pc_operator: { title: "电脑操作", desc: "读写工作目录、执行命令；最高权限可查看屏幕、点击输入与操作桌面应用。", icon: "folder", theme: "blue", action: "pc", actionLabel: "操作权限" },
     astrbot_plugin_love_house: { title: "长期记忆", desc: "将已登记 QQ 会话交给爱之屋保存、整理与召回。", icon: "book", theme: "pink", action: "memory", actionLabel: "会话与记忆库" },
+    astrbot_plugin_dafeiyu_companion: { title: "主动陪伴与情绪", desc: "鲸鱼娘自然口吻、主动问候、聊天情绪与电脑活动概况，各项可单独选择。", icon: "chat", theme: "pink", action: "companion", actionLabel: "陪伴设置" },
+    astrbot_plugin_dafeiyu_stickers: { title: "大肥鱼表情包", desc: "按聊天语气自动搭配表情，原创贴纸与社区动图离线附带，与 QQ 小表情分开管理。", icon: "spark", theme: "pink", action: "stickers", actionLabel: "配图与素材" },
   };
   const included = pluginList.filter(item => item.bundled || cards[item.id]);
   const extras = pluginList.filter(item => !included.includes(item));
@@ -1211,13 +1246,19 @@ function renderPlugins() {
   function renderCard(item) {
     const card = cards[item.id] || { title:item.name || item.id, desc:item.desc || "本机安装的扩展插件。", icon:"puzzle",theme:"blue" };
     const installed = item.installed !== false;
-    const status = !installed ? "尚未部署，请先完成首次设置" : item.pending_change ? "已保存，重启对话服务后生效" : item.enabled ? card.action === "pc" ? (state?.pc_access?.enabled ? "已启用 · 操作权限已授权" : "已启用 · 操作权限未授权") : card.action === "memory" ? "已启用 · 仅处理登记会话" : "已启用" : "已停用";
+    const status = !installed ? "尚未部署，请先完成首次设置" : item.pending_change ? "已保存，重启对话服务后生效" : item.enabled ? card.action === "pc" ? (state?.pc_access?.enabled ? state.pc_access.desktop_enabled ? "已启用 · 完整桌面操控已授权" : "已启用 · 工作目录工具已授权" : "已启用 · 操作权限未授权") : card.action === "memory" ? "已启用 · 仅处理登记会话" : "已启用" : "已停用";
     return `<article class="plugin-capability-card compact ${esc(card.theme)}"><div class="plugin-symbol"><svg class="icon" aria-hidden="true"><use href="#i-${esc(card.icon)}"></use></svg></div><div class="plugin-info"><h3>${esc(card.title)}</h3><p>${esc(card.desc)}</p><div class="plugin-module-status">${esc(status)}</div></div><div class="plugin-controls"><button type="button" class="plugin-switch" role="switch" aria-checked="${!!item.enabled}" aria-label="${esc(card.title)}" data-plugin-toggle="${esc(item.id)}" ${!installed || pluginTogglePending || !localConnected ? "disabled" : ""}><span class="switch-track" aria-hidden="true"><span></span></span><span class="switch-label">${item.enabled ? "已启用" : "已停用"}</span></button>${card.action ? `<button class="text-button" data-plugin-action="${card.action}">${esc(card.actionLabel)} ↗</button>` : ""}</div><details class="plugin-metadata"><summary>插件信息</summary><div><span>${esc(item.name || item.id)} · ${esc(item.version || "未知版本")}</span><span>作者：${esc(item.author || "未注明")}</span><code>${esc(item.id)}</code></div></details></article>`;
   }
   $("pluginsList").innerHTML = included.length ? included.map(renderCard).join("") : emptyState("没有随包插件", "完成首次设置后会自动部署。");
   $("pluginExtraSection").classList.toggle("hidden", !extras.length);
   $("pluginExtraList").innerHTML = extras.map(renderCard).join("");
-  $$("[data-plugin-action]").forEach(btn => btn.addEventListener("click", () => btn.dataset.pluginAction === "pc" ? openPcModal() : showView("lovehouse")));
+  $$("[data-plugin-action]").forEach(btn => btn.addEventListener("click", () => {
+    const action = btn.dataset.pluginAction;
+    if (action === "pc") openPcModal();
+    else if (action === "companion") openCompanionModal();
+    else if (action === "stickers") openStickerLibrary();
+    else showView("lovehouse");
+  }));
   $$("[data-plugin-toggle]").forEach(btn => btn.addEventListener("click", () => togglePlugin(btn.dataset.pluginToggle)));
   ["pluginsFolder", "pluginsInstallLh", "pluginsRestart"].forEach(id => { $(id).disabled = state?.installed === false || pluginTogglePending; });
 }
@@ -1246,6 +1287,76 @@ function fmtFileSize(bytes) {
   if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
   if (value >= 1024) return `${Math.round(value / 1024)} KB`;
   return `${value} B`;
+}
+
+async function openCompanionModal() {
+  try {
+    const data = await api("/api/companion");
+    const active = pluginList.find(item => item.id === "astrbot_plugin_dafeiyu_companion")?.enabled;
+    const choice = (key, title, description) => `<label class="perm-row"><input type="checkbox" id="companion-${key}" ${data[key] ? "checked" : ""}><div><b>${title}</b><span class="small">${description}</span></div></label>`;
+    openModal("大肥鱼的陪伴方式", `
+      ${active ? "" : '<div class="notice blue">插件尚未启用。可以先保存偏好，再回到列表开启“主动陪伴与情绪”。</div>'}
+      <div class="stack companion-options">
+        ${choice("whale_style_enabled", "鲸鱼娘口吻增强", "傲娇嘴硬但温柔，用自然中文接话；保留当前人格和实际工具能力，不套模板结尾。")}
+        ${choice("proactive_enabled", "让她主动来找你", "只联系已和她私聊过的主人，遵守频率上限和免打扰时间。")}
+        ${choice("emotion_enabled", "情绪陪伴", "结合你们的聊天节奏与文字调整表达；这是本地模拟的情绪状态。")}
+        ${choice("activity_enabled", "感知电脑活动概况", "读取前台应用名称与离开/回来状态，提供给当前聊天模型；不记录键盘内容、不持续截屏。")}
+      </div>
+      <div class="companion-form-grid">
+        <label class="field"><span>主动聊天最短间隔（分钟）</span><input type="number" id="companion-interval" min="30" max="1440" value="${esc(data.interval_minutes || 120)}"></label>
+        <label class="field"><span>每天最多主动联系</span><input type="number" id="companion-limit" min="1" max="10" value="${esc(data.daily_limit || 3)}"></label>
+        <label class="field"><span>免打扰开始（0–23 时）</span><input type="number" id="companion-quiet-start" min="0" max="23" value="${esc(data.quiet_start ?? 23)}"></label>
+        <label class="field"><span>免打扰结束（0–23 时）</span><input type="number" id="companion-quiet-end" min="0" max="23" value="${esc(data.quiet_end ?? 8)}"></label>
+      </div>
+      <p class="hint">${esc(data.proactive_summary || "主动聊天使用当前模型，可能产生 API 用量。先与她私聊一次，再等待主动问候。")}</p>
+      <div class="hint">屏幕截图与鼠标键盘操作在“电脑操作 → 操作权限”单独授权。保存后，已启用的陪伴插件会重新加载。</div>
+    `, async () => {
+      const body = {
+        whale_style_enabled: $("companion-whale_style_enabled").checked,
+        proactive_enabled: $("companion-proactive_enabled").checked,
+        emotion_enabled: $("companion-emotion_enabled").checked,
+        activity_enabled: $("companion-activity_enabled").checked,
+        interval_minutes: Number($("companion-interval").value),
+        daily_limit: Number($("companion-limit").value),
+        quiet_start: Number($("companion-quiet-start").value),
+        quiet_end: Number($("companion-quiet-end").value),
+      };
+      await api("/api/companion", {method:"POST",body:JSON.stringify(body)});
+      await loadPlugins();
+      toast(active ? "陪伴偏好已保存" : "偏好已保存，启用插件后生效");
+    });
+  } catch (err) { toast(err.message || String(err)); }
+}
+
+async function openStickerLibrary() {
+  try {
+    const data = await api("/api/stickers");
+    const items = data.stickers || [];
+    const prefs = data.settings || {auto_match_enabled:true,cooldown_seconds:30,pack_selection:"all"};
+    const active = pluginList.find(item => item.id === "astrbot_plugin_dafeiyu_stickers")?.enabled;
+    const credits = (data.packs || []).map(pack => {
+      const author = pack.attribution;
+      const lines = typeof author === "string" ? [author] : [author?.author, author?.website, author?.bilibili,
+        ...(author?.designers || []).map(item => `${item.name} · ${item.url}`)];
+      return `<p><b>${esc(pack.name)}</b><br>${lines.filter(Boolean).map(esc).join("<br>")}<br>${esc(pack.source_url || "")}<br>${esc(typeof pack.license === "string" ? pack.license : "详见随附 LICENSE-ASSETS 与署名文件")}</p>`;
+    }).join("");
+    openModal("表情匹配与素材库", `
+      ${active ? "" : '<div class="notice blue">素材已经随应用附带，启用“大肥鱼表情包”后会在 QQ 生效。</div>'}
+      <label class="perm-row" style="margin:14px 0"><input type="checkbox" id="sticker-auto" ${prefs.auto_match_enabled ? "checked" : ""}><div><b>按聊天情绪自动配图</b><span class="small">根据回复语气选择合适表情，每条回复最多一张；不强制每句话都配图。</span></div></label>
+      <div class="companion-form-grid"><label class="field"><span>发送间隔（秒）</span><input type="number" id="sticker-cooldown" min="10" max="300" value="${esc(prefs.cooldown_seconds)}"></label><label class="field"><span>使用素材</span><select id="sticker-pack"><option value="all">全部随附素材</option><option value="original">爱屋及鱼原创</option><option value="community">社区授权素材</option></select></label></div>
+      <p class="hint">共 ${items.length} 张随附素材。也可在 QQ 明确请求，或使用“/肥鱼表情 开心”。</p>
+      <div class="sticker-library-grid" tabindex="0" aria-label="表情素材列表，可滚动浏览">${items.map(item => `<figure><img src="${esc(item.url || item.path)}" alt="${esc(item.label || item.id)}" loading="lazy"><figcaption>${esc(item.label || item.id)}<small>${item.pack_id === "community" ? "社区授权动图" : "原创贴纸"}</small></figcaption></figure>`).join("")}</div>
+      <details class="hint sticker-credits"><summary>素材来源与许可</summary>${credits}</details>`, async () => {
+        await api("/api/stickers/settings", {method:"POST",body:JSON.stringify({
+          auto_match_enabled:$("sticker-auto").checked,
+          cooldown_seconds:Number($("sticker-cooldown").value),
+          pack_selection:$("sticker-pack").value,
+        })});
+        await loadPlugins();
+        toast(active ? "表情匹配偏好已保存" : "偏好已保存，启用插件后生效");
+      });
+    $("sticker-pack").value = prefs.pack_selection;
+  } catch (err) { toast(err.message || String(err)); }
 }
 
 async function loadArtifacts() {
@@ -1290,6 +1401,7 @@ function openPcModal() {
         if (perm.read) parts.push("读取");
         if (perm.write) parts.push("写文件");
         if (perm.run) parts.push("命令");
+        if (perm.desktop) parts.push("桌面操控");
         return `${qq}（${parts.join(" + ") || "仅聊天"}）`;
       }).join("、")
     : "还没有授权管理员";
@@ -1303,15 +1415,15 @@ function openPcModal() {
     </div>`).join("");
   openModal("电脑权限", `
     <div class="notice" style="margin-bottom:12px">
-      开启后，主人和被授权的管理员可以让大肥鱼在下面这个工作目录里读写文件、执行 PowerShell 命令。
-      管理员的权限在「聊天权限 → 调整权限」里逐项分配。
-      这不是操作系统沙箱：命令仍以当前 Windows 用户权限运行，只建议在你自己的电脑上、只对主人开启。
+      文件和命令工具用于工作目录。开启“完整桌面操控”后，她还能查看屏幕与控件、点击、输入、滚动和打开应用。
+      主人拥有已开启的能力，其他人的权限在“聊天权限”里逐项分配。桌面操作以当前 Windows 用户权限执行，始终只允许私聊。
     </div>
     <div class="stack">
       <label class="row" style="gap:8px">
         <input type="checkbox" id="pcEnabled" style="width:auto" ${pc.enabled ? "checked" : ""}>
         <span>允许大肥鱼使用这台电脑</span>
       </label>
+      <label class="perm-row"><input type="checkbox" id="pcDesktop" ${pc.desktop_enabled ? "checked" : ""}><div><b>完整桌面操控（最高权限）</b><span class="small">允许按需查看屏幕、操作鼠标键盘和应用；不会自动持续截屏</span></div></label>
       <label class="field"><span>工作目录</span>
         <div class="input-row">
           <input type="text" id="pcWorkspace" value="${esc(pc.workspace || "")}">
@@ -1342,6 +1454,7 @@ function openPcModal() {
       method: "POST",
       body: JSON.stringify({
         enabled,
+        desktop_enabled: enabled && $("pcDesktop").checked,
         workspace: $("pcWorkspace").value.trim(),
         timeout_s: Number($("pcTimeout").value) || 60,
         private_only: $("pcPrivate").checked,
@@ -1351,10 +1464,22 @@ function openPcModal() {
     state.pc_access = data;
     renderOverview();
     renderSettings();
+    if (!$("view-plugins").classList.contains("hidden")) renderPlugins();
     toast(enabled ? "电脑权限已开启" : "电脑权限已关闭");
   });
   const browse = $("pcBrowse");
   if (browse) browse.addEventListener("click", () => chooseFolder("pcWorkspace"));
+  const desktopToggle = $("pcDesktop"), privateToggle = $("pcPrivate");
+  const syncDesktopChoice = () => {
+    if (desktopToggle.checked) { $("pcEnabled").checked = true; privateToggle.checked = true; }
+    privateToggle.disabled = desktopToggle.checked;
+  };
+  desktopToggle.addEventListener("change", syncDesktopChoice);
+  $("pcEnabled").addEventListener("change", () => {
+    if (!$("pcEnabled").checked) desktopToggle.checked = false;
+    syncDesktopChoice();
+  });
+  syncDesktopChoice();
 }
 
 async function saveWorkspace() {
@@ -1409,6 +1534,7 @@ function renderDiagnosticsStatus() {
 
 async function loadLog() {
   renderDiagnosticsStatus();
+  if (Date.now() - logRetentionFetchedAt > 60000) loadLogRetention();
   try {
     const response = await fetch(`/api/logs?name=${currentLog}&t=${Date.now()}`);
     if (!response.ok) throw new Error(`暂时读不到运行记录（${response.status}）`);
@@ -1424,6 +1550,27 @@ async function loadLog() {
     $("logView").dataset.hasLogs = text ? "true" : "false";
   } catch (err) {
     setText("logUpdatedAt", err.message || "暂时无法读取，点击刷新重试");
+  }
+}
+
+async function loadLogRetention() {
+  logRetentionFetchedAt = Date.now();
+  try {
+    const data = await api("/api/logs/retention");
+    const mb = value => Math.round(Number(value) / 1024 / 1024);
+    setText("logRetentionRule", `启动时及每 ${Math.round(data.check_interval_seconds / 60)} 分钟检查；日志空闲后，单文件超过 ${mb(data.max_file_bytes)} MB 保留最新 ${mb(data.keep_bytes)} MB，连续 ${data.retention_days} 天未写入则清空。`);
+    const errors = data.errors || [], deferred = data.deferred || [];
+    const legacy = deferred.some(item => item.reason === "legacy_writer");
+    $("logRetentionBadge").className = "badge " + (errors.length || legacy ? "amber" : "green");
+    setText("logRetentionBadge", data.preview ? "规则预览" : errors.length ? "稍后重试" : legacy ? "等待旧服务重启" : "自动维护中");
+    const checked = data.checked_at ? `最近检查：${fmtDate(new Date(data.checked_at * 1000))}。` : "启动后自动检查。";
+    const result = data.reclaimed_bytes ? `本次释放 ${fmtFileSize(data.reclaimed_bytes)}。` : "";
+    const note = errors.length ? "部分日志暂时无法整理，下次会自动重试。" : legacy ? "旧版服务仍在写入的日志会保留，服务下次启动后纳入整理。" : deferred.length ? "正在写入的日志会在空闲后整理。" : "仅整理控制台诊断日志，聊天记录和记忆库独立保存。";
+    setText("logRetentionStatus", data.preview ? "预览模式只展示规则，不清理本机记录。" : checked + result + note);
+  } catch (_) {
+    setText("logRetentionBadge", "暂未读取");
+    $("logRetentionBadge").className = "badge amber";
+    setText("logRetentionStatus", "暂时无法读取维护状态，稍后会自动重试。");
   }
 }
 
@@ -1444,6 +1591,7 @@ function openModal(title, body, onOk) {
   $("modalBody").innerHTML = body;
   $("modalBack").classList.add("show");
   $("modalOk").classList.remove("hidden");
+  $("modalCancel").classList.remove("hidden");
   $("modalCancel").textContent = "取消";
   $("modalOk").textContent = "保存设置";
   $("modalOk").onclick = () => withBusy($("modalOk"), "正在保存…", async () => { if (onOk) await onOk(); closeModal(); });
@@ -1476,6 +1624,7 @@ function openQrModal() {
     <div class="hint" id="modalQrTip" style="text-align:center;margin-top:8px"></div>`;
   $("modalBack").classList.add("show");
   $("modalOk").classList.add("hidden");
+  $("modalCancel").classList.remove("hidden");
   $("modalCancel").textContent = "关闭";
   $("modalCancel").focus();
   startQrFlow("modalQr", "modalQrBadge", "modalQrTip");
@@ -1586,12 +1735,10 @@ function bindEvents() {
       }
     } catch (err) { toast(err.message || String(err)); }
   });
-  $("btnOpenAstrbot").addEventListener("click", () => api("/api/open-url", {
-    method: "POST", body: JSON.stringify({ url: "http://127.0.0.1:6185" }),
-  }).catch((err) => toast(err.message || String(err))));
-  $("btnOpenNapcat").addEventListener("click", () => api("/api/open-url", {
-    method: "POST", body: JSON.stringify({ url: "http://127.0.0.1:6099" }),
-  }).catch((err) => toast(err.message || String(err))));
+  $("btnOpenAstrbot").addEventListener("click", () => openLocalDashboard("astrbot", $("btnOpenAstrbot")));
+  $("btnOpenNapcat").addEventListener("click", () => openLocalDashboard("napcat", $("btnOpenNapcat")));
+  $("pluginsOpenAstrbot").addEventListener("click", () => openLocalDashboard("astrbot", $("pluginsOpenAstrbot")));
+  $("pluginsOpenNapcat").addEventListener("click", () => openLocalDashboard("napcat", $("pluginsOpenNapcat")));
   $("btnOpenFolder").addEventListener("click", () => api("/api/open-folder", { method: "POST", body: JSON.stringify({}) }).catch(() => {}));
   $("pcManage").addEventListener("click", openPcModal);
   $("artifactRefresh").addEventListener("click", loadArtifacts);

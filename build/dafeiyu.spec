@@ -13,7 +13,12 @@ root = Path(SPEC).resolve().parents[1]
 version_text = os.environ.get("AIWU_APP_VERSION") or (root / "VERSION").read_text("utf-8").strip()
 version_tuple = tuple(int(part) for part in version_text.split(".")) + (0,)
 icon = root / "assets" / "ui" / "app-icon.ico"
-datas = [(str(root / "app" / "ui"), "app/ui"), (str(root / "assets"), "assets")]
+datas = [(str(root / "app" / "ui"), "app/ui")]
+for asset in (root / "assets").rglob("*"):
+    relative = asset.relative_to(root)
+    if (asset.is_file() and "__pycache__" not in relative.parts
+            and asset.suffix not in {".pyc", ".pyo"}):
+        datas.append((str(asset), str(relative.parent)))
 for notice in ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "VERSION"):
     datas.append((str(root / notice), "."))
 datas.append((str(root / "build" / "collected-licenses"), "THIRD-PARTY-LICENSES"))

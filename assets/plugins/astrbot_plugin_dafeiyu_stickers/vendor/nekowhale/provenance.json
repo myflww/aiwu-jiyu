@@ -1,0 +1,74 @@
+{
+  "source_url": "https://github.com/Loping151/dsh-nekowhale-stickers",
+  "source_commit": "b7b58c0ff347d639fabe87d90d6716c4b3cad185",
+  "downloaded_at": "2026-11-03T05:40:00.744430+00:00",
+  "metadata_url": "https://raw.githubusercontent.com/Loping151/dsh-nekowhale-stickers/b7b58c0ff347d639fabe87d90d6716c4b3cad185/meta/nekowhale.json",
+  "metadata_version": "2026-10-23T10:02Z",
+  "metadata_sha256": "7b5b8c404ecfc787ee694fbd1ec5c0c98ac8a300c8b87b739472b9f16e538717",
+  "manifest_url": "https://kiriyuki.com/api/kit/nekowhale",
+  "manifest_version": 1009,
+  "manifest_updated": "2026-10-23T18:58:17+08:00",
+  "manifest_sha256": "7a3822cbedf823b7bb46d940d1ebb083fe7017d63ae41a3d2cb2a5a873a63950",
+  "available_upstream": 322,
+  "available_upstream_bytes": 406843660,
+  "selected_count": 24,
+  "selected_bytes": 20282401,
+  "limits": {
+    "max_file_bytes": 4194304,
+    "max_pack_bytes": 31457280
+  },
+  "verification": "Exact source SHA-1 prefix, SHA-256, byte size, GIF header, dimensions and all frame decoding; first/middle/last frames extracted only for inspection.",
+  "legal_files": {
+    "LICENSE": {
+      "url": "https://raw.githubusercontent.com/Loping151/dsh-nekowhale-stickers/b7b58c0ff347d639fabe87d90d6716c4b3cad185/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    "LICENSE-ASSETS": {
+      "url": "https://raw.githubusercontent.com/Loping151/dsh-nekowhale-stickers/b7b58c0ff347d639fabe87d90d6716c4b3cad185/LICENSE-ASSETS",
+      "sha256": "5072bd776f3668bad9cfdd365075b42c28589808886e1d9deba80988e0e56153"
+    },
+    "NOTICE": {
+      "url": "https://raw.githubusercontent.com/Loping151/dsh-nekowhale-stickers/b7b58c0ff347d639fabe87d90d6716c4b3cad185/NOTICE",
+      "sha256": "9309e0f623078f76390320505d1777ac9d5354ead2fe3179a2f0ed7a45258dd8"
+    }
+  },
+  "visual_review": {
+    "result": "Passed: ordinary single-character daily-reaction art, no sexual or adult content identified in the selected frames.",
+    "middle_frames_reviewed": [
+      "nekowhale-16n01",
+      "nekowhale-12n01",
+      "nekowhale-4n06",
+      "nekowhale-11n08",
+      "nekowhale-16n07",
+      "nekowhale-2n12",
+      "nekowhale-7n08",
+      "nekowhale-ex58",
+      "nekowhale-ex35",
+      "nekowhale-14n02",
+      "nekowhale-11n07",
+      "nekowhale-13n03",
+      "nekowhale-12n11",
+      "nekowhale-12n02",
+      "nekowhale-9n05",
+      "nekowhale-ex41",
+      "nekowhale-11n06",
+      "nekowhale-15n01",
+      "nekowhale-10n11",
+      "nekowhale-ex66",
+      "nekowhale-13n11",
+      "nekowhale-10n03",
+      "nekowhale-ex55",
+      "nekowhale-6n02"
+    ],
+    "first_and_last_frames_reviewed": [
+      "nekowhale-11n07",
+      "nekowhale-13n03",
+      "nekowhale-12n02",
+      "nekowhale-ex41",
+      "nekowhale-10n03",
+      "nekowhale-6n02"
+    ],
+    "original_gifs_unmodified": true,
+    "review_previews": "Temporary first/middle/last PNG format conversions, not shipped."
+  }
+}

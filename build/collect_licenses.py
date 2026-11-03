@@ -66,6 +66,16 @@ def collect(target: Path) -> None:
         if not dll.is_file() or hashlib.sha256(dll.read_bytes()).hexdigest() != row["sha256"]:
             raise RuntimeError("WebView2 SDK changed: refresh matching notices before building")
     shutil.copytree(sdk, target / sdk.name, dirs_exist_ok=True)
+    references = ROOT / "assets" / "plugins" / "astrbot_plugin_dafeiyu_companion" / "references"
+    if references.is_dir():
+        shutil.copytree(references, target / "dafeiyu-companion-references", dirs_exist_ok=True)
+    community = ROOT / "assets" / "plugins" / "astrbot_plugin_dafeiyu_stickers" / "vendor" / "nekowhale"
+    if community.is_dir():
+        for name in ("LICENSE", "LICENSE-ASSETS", "NOTICE", "ATTRIBUTION.md", "provenance.json"):
+            source = community / name
+            destination = target / "nekowhale-sticker-assets" / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
     (target / "dependency-licenses.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )

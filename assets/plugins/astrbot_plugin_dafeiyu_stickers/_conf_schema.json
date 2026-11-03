@@ -1,0 +1,26 @@
+{
+  "enabled": {
+    "type": "bool",
+    "description": "启用大肥鱼本地心情贴纸",
+    "default": true,
+    "hint": "插件总开关由桌面端/AstrBot管理。仅回应当前收到的QQ消息，不主动发送。"
+  },
+  "auto_match_enabled": {
+    "type": "bool",
+    "description": "按聊天情绪自动搭配表情包",
+    "default": true,
+    "hint": "宿主插件启用后生效。普通QQ聊天中由模型选择合适的本地表情，不要求用户每次明确索要；每条回复最多一张，工具回合不额外发图。"
+  },
+  "pack_selection": {
+    "type": "string",
+    "description": "参与匹配的图库",
+    "default": "all",
+    "hint": "all：全部；original：原创PNG；community：保留来源署名的社区GIF。只能使用随附校验过的本地素材。"
+  },
+  "cooldown_seconds": {
+    "type": "int",
+    "description": "同一会话发送间隔（秒）",
+    "default": 30,
+    "hint": "范围10至300秒；每条回复仍最多发送一张贴纸。"
+  }
+}

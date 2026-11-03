@@ -28,6 +28,30 @@ LOVE_HOUSE = "astrbot_plugin_love_house"
 _toggle_lock = threading.RLock()
 
 
+def _disabled_root() -> Path:
+    # AstrBot scans immediate children for main.py but does not recurse. A
+    # suffix such as .disabled alone is still discoverable by its real loader.
+    return PLUGIN_ROOT / ".aiwu-disabled"
+
+
+def _linked(path: Path) -> bool:
+    return path.is_symlink() or bool(getattr(path, "is_junction", lambda: False)())
+
+
+def _safe_plugin_directory(path: Path, plugin_id: str) -> bool:
+    """Only exact active/legacy children or our anchored nested storage."""
+    root, hidden = PLUGIN_ROOT, _disabled_root()
+    if _linked(path) or (path.exists() and not path.is_dir()):
+        return False
+    if path.parent == root and path.name in (plugin_id, plugin_id + ".disabled"):
+        return path.resolve().parent == root.resolve()
+    if path.parent != hidden or path.name != plugin_id + ".disabled":
+        return False
+    if _linked(hidden) or (hidden.exists() and not hidden.is_dir()):
+        return False
+    return hidden.resolve().parent == root.resolve() and path.resolve().parent == hidden.resolve()
+
+
 def _inactive_modules() -> set[str]:
     """Read only AstrBot's native switch preference, never chat/account data."""
     database = ASTRBOT / "data" / "data_v4.db"
@@ -132,27 +156,42 @@ def list_plugins() -> list[dict]:
     seen: set[str] = set()
     inactive = _inactive_modules()
     pending = _pending_entries()
+
+    def append(path: Path, plugin_id: str) -> None:
+        seen.add(plugin_id)
+        row = _row(path, plugin_id=plugin_id, bundled=plugin_id in bundled,
+                   installed=True, inactive=inactive)
+        if plugin_id in pending:
+            entry = pending[plugin_id]
+            row["enabled"] = entry["enabled"]
+            if isinstance(entry.get("runtime_enabled"), bool):
+                row["runtime_enabled"] = entry["runtime_enabled"]
+            row["pending_change"] = True
+            row["pending"] = True
+        result.append(row)
+
     for path in sorted(PLUGIN_ROOT.iterdir()) if PLUGIN_ROOT.exists() else ():
         if not path.is_dir() or path.name.startswith((".", "__")):
             continue
         original_id = path.name.removesuffix(".disabled")
         if original_id in seen:
             continue
+        if not _safe_plugin_directory(path, original_id):
+            continue
         if not ((path / "main.py").is_file() or (path / (original_id + ".py")).is_file()):
             continue
-        seen.add(original_id)
-        result.append(_row(path, plugin_id=original_id, bundled=original_id in bundled,
-                           installed=True, inactive=inactive))
-        row = result[-1]
-        if original_id in pending:
-            entry = pending[original_id]
-            row["enabled"] = entry["enabled"]
-            if isinstance(entry.get("runtime_enabled"), bool):
-                row["runtime_enabled"] = entry["runtime_enabled"]
-            # A failed hot enable can already have changed the native DB before
-            # reload fails. Only a verified application may clear this marker.
-            row["pending_change"] = True
-            row["pending"] = True
+        append(path, original_id)
+    # Hidden optional packages are installed and manageable, but intentionally
+    # absent from AstrBot's immediate-child discovery. Do not scan arbitrary
+    # hidden content or follow a link/junction placed at the storage location.
+    for plugin_id in bundled:
+        if plugin_id in seen:
+            continue
+        path = plugin_path(plugin_id)
+        if not _safe_plugin_directory(path, plugin_id) or not path.is_dir():
+            continue
+        if (path / "main.py").is_file() or (path / (plugin_id + ".py")).is_file():
+            append(path, plugin_id)
     result.extend(row for plugin_id, row in bundled.items() if plugin_id not in seen)
     return result
 
@@ -205,6 +244,8 @@ def apply_pending() -> None:
             return  # First launch initializes the database; apply via the live API next.
         for plugin_id, enabled in pending.items():
             directory = plugin_path(plugin_id)
+            if not _safe_plugin_directory(directory, plugin_id):
+                raise RuntimeError("插件目录无效")
             if not directory.is_dir():
                 _save_pending(plugin_id, None)
                 continue
@@ -281,7 +322,7 @@ def set_enabled(plugin_id: str, enabled: bool) -> dict:
         if not row or not row["installed"]:
             raise ValueError("插件尚未安装")
         directory = plugin_path(plugin_id)
-        if directory.is_symlink() or directory.resolve().parent != PLUGIN_ROOT.resolve():
+        if not _safe_plugin_directory(directory, plugin_id):
             raise ValueError("插件目录无效")
         online = processes.port_up(6185)
         pending = False
@@ -374,7 +415,16 @@ def _write_atomic(path: Path, content: bytes) -> None:
 def plugin_path(plugin_id: str) -> Path:
     target = PLUGIN_ROOT / plugin_id
     disabled = PLUGIN_ROOT / (plugin_id + ".disabled")
-    return disabled if not target.exists() and disabled.exists() else target
+    if target.exists() or _linked(target):
+        return target
+    if disabled.exists() or _linked(disabled):
+        return disabled
+    hidden = _disabled_root() / (plugin_id + ".disabled")
+    # Return the invalid candidate as well if its parent is a link: mutation
+    # callers must reject it, not silently install through/around that link.
+    if _linked(_disabled_root()) or hidden.exists() or _linked(hidden):
+        return hidden
+    return target
 
 
 def install_bundled(*, plugin_ids: list[str] | None = None) -> dict:
@@ -406,18 +456,19 @@ def install_bundled(*, plugin_ids: list[str] | None = None) -> dict:
             if len(content) != row.get("size") or hashlib.sha256(content).hexdigest() != row.get("sha256"):
                 raise RuntimeError("随附插件文件校验失败：" + entry["id"])
             contents.append((relative, content))
-        prepared.append((entry["id"], contents))
+        prepared.append((entry, contents))
 
     backup_root = ASTRBOT / "data" / "plugin_backups" / (
         f"bundled-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
     )
     result = {"ok": True, "installed": [], "updated": [], "unchanged": [], "backup": ""}
-    for plugin_id, contents in prepared:
+    for entry, contents in prepared:
+        plugin_id = entry["id"]
         target = plugin_path(plugin_id)
-        if target.is_symlink() or (target.exists() and not target.is_dir()):
-            raise RuntimeError("不能更新非普通目录中的插件：" + plugin_id)
-        if target.resolve().parent != PLUGIN_ROOT.resolve():
-            raise RuntimeError("插件目录超出运行目录")
+        if not target.exists() and entry.get("default_enabled", True) is False:
+            target = _disabled_root() / (plugin_id + ".disabled")
+        if not _safe_plugin_directory(target, plugin_id):
+            raise RuntimeError("不能更新非普通目录或运行目录外的插件：" + plugin_id)
         existed = target.exists()
         changed = False
         for relative, content in contents:

@@ -734,6 +734,24 @@ button.hero-stop:disabled { background: #f2f6f8; color: #61778a; border-color: #
   .appearance-option span { font-size: 11px; }
 }
 /* Love House keeps its cream and pixel-heart identity inside the blue desktop shell. */
+.plugin-dashboard-shortcuts { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; padding: 18px 20px; background: #f8fcff; }
+.plugin-dashboard-shortcuts h2 { margin-bottom: 6px; font-size: 14px; }
+.plugin-dashboard-shortcuts p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.plugin-dashboard-shortcuts > .row { flex: none; }
+.plugin-dashboard-shortcuts .local-dot { width: 7px; height: 7px; }
+.log-retention-card { margin-bottom: 18px; padding: 16px 20px; background: #f8fcfb; }
+.log-retention-card h2 { margin: 0; font-size: 14px; }
+.log-retention-card p { margin: 10px 0 7px; font-size: 12px; color: #42665e; line-height: 1.8; }
+.log-retention-card .hint { line-height: 1.8; }
+.companion-options { margin: 14px 0; }
+.companion-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 16px 0; }
+.sticker-library-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin: 18px 0; max-height: min(330px,34vh); overflow-y: auto; overscroll-behavior: contain; padding: 3px; }
+.sticker-library-grid figure { margin: 0; padding: 10px; border-radius: 12px; background: #f3f8fd; text-align: center; }
+.sticker-library-grid img { width: 100%; height: 105px; object-fit: contain; }
+.sticker-library-grid figcaption { margin-top: 6px; font-size: 12px; color: var(--muted); }
+.sticker-library-grid figcaption small { display: block; margin-top: 3px; font-size: 10px; color: #8393a0; }
+.sticker-credits { overflow-wrap: anywhere; }
+@media (max-width:1050px) { .plugin-dashboard-shortcuts { align-items: flex-start; flex-direction: column; gap: 12px; } }
 .lovehouse-home { padding: 22px 25px; border-color: #eeddd3; background: linear-gradient(110deg,#fffaf0 0%,#fff7ef 58%,#ffefef 100%); box-shadow: 0 4px 20px #956d5f06; }
 .lovehouse-welcome { display: grid; grid-template-columns: minmax(0,1fr) 214px; align-items: center; gap: 20px; }
 .lovehouse-copy { min-width: 0; }

@@ -20,6 +20,7 @@ DEFAULT_WORKSPACE = APP_HOME / "workspace"
 def _defaults() -> dict[str, Any]:
     return {
         "enabled": False,
+        "desktop_enabled": False,
         "workspace": str(DEFAULT_WORKSPACE),
         "timeout_s": 60,
         "private_only": True,
@@ -35,6 +36,7 @@ def load() -> dict[str, Any]:
         data.update({key: incoming[key] for key in incoming if key in data})
     if not data.get("workspace"):
         data["workspace"] = str(DEFAULT_WORKSPACE)
+    data["desktop_enabled"] = data.get("desktop_enabled") is True
     return data
 
 
@@ -58,6 +60,7 @@ def members() -> dict[str, dict]:
             "read": bool(item.get("read")),
             "write": bool(item.get("write")),
             "run": bool(item.get("run")),
+            "desktop": item.get("desktop") is True,
         }
     return result
 
@@ -66,15 +69,17 @@ def member_level(perm: dict) -> str:
     """给界面用的一句话权限描述。"""
     parts = [
         label
-        for key, label in (("read", "读取"), ("write", "写文件"), ("run", "执行命令"))
+        for key, label in (("read", "读取"), ("write", "写文件"), ("run", "执行命令"), ("desktop", "桌面操作"))
         if perm.get(key)
     ]
     return " + ".join(parts) if parts else "仅聊天"
 
 
-def set_member(config: dict, qq: str, read: bool, write: bool, run: bool) -> dict:
+def set_member(config: dict, qq: str, read: bool, write: bool, run: bool, desktop: bool = False) -> dict:
     """把授权写进 config（不落盘，交给 _apply_config 统一保存并重启）。"""
     qq = str(qq).strip()
+    if not isinstance(desktop, bool):
+        raise ValueError("桌面权限必须是布尔值")
     if not qq.isdigit() or not 5 <= len(qq) <= 12:
         raise ValueError("QQ 号必须是 5 到 12 位数字")
     pc = config.setdefault("pc_access", {})
@@ -82,10 +87,10 @@ def set_member(config: dict, qq: str, read: bool, write: bool, run: bool) -> dic
     if not isinstance(table, dict):
         table = {}
         pc["members"] = table
-    if not (read or write or run):
+    if not (read or write or run or desktop):
         table.pop(qq, None)
         return table
-    table[qq] = {"read": bool(read), "write": bool(write), "run": bool(run)}
+    table[qq] = {"read": bool(read), "write": bool(write), "run": bool(run), "desktop": bool(desktop)}
     return table
 
 
@@ -96,10 +101,13 @@ def drop_member(config: dict, qq: str) -> None:
 
 
 def _write_plugin_config(data: dict[str, Any]) -> Path:
-    owner = str(config_store.load().get("owner_qq") or "").strip()
+    app_config = config_store.load()
+    owner = str(app_config.get("owner_qq") or "").strip()
     plugin_config = {
         "enabled": bool(data.get("enabled")),
+        "desktop_enabled": bool(data.get("enabled") is True and data.get("desktop_enabled") is True),
         "owner_qq": owner,
+        "bot_qq": str(app_config.get("bot_qq") or "").strip(),
         "members": members(),
         "workspace": str(_workspace()),
         "timeout_s": max(5, min(300, int(data.get("timeout_s") or 60))),
@@ -139,10 +147,16 @@ def configure(
     timeout_s: int = 60,
     private_only: bool = True,
     confirm: bool = False,
+    desktop_enabled: bool | None = None,
 ) -> dict[str, Any]:
+    if desktop_enabled is not None and not isinstance(desktop_enabled, bool):
+        raise ValueError("桌面权限必须是布尔值")
     if enabled and not confirm:
         raise ValueError("开启电脑权限需要明确确认风险")
-    owner = str(config_store.load().get("owner_qq") or "").strip()
+    config = config_store.load()
+    owner = str(config.get("owner_qq") or "").strip()
+    existing = config.get("pc_access") if isinstance(config.get("pc_access"), dict) else {}
+    requested_desktop = desktop_enabled if desktop_enabled is not None else existing.get("desktop_enabled") is True
     if enabled and not owner:
         raise ValueError("请先在设置里填写主人 QQ")
     target = Path(str(workspace or DEFAULT_WORKSPACE)).expanduser()
@@ -153,13 +167,12 @@ def configure(
         raise ValueError("工作目录不可写")
     data = {
         "enabled": bool(enabled),
+        "desktop_enabled": bool(enabled and requested_desktop is True),
         "workspace": str(target.resolve()),
         "timeout_s": max(5, min(300, int(timeout_s or 60))),
         "private_only": bool(private_only),
     }
-    config = config_store.load()
     # 保留已授权的管理员，否则每次开/关电脑权限都会把成员权限清空。
-    existing = config.get("pc_access") or {}
     data["members"] = existing.get("members") if isinstance(existing.get("members"), dict) else {}
     config["pc_access"] = data
     config_store.save(config)

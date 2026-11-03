@@ -3,25 +3,37 @@
     "type": "bool",
     "description": "允许大肥鱼在授权后使用这台电脑",
     "default": false,
-    "hint": "默认关闭。开启后主人和一个或多个授权管理员可以在私聊里调用工作目录内的工具。"
+    "hint": "默认关闭。开启后主人和授权管理员可使用工作目录工具；桌面查看和操作还需单独开启。"
+  },
+  "desktop_enabled": {
+    "type": "bool",
+    "description": "允许真实 Windows 桌面查看与鼠标键盘操作",
+    "default": false,
+    "hint": "独立授权，默认关闭。仅已授权私聊可用；主人拥有桌面权限，管理员仍需单独设置 desktop。可看到屏幕及在工作目录外操作应用，不能绕过锁屏或 UAC。"
   },
   "owner_qq": {
     "type": "string",
     "description": "主人 QQ",
     "default": "",
-    "hint": "主人拥有全部权限；群聊默认拒绝。"
+    "hint": "主人拥有已开启的文件工具权限；只有 desktop_enabled 开启时才能操作桌面。"
   },
   "members": {
     "type": "dict",
     "description": "授权管理员",
     "default": {},
-    "hint": "形如 {\"123456789\": {\"read\": true, \"write\": true, \"run\": false}}。由桌面端「白名单 → 权限」写入，一般不需要手工改。"
+    "hint": "形如 {\"123456789\": {\"read\": true, \"write\": true, \"run\": false, \"desktop\": false}}。桌面权限与文件/命令权限分开，由桌面端「聊天权限」逐项写入。"
+  },
+  "bot_qq": {
+    "type": "string",
+    "description": "本机连接的机器人 QQ",
+    "default": "",
+    "hint": "由桌面端同步，用于核对桌面操作的消息来源；机器人自身、群聊、其他平台不能使用桌面工具。"
   },
   "workspace": {
     "type": "string",
     "description": "工作目录",
     "default": "",
-    "hint": "所有文件和命令都被限制在这个目录内；留空使用 %LOCALAPPDATA%\\Dafeiyu\\workspace。"
+    "hint": "文件工具的路径限制在这个目录，命令也从这里启动；PowerShell并非系统沙箱。独立桌面权限允许操作其他应用。留空使用 %LOCALAPPDATA%\\Dafeiyu\\workspace。"
   },
   "timeout_s": {
     "type": "int",

@@ -1,0 +1,5 @@
+# Bundled plugin bytes are verified by SHA-256 on every installation.
+/assets/plugins/** text=auto eol=lf
+/assets/plugins/**/*.png -text
+/assets/plugins/**/*.gif -text
+/assets/plugins/**/*.webp -text

@@ -1,0 +1,26 @@
+{
+  "reviewed_date": "2026-11-03",
+  "adaptation": "Independent optional AstrBot companion expression and behavior; original short style note; references retain their licenses.",
+  "sources": [
+    {
+      "repository": "https://github.com/aureth-labs/dsh-aurabot-qq",
+      "commit": "b3301f6b014016e141c07d266a716c0fea566aab",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2026 Aurabot contributors",
+      "license_source": "https://raw.githubusercontent.com/aureth-labs/dsh-aurabot-qq/b3301f6b014016e141c07d266a716c0fea566aab/LICENSE",
+      "license_file": "LICENSE-dsh-aurabot-qq.txt",
+      "sha256": "ab818d52c6ab6e784c9fc775f98037d180acf06f4421a7b84c77fe722baeb0f2",
+      "scope": "Behavior/style reference only; no source code, full prompt, DSH runtime, or upstream artwork copied."
+    },
+    {
+      "repository": "https://github.com/Kaalia0912/dsh-whale-musume-persona",
+      "commit": "0fbdcf217e3bf94e35fef36f7ac56134b704529b",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2026 dsh-whale-musume-persona contributors",
+      "license_source": "https://raw.githubusercontent.com/Kaalia0912/dsh-whale-musume-persona/0fbdcf217e3bf94e35fef36f7ac56134b704529b/LICENSE",
+      "license_file": "LICENSE-dsh-whale-musume-persona.txt",
+      "sha256": "0b7a06b42f0b8cf724c0aa8189f60d40f8cf02d1201388d567f7c5ac514306f9",
+      "scope": "Behavior/style reference only; no source code, full prompt, DSH runtime, or upstream artwork copied."
+    }
+  ]
+}

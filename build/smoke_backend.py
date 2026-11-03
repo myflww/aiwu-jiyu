@@ -42,6 +42,21 @@ def main() -> None:
                     assert response.status == 200 and json.loads(response.read())["ok"]
                     open_browser.assert_called_once_with("https://platform.deepseek.com/api_keys")
                     open_browser.reset_mock()
+                    with patch.object(server.processes, "port_up", return_value=True):
+                        for url in ("http://127.0.0.1:6185", "http://127.0.0.1:6099"):
+                            client.request("POST", "/api/open-url", body=json.dumps({"url": url}),
+                                           headers={"Content-Type": "application/json"})
+                            response = client.getresponse()
+                            assert response.status == 200 and json.loads(response.read())["ok"]
+                            open_browser.assert_called_with(url)
+                    open_browser.reset_mock()
+                    with patch.object(server.processes, "port_up", return_value=False):
+                        client.request("POST", "/api/open-url", body=json.dumps({"url": "http://127.0.0.1:6185"}),
+                                       headers={"Content-Type": "application/json"})
+                        response = client.getresponse()
+                        assert response.status != 200
+                        response.read()
+                        open_browser.assert_not_called()
                     for url in ("https://platform.deepseek.com.evil.test/api_keys",
                                 "http://platform.deepseek.com/api_keys",
                                 "https://platform.deepseek.com/api_keys?key=private",
@@ -58,6 +73,26 @@ def main() -> None:
                     }), headers={"Content-Type": "application/json"})
                     response = client.getresponse()
                     assert response.status != 200 and not json.loads(response.read())["ok"]
+                with patch.object(server.pc_access, "configure", return_value={}) as configure:
+                    body = {"enabled": True, "desktop_enabled": True, "workspace": "C:/example", "confirm": True}
+                    client.request("POST", "/api/pc-access", body=json.dumps(body),
+                                   headers={"Content-Type": "application/json", "Origin": "https://untrusted.example"})
+                    response = client.getresponse()
+                    assert response.status == 403
+                    response.read()
+                    configure.assert_not_called()
+                    client.request("POST", "/api/pc-access", body=json.dumps(body), headers={"Content-Type": "application/json"})
+                    response = client.getresponse()
+                    assert response.status == 200
+                    response.read()
+                    assert configure.call_args.kwargs["desktop_enabled"] is True
+                    configure.reset_mock()
+                    body["desktop_enabled"] = "false"
+                    client.request("POST", "/api/pc-access", body=json.dumps(body), headers={"Content-Type": "application/json"})
+                    response = client.getresponse()
+                    assert response.status != 200
+                    response.read()
+                    configure.assert_not_called()
             finally:
                 client.close()
                 fresh.shutdown()
@@ -75,7 +110,8 @@ def main() -> None:
         instance = server.start_server(preview=True)
         connection = http.client.HTTPConnection(*instance.server_address, timeout=5)
         try:
-            for path in ("/api/state", "/api/status", "/api/lovehouse/status", "/api/plugins", "/api/updates", "/api/metrics"):
+            for path in ("/api/state", "/api/status", "/api/lovehouse/status", "/api/plugins", "/api/updates", "/api/metrics",
+                         "/api/companion", "/api/stickers", "/api/logs/retention"):
                 connection.request("GET", path)
                 response = connection.getresponse()
                 assert response.status == 200, path

@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "pack_name": "大肥鱼心情贴纸",
+  "version": "1.0.0",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "attribution": "myflww · 爱屋及鱼",
+  "stickers": [
+    {
+      "id": "happy",
+      "label": "开心",
+      "aliases": [
+        "高兴",
+        "快乐",
+        "开心",
+        "happy",
+        "hello",
+        "你好"
+      ],
+      "width": 1165,
+      "height": 1350,
+      "size": 1736093,
+      "sha256": "e4d56e412e0ef103e297b4e0ea2dd32832e3c222094ceedbdcd0a8d563bb4238",
+      "emotion": "happy",
+      "file": "happy.png",
+      "format": "PNG",
+      "alpha": true
+    },
+    {
+      "id": "sad",
+      "label": "委屈",
+      "aliases": [
+        "难过",
+        "伤心",
+        "哭哭",
+        "安慰",
+        "sad"
+      ],
+      "width": 1194,
+      "height": 1317,
+      "size": 1880662,
+      "sha256": "2c24482c5b7417cdbc8253de1fb5b3e47c2c95f76a64bb6c496664935bead6c5",
+      "emotion": "sad",
+      "file": "sad.png",
+      "format": "PNG",
+      "alpha": true
+    },
+    {
+      "id": "angry",
+      "label": "生气",
+      "aliases": [
+        "气鼓鼓",
+        "哼",
+        "不开心",
+        "angry"
+      ],
+      "width": 1190,
+      "height": 1322,
+      "size": 1854611,
+      "sha256": "1a7b2333ebb171cace1405431b810baf3bd839a3a89847e64e60cfd2fe7d73ea",
+      "emotion": "angry",
+      "file": "angry.png",
+      "format": "PNG",
+      "alpha": true
+    },
+    {
+      "id": "shy",
+      "label": "害羞",
+      "aliases": [
+        "不好意思",
+        "脸红",
+        "羞涩",
+        "shy"
+      ],
+      "width": 1197,
+      "height": 1315,
+      "size": 1820321,
+      "sha256": "2638093e14c7a47eb522b4f078dbfe820fe54f457001af7cc70b9c436965c25c",
+      "emotion": "shy",
+      "file": "shy.png",
+      "format": "PNG",
+      "alpha": true
+    },
+    {
+      "id": "sleepy",
+      "label": "晚安",
+      "aliases": [
+        "睡觉",
+        "困困",
+        "休息",
+        "sleepy",
+        "goodnight"
+      ],
+      "width": 1536,
+      "height": 1024,
+      "size": 2207435,
+      "sha256": "f4d78bc9857598b82f6516aeb32efb4518cc59d0ccd920684be3fa9393facd86",
+      "emotion": "sleepy",
+      "file": "sleepy.png",
+      "format": "PNG",
+      "alpha": true
+    },
+    {
+      "id": "love",
+      "label": "喜欢",
+      "aliases": [
+        "爱心",
+        "爱你",
+        "比心",
+        "谢谢",
+        "love",
+        "thanks"
+      ],
+      "width": 1201,
+      "height": 1309,
+      "size": 1985717,
+      "sha256": "47f34e7b9279d38ef14fef6d2f71f17513bc6d0d09288e78651d6186e1b37e9c",
+      "emotion": "love",
+      "file": "love.png",
+      "format": "PNG",
+      "alpha": true
+    }
+  ]
+}

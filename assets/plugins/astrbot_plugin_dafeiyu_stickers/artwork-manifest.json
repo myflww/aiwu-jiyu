@@ -1,0 +1,55 @@
+{
+  "generator": "Built-in image_gen",
+  "character": "大肥鱼",
+  "reference": "assets/ui/dafeiyu-welcome.png",
+  "assets": [
+    {
+      "file": "pack/happy.png",
+      "width": 1165,
+      "height": 1350,
+      "alpha": true,
+      "source": "assets/ui/dafeiyu-welcome.png",
+      "operation": "Unmodified copy of existing generated project art; original prompt in assets/ui/artwork-manifest.json"
+    },
+    {
+      "file": "pack/sad.png",
+      "width": 1194,
+      "height": 1317,
+      "alpha": true,
+      "prompt": "Use case: illustration-story. Asset type: one transparent chat sticker for 大肥鱼 in the desktop companion app 爱屋及鱼. Edit the referenced character illustration into a new emotional reaction, preserving the EXACT same polished anime chibi identity and navy-to-sky-blue curly long hair, bright blue eyes, curled ahoge, white maid headband and blue ribbon, modest navy long-sleeve maid dress with white frilled apron, blue oval brooch, white tights, navy shoes and rounded blue whale tail. Wholesome 2.5-head-tall chibi girl, full body in a compact seated pose, centered, clear silhouette at small chat sticker size, detailed clean navy outlines and luminous soft highlights matching reference. No rice bowl. No other characters. No written words, letters, captions, watermark or surrounding square. Genuine transparent alpha outside the precise character and small reaction accents. Fully clothed, no exposed chest, no adult proportions. Emotion: gently sad and seeking comfort; big blue eyes welling with small round tears, downturned little mouth and tender eyebrows, both hands hold a tiny white tissue against her chest. Her whale tail droops softly. One small blue tear accent. Cute touching sadness, not frightening, no injuries.",
+      "generated_source": "exec-f8ec8989-8755-4a0a-8d97-439025801328.png"
+    },
+    {
+      "file": "pack/angry.png",
+      "width": 1190,
+      "height": 1322,
+      "alpha": true,
+      "prompt": "Use case: illustration-story. Asset type: one transparent chat sticker for 大肥鱼 in the desktop companion app 爱屋及鱼. Edit the referenced character illustration into a new emotional reaction, preserving the EXACT same polished anime chibi identity and navy-to-sky-blue curly long hair, bright blue eyes, curled ahoge, white maid headband and blue ribbon, modest navy long-sleeve maid dress with white frilled apron, blue oval brooch, white tights, navy shoes and rounded blue whale tail. Wholesome 2.5-head-tall chibi girl, full body in a compact seated pose, centered, clear silhouette at small chat sticker size, detailed clean navy outlines and luminous soft highlights matching reference. No rice bowl. No other characters. No written words, letters, captions, watermark or surrounding square. Genuine transparent alpha outside the precise character and small reaction accents. Fully clothed, no exposed chest, no adult proportions. Emotion: adorable playful pout, mildly annoyed tsundere whale girl; puffed rosy cheeks, small closed pouting mouth, angled determined eyebrows but clear round blue eyes, arms crossed neatly in front of apron. Tiny harmless comic steam puff beside her head, whale tail flicking. Funny and endearing, no aggression, no weapons.",
+      "generated_source": "exec-f8bce336-4e14-4fef-adce-5aed3e45a03c.png"
+    },
+    {
+      "file": "pack/shy.png",
+      "width": 1197,
+      "height": 1315,
+      "alpha": true,
+      "prompt": "Use case: illustration-story. Asset type: one transparent chat sticker for 大肥鱼 in the desktop companion app 爱屋及鱼. Edit the referenced character illustration into a new emotional reaction, preserving the EXACT same polished anime chibi identity and navy-to-sky-blue curly long hair, bright blue eyes, curled ahoge, white maid headband and blue ribbon, modest navy long-sleeve maid dress with white frilled apron, blue oval brooch, white tights, navy shoes and rounded blue whale tail. Wholesome 2.5-head-tall chibi girl, full body in a compact seated pose, centered, clear silhouette at small chat sticker size, detailed clean navy outlines and luminous soft highlights matching reference. No rice bowl. No other characters. No written words, letters, captions, watermark or surrounding square. Genuine transparent alpha outside the precise character and small reaction accents. Fully clothed, no exposed chest, no adult proportions. Emotion: sweet bashful embarrassment; rosy pink cheeks, soft bright blue eyes looking slightly aside, tiny pleased closed smile. Both hands touch her cheeks gently, shoulders tucked in, knees together with modest skirt, whale tail curled around her side. Two tiny pastel pink heart sparkles. Warm affectionate and very cute, not flirtatious or sexual.",
+      "generated_source": "exec-1bb91bef-f3d9-47a2-b2e1-68c635e470cd.png"
+    },
+    {
+      "file": "pack/sleepy.png",
+      "width": 1536,
+      "height": 1024,
+      "alpha": true,
+      "source": "assets/ui/dafeiyu-rest.png",
+      "operation": "Unmodified copy of existing generated project art; original prompt in assets/ui/artwork-manifest.json"
+    },
+    {
+      "file": "pack/love.png",
+      "width": 1201,
+      "height": 1309,
+      "alpha": true,
+      "source": "assets/ui/dafeiyu-lovehouse.png",
+      "operation": "Unmodified copy of existing generated project art; original prompt in assets/ui/artwork-manifest.json"
+    }
+  ]
+}

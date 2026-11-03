@@ -81,32 +81,352 @@
     },
     {
       "id": "astrbot_plugin_pc_operator",
-      "name": "大肥鱼电脑操作（主人 + 授权管理员）",
-      "version": "v0.2.0",
+      "name": "大肥鱼电脑操作（工作目录 + 可选桌面控制）",
+      "version": "v0.3.0",
       "author": "dafeiyu",
       "license": "Original project portions retain root LICENSE; host terms also apply",
       "files": [
         {
           "path": "_conf_schema.json",
-          "sha256": "758458397168c47b4f6b3dce5088d4878aaaf34228e29f19e22caf418794bf0a",
-          "size": 1385
+          "sha256": "520e99638fad2d89ea9b7214bf695c00f27404c00be87b086c91b17f8e59df21",
+          "size": 2186
+        },
+        {
+          "path": "desktop_native.py",
+          "sha256": "07b8ccb201d4f203c8688b2934d0effdc44af271181cf20973f4db77f3c74181",
+          "size": 21473
         },
         {
           "path": "main.py",
-          "sha256": "26646c63e3d03c3374e58aab39ae5e15d1217b44dc2f1f3ad4aa8ed139837d8a",
-          "size": 11700
+          "sha256": "eaf651982b3c327cdd8f7bce94b9715aafd06f33e533d80cce4279ea9a40efb8",
+          "size": 25542
         },
         {
           "path": "metadata.yaml",
-          "sha256": "33b801d6e321b8edf0573ea6c19b23a7a3cbb52993dce4e2f45a5d5c4eb2dc4d",
-          "size": 337
+          "sha256": "dcd3a5bc97b6d425871ae4cec081f2f1ac3d3084d1550324687234c329312b5a",
+          "size": 352
         },
         {
           "path": "README.md",
-          "sha256": "0f74a238d7652772116868e42edaf99692f4d1227819b09b9a45c6316bfd7524",
-          "size": 1447
+          "sha256": "d9314ef14b0c881cdfdea279a640e924b536a822869f5b799a26c3ec5e003285",
+          "size": 2389
         }
       ]
+    },
+    {
+      "id": "astrbot_plugin_dafeiyu_companion",
+      "name": "大肥鱼陪伴",
+      "version": "v1.0.0",
+      "author": "myflww",
+      "files": [
+        {
+          "path": "__init__.py",
+          "sha256": "faece6d8cf9ba10f11403e43431ad87777038a318afc23d1fc5962a40c3939bf",
+          "size": 48
+        },
+        {
+          "path": "_conf_schema.json",
+          "sha256": "7dcbface7b3fa389a48f99f2225e37c4ae910c4dbd7a12bea84d95ca0a6f82ab",
+          "size": 1877
+        },
+        {
+          "path": "engine.py",
+          "sha256": "9a96724714b834b8cdf15be9d9edc6b63456f782d0e124b1d16ddfe0d6b435f3",
+          "size": 7888
+        },
+        {
+          "path": "LICENSE",
+          "sha256": "c0ea4a896d2c8c394b29f9427589996db826cd501c512279ff0ed3ef48fabbe5",
+          "size": 4563
+        },
+        {
+          "path": "main.py",
+          "sha256": "7e2a1432e4d9c5851b1656445446ca29207c707492146e35b5cb25478e4b079d",
+          "size": 14340
+        },
+        {
+          "path": "metadata.yaml",
+          "sha256": "d4ed5e83788341f0cf3b590f3c6e4434d02efc26fc1c40d533f0f285fc817dd4",
+          "size": 333
+        },
+        {
+          "path": "NOTICE",
+          "sha256": "1e58a78d1b6e0f94e1dfecad1e6f715b3072f6cfa7905f5cc76cd93a7d660868",
+          "size": 235
+        },
+        {
+          "path": "README.md",
+          "sha256": "0a22c5ec4ddc41d92b15e56377636865b238a8d940972e69cf2de824e65f00a8",
+          "size": 2636
+        },
+        {
+          "path": "references/LICENSE-dsh-aurabot-qq.txt",
+          "sha256": "ab818d52c6ab6e784c9fc775f98037d180acf06f4421a7b84c77fe722baeb0f2",
+          "size": 1077
+        },
+        {
+          "path": "references/LICENSE-dsh-whale-musume-persona.txt",
+          "sha256": "0b7a06b42f0b8cf724c0aa8189f60d40f8cf02d1201388d567f7c5ac514306f9",
+          "size": 1094
+        },
+        {
+          "path": "references/sources.json",
+          "sha256": "7c7547052b85c5f3a901343a500954152b178c8fcacc74ea7c2f0a8b9a332a55",
+          "size": 1482
+        },
+        {
+          "path": "SOURCES.md",
+          "sha256": "43db355a4e4be330adfa745a7b222ee69f5065fbc682ffe268485b42465f44a5",
+          "size": 2745
+        }
+      ],
+      "default_enabled": false,
+      "license": "PolyForm-Noncommercial-1.0.0; see its LICENSE and NOTICE"
+    },
+    {
+      "id": "astrbot_plugin_dafeiyu_stickers",
+      "name": "大肥鱼自动心情贴纸与素材库",
+      "version": "v1.1.0",
+      "author": "myflww",
+      "files": [
+        {
+          "path": "__init__.py",
+          "sha256": "d645305ae52832c64f63b8a68958a5d0d3e4beb00f650fea13dfb7236cf3ae32",
+          "size": 64
+        },
+        {
+          "path": "_conf_schema.json",
+          "sha256": "3a4477ce2adf50ea1a42a7dc59c5579f8f3f82c6ce7754011b92b41a32423b2c",
+          "size": 1015
+        },
+        {
+          "path": "artwork-manifest.json",
+          "sha256": "950b246f9c9e4365cf10d6da52ea35b8c20a7e469a63c40ade3d0e6faf638187",
+          "size": 5395
+        },
+        {
+          "path": "catalog.py",
+          "sha256": "29ca8c7ec7ee79ed0ac1d95c0350fe9b92474a1788bd1ccc9737351e4a0006af",
+          "size": 8264
+        },
+        {
+          "path": "LICENSE",
+          "sha256": "c0ea4a896d2c8c394b29f9427589996db826cd501c512279ff0ed3ef48fabbe5",
+          "size": 4563
+        },
+        {
+          "path": "LICENSE-character-source.txt",
+          "sha256": "f3e798dacee6d9203fd8bcd3ca8639f3193e151ab6701a3cd6cb3c9b59bcb051",
+          "size": 1085
+        },
+        {
+          "path": "main.py",
+          "sha256": "25d1dc49e2f720479a8b8e018c6ef9aa9068de004f0e2cd4f25d0146307f9531",
+          "size": 15174
+        },
+        {
+          "path": "metadata.yaml",
+          "sha256": "814ad78824536f4723a201f215282584d2f0454b2bc7fd51bffff40c52f7efbe",
+          "size": 392
+        },
+        {
+          "path": "NOTICE",
+          "sha256": "f31e1a4c341e6a302e101c2aed4d3f3c1a61bfdd0b252226dcc26faec16de071",
+          "size": 611
+        },
+        {
+          "path": "pack/angry.png",
+          "sha256": "1a7b2333ebb171cace1405431b810baf3bd839a3a89847e64e60cfd2fe7d73ea",
+          "size": 1854611
+        },
+        {
+          "path": "pack/catalog.json",
+          "sha256": "da818b2f8bb2404c4d9040a7c263b2a8ba24d8f3ed630011482857e4de6d6bc4",
+          "size": 2717
+        },
+        {
+          "path": "pack/happy.png",
+          "sha256": "e4d56e412e0ef103e297b4e0ea2dd32832e3c222094ceedbdcd0a8d563bb4238",
+          "size": 1736093
+        },
+        {
+          "path": "pack/love.png",
+          "sha256": "47f34e7b9279d38ef14fef6d2f71f17513bc6d0d09288e78651d6186e1b37e9c",
+          "size": 1985717
+        },
+        {
+          "path": "pack/sad.png",
+          "sha256": "2c24482c5b7417cdbc8253de1fb5b3e47c2c95f76a64bb6c496664935bead6c5",
+          "size": 1880662
+        },
+        {
+          "path": "pack/shy.png",
+          "sha256": "2638093e14c7a47eb522b4f078dbfe820fe54f457001af7cc70b9c436965c25c",
+          "size": 1820321
+        },
+        {
+          "path": "pack/sleepy.png",
+          "sha256": "f4d78bc9857598b82f6516aeb32efb4518cc59d0ccd920684be3fa9393facd86",
+          "size": 2207435
+        },
+        {
+          "path": "README.md",
+          "sha256": "b154c50a179908b7d5e32a9f989d89862f3779c4564d165467eb0d1dbd744692",
+          "size": 2141
+        },
+        {
+          "path": "vendor/nekowhale/ATTRIBUTION.md",
+          "sha256": "1ad68679fcec3c023d9eda0cc2f26e2c303f6f2d539a2d33c5a4873bf4df3b58",
+          "size": 1781
+        },
+        {
+          "path": "vendor/nekowhale/community-catalog.json",
+          "sha256": "274616505a600652643fb2c8f4e91a5ed8202b908e43117980984a228b6c0718",
+          "size": 28978
+        },
+        {
+          "path": "vendor/nekowhale/LICENSE",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "size": 11358
+        },
+        {
+          "path": "vendor/nekowhale/LICENSE-ASSETS",
+          "sha256": "5072bd776f3668bad9cfdd365075b42c28589808886e1d9deba80988e0e56153",
+          "size": 1848
+        },
+        {
+          "path": "vendor/nekowhale/NOTICE",
+          "sha256": "9309e0f623078f76390320505d1777ac9d5354ead2fe3179a2f0ed7a45258dd8",
+          "size": 591
+        },
+        {
+          "path": "vendor/nekowhale/pack/10n03.gif",
+          "sha256": "4620898e327d7b4d3b609a4f006cad4487407d2bcdff7038b3cef122af539869",
+          "size": 1942035
+        },
+        {
+          "path": "vendor/nekowhale/pack/10n11.gif",
+          "sha256": "6dfcc5599c9cffd4ee7dd3e4a95eb20e2a071a70c3a65cdf95ad4bf127994cda",
+          "size": 1246656
+        },
+        {
+          "path": "vendor/nekowhale/pack/11n06.gif",
+          "sha256": "1cd9a10b0db8fda12668bda309738c3525e277c9fcb8f4baaf2b8b90f778fbd9",
+          "size": 885455
+        },
+        {
+          "path": "vendor/nekowhale/pack/11n07.gif",
+          "sha256": "c70ded19047176bc59fc5bccc6b7c2dccadefeb5c865222f079aed42e093f038",
+          "size": 746850
+        },
+        {
+          "path": "vendor/nekowhale/pack/11n08.gif",
+          "sha256": "67df913b66fb5efeb228c1bf4c59a96c2ce9d70c27ebe2a645a1df3e79d6862f",
+          "size": 1214073
+        },
+        {
+          "path": "vendor/nekowhale/pack/12n01.gif",
+          "sha256": "1ff2ea88825a5b2c4424511a8d47e96123801598959d8d3f570a86687d0041c2",
+          "size": 47869
+        },
+        {
+          "path": "vendor/nekowhale/pack/12n02.gif",
+          "sha256": "655b820973400602bdd074ac690888c4a9dfbc2e27739a93faa9cb1daa68f10d",
+          "size": 682739
+        },
+        {
+          "path": "vendor/nekowhale/pack/12n11.gif",
+          "sha256": "72b9215b8bb3ed30a0187577856cda087f1bc384dbfbec0e58320ac708bb9312",
+          "size": 620083
+        },
+        {
+          "path": "vendor/nekowhale/pack/13n03.gif",
+          "sha256": "b62e290636d76505e9d20ab7fc7ffe021f9d5551cf1d178c6dd1d48546517b7f",
+          "size": 1128006
+        },
+        {
+          "path": "vendor/nekowhale/pack/13n11.gif",
+          "sha256": "6ba3a81a0da2140d525dff419820092d71941ef5cec827fa31809d1ccb0140e2",
+          "size": 1061832
+        },
+        {
+          "path": "vendor/nekowhale/pack/14n02.gif",
+          "sha256": "1d4472ccbce78ad0946a0efd7a002bf6d41daf07da29dcd39a5055520a837f6c",
+          "size": 942195
+        },
+        {
+          "path": "vendor/nekowhale/pack/15n01.gif",
+          "sha256": "fdb7e7378cf3e85e3652ce0afc427aa39117db4c98e4a0e73b202fe2473d9bd2",
+          "size": 1080545
+        },
+        {
+          "path": "vendor/nekowhale/pack/16n01.gif",
+          "sha256": "f64a6ec47c311a36733c34cd5f22f37a76f0c41afaad5108327aa1efea22d9ea",
+          "size": 708988
+        },
+        {
+          "path": "vendor/nekowhale/pack/16n07.gif",
+          "sha256": "e18298114501010c4a0b8d8a7de87062769a723f28ee795520166d746c47119d",
+          "size": 1019438
+        },
+        {
+          "path": "vendor/nekowhale/pack/2n12.gif",
+          "sha256": "3fb86924b597f839215f87d2e58a039dcf2bf41a280dae83c8a2e9efcb48a981",
+          "size": 745007
+        },
+        {
+          "path": "vendor/nekowhale/pack/4n06.gif",
+          "sha256": "3e7722803ec46a70a08f3a79f83262c657b5be227fce19df5ab5243da1e58a2f",
+          "size": 748658
+        },
+        {
+          "path": "vendor/nekowhale/pack/6n02.gif",
+          "sha256": "2a0a092856daaf5f2e4dbad323f410188749561fa8fe3942f0a23a7e0e6ee582",
+          "size": 744565
+        },
+        {
+          "path": "vendor/nekowhale/pack/7n08.gif",
+          "sha256": "ac64e11ca136b30ae7b4aa17d460694c9073c136957df558edac9e9feeae6769",
+          "size": 1054838
+        },
+        {
+          "path": "vendor/nekowhale/pack/9n05.gif",
+          "sha256": "ba955d9c2d9a184bda7808b933b061f09ad1e9b496f204eb6af2ab51281913c3",
+          "size": 655099
+        },
+        {
+          "path": "vendor/nekowhale/pack/ex35.gif",
+          "sha256": "0b4d5dad6109d22cbd2b2df86e511feaadfba38c8845de416bf201513bfabfed",
+          "size": 346413
+        },
+        {
+          "path": "vendor/nekowhale/pack/ex41.gif",
+          "sha256": "87329db0b80ff7d2c1130ca1252ed6d7894a70635a46d6a314d90d1a847eba8e",
+          "size": 743998
+        },
+        {
+          "path": "vendor/nekowhale/pack/ex55.gif",
+          "sha256": "0cf451d5b53aa411390d2e604a3d0b0533ee34dffa99a9d264c931ae5df62a75",
+          "size": 645260
+        },
+        {
+          "path": "vendor/nekowhale/pack/ex58.gif",
+          "sha256": "e0ad3f25ef96a8c5ddeb48055556bec2b2a337b24315d9a5852a8c73c89621e9",
+          "size": 609039
+        },
+        {
+          "path": "vendor/nekowhale/pack/ex66.gif",
+          "sha256": "aed1fc9659eefc3e23b7471acd788a6ac9e2b1fdf558f254f22457755e9091eb",
+          "size": 662760
+        },
+        {
+          "path": "vendor/nekowhale/provenance.json",
+          "sha256": "9189918e90c5ec42944c59d1186f731b886b99f35118b67462d8e8ae7e0269aa",
+          "size": 2938
+        }
+      ],
+      "default_enabled": false,
+      "license": "PolyForm-Noncommercial-1.0.0; see its LICENSE and NOTICE"
     }
   ]
 }

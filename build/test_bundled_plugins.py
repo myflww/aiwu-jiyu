@@ -87,6 +87,102 @@ class BundledPluginsTests(unittest.TestCase):
         self.assertTrue(row["installed"] and row["bundled"])
         self.assertFalse(row["enabled"])
 
+    def test_optional_bundle_starts_disabled_and_preserves_later_choice(self):
+        manifest_path = self.bundle / "manifest.json"
+        manifest = json.loads(manifest_path.read_text("utf-8"))
+        manifest["plugins"][0]["default_enabled"] = False
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        plugins.install_bundled()
+        disabled = plugins.plugin_path(self.plugin_id)
+        self.assertEqual(disabled.parent, self.installed / ".aiwu-disabled")
+        self.assertTrue((disabled / "main.py").is_file())
+        self.assertFalse(plugins.list_plugins()[0]["enabled"])
+        enabled = self.installed / self.plugin_id
+        disabled.rename(enabled)
+        plugins.install_bundled()
+        self.assertTrue(enabled.is_dir())
+        self.assertTrue(plugins.list_plugins()[0]["enabled"])
+
+    def optional_bundle(self):
+        manifest_path = self.bundle / "manifest.json"
+        manifest = json.loads(manifest_path.read_text("utf-8"))
+        manifest["plugins"][0]["default_enabled"] = False
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        plugins.install_bundled()
+        return plugins.plugin_path(self.plugin_id)
+
+    def discover_modules_like_astrbot(self):
+        """The installed StarManager._get_modules only scans immediate dirs."""
+        result = []
+        for name in os.listdir(self.installed):
+            if name.startswith((".plugin-install-", ".plugin-upload-", ".plugin-backup-")):
+                continue
+            path = self.installed / name
+            if path.is_dir() and ((path / "main.py").exists() or (path / (name + ".py")).exists()):
+                result.append(name)
+        return result
+
+    def test_optional_storage_is_not_discovered_and_offline_enable_becomes_discoverable(self):
+        disabled = self.optional_bundle()
+        self.assertEqual(self.discover_modules_like_astrbot(), [])
+        self.assertFalse((self.installed / (self.plugin_id + ".disabled")).exists())
+        self.assertFalse(plugins.list_plugins()[0]["enabled"])
+        second = plugins.install_bundled()
+        self.assertEqual(second["unchanged"], [self.plugin_id])
+        self.assertEqual(plugins.plugin_path(self.plugin_id), disabled)
+        self.prepare_preferences()
+        with patch.object(plugins.processes, "port_up", return_value=False):
+            result = plugins.set_enabled(self.plugin_id, True)
+        self.assertTrue(result["applied"] and result["enabled"])
+        self.assertFalse(disabled.exists())
+        self.assertEqual(plugins.plugin_path(self.plugin_id), self.installed / self.plugin_id)
+        self.assertEqual(self.discover_modules_like_astrbot(), [self.plugin_id])
+        # Subsequent disables use the native database, not hidden storage.
+        with patch.object(plugins.processes, "port_up", return_value=False):
+            plugins.set_enabled(self.plugin_id, False)
+        plugins.install_bundled()
+        self.assertTrue((self.installed / self.plugin_id).is_dir())
+        self.assertFalse(plugins.list_plugins()[0]["enabled"])
+
+    def test_hidden_inventory_preserves_pending_overlay_and_applies_on_managed_start(self):
+        disabled = self.optional_bundle()
+        self.prepare_preferences()
+        with patch.object(plugins.processes, "port_up", return_value=True):
+            result = plugins.set_enabled(self.plugin_id, True)
+        row = result["plugins"][0]
+        self.assertTrue(row["installed"] and row["pending_change"] and row["enabled"])
+        self.assertFalse(row["runtime_enabled"])
+        self.assertEqual(self.discover_modules_like_astrbot(), [])
+        with patch.object(plugins.processes, "port_up", return_value=False):
+            plugins.apply_pending()
+        self.assertEqual(plugins._pending_switches(), {})
+        self.assertFalse(disabled.exists())
+        self.assertEqual(self.discover_modules_like_astrbot(), [self.plugin_id])
+
+    def test_hidden_storage_parent_symlink_is_rejected_without_writing_outside(self):
+        outside = self.root / "outside"
+        outside.mkdir()
+        self.installed.mkdir(parents=True)
+        hidden = self.installed / ".aiwu-disabled"
+        try:
+            hidden.symlink_to(outside, target_is_directory=True)
+        except OSError:
+            self.skipTest("Creating a directory symlink is unavailable")
+        with self.assertRaises(RuntimeError):
+            self.optional_bundle()
+        self.assertEqual(list(outside.iterdir()), [])
+        self.assertFalse(plugins.list_plugins()[0]["installed"])
+
+    def test_path_selection_prefers_active_then_legacy_then_hidden(self):
+        hidden = self.optional_bundle()
+        self.assertEqual(plugins.plugin_path(self.plugin_id), hidden)
+        legacy = self.installed / (self.plugin_id + ".disabled")
+        legacy.mkdir()
+        self.assertEqual(plugins.plugin_path(self.plugin_id), legacy)
+        active = self.installed / self.plugin_id
+        active.mkdir()
+        self.assertEqual(plugins.plugin_path(self.plugin_id), active)
+
     def test_corrupt_bundle_is_rejected_before_install(self):
         (self.source / "main.py").write_text("corrupted", encoding="utf-8")
         with self.assertRaises(RuntimeError):
@@ -304,13 +400,18 @@ class BundledPluginsTests(unittest.TestCase):
         actual = ROOT / "assets" / "plugins"
         with patch.object(plugins, "BUNDLE_ROOT", actual):
             result = plugins.install_bundled()
-        self.assertEqual(len(result["installed"]), 3)
+        self.assertEqual(len(result["installed"]), 5)
         pc = json.loads((actual / "astrbot_plugin_pc_operator" / "_conf_schema.json").read_text("utf-8"))
         memory = json.loads((actual / "astrbot_plugin_love_house" / "_conf_schema.json").read_text("utf-8"))
         self.assertFalse(pc["enabled"]["default"])
         self.assertEqual(pc["owner_qq"]["default"], "")
         self.assertFalse(memory["enabled"]["default"])
         self.assertEqual(memory["bindings"]["default"], [])
+        self.assertFalse(pc["desktop_enabled"]["default"])
+        rows = {row["id"]: row for row in result["plugins"]}
+        for plugin_id in ("astrbot_plugin_dafeiyu_companion", "astrbot_plugin_dafeiyu_stickers"):
+            self.assertTrue(rows[plugin_id]["installed"])
+            self.assertFalse(rows[plugin_id]["enabled"])
 
 
 if __name__ == "__main__":

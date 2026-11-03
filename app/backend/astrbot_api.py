@@ -100,14 +100,60 @@ def wait_ready(timeout: float = 45.0) -> bool:
 
 def read_initial_password() -> str:
     log = LOGS / "astrbot.log"
-    if not log.exists():
-        return ""
+    password = ""
     try:
-        text = log.read_text(encoding="utf-8", errors="ignore")
+        with log.open(encoding="utf-8", errors="ignore") as stream:
+            while line := stream.readline(8192):
+                matches = re.findall(r"Initial password:\s*(\S+)", line)
+                if matches:
+                    password = matches[-1]
     except Exception:
-        return ""
-    matches = re.findall(r"Initial password:\s*(\S+)", text)
-    return matches[-1] if matches else ""
+        pass
+    if password:
+        _cache_initial_password(password)
+        return password
+    cache = RUN_DIR / "astrbot-initial-login.enc"
+    try:
+        if cache.is_file() and not cache.is_symlink() and cache.stat().st_size < 16384:
+            return dpapi.unprotect(cache.read_text("utf-8").strip())
+    except Exception:
+        pass
+    return ""
+
+
+def _cache_initial_password(password: str) -> bool:
+    """Keep the legacy login fallback private when diagnostic logs are trimmed."""
+    temporary = None
+    try:
+        encrypted = dpapi.protect(password)
+        if not encrypted.startswith("dpapi:"):
+            return False
+        RUN_DIR.mkdir(parents=True, exist_ok=True)
+        destination = RUN_DIR / "astrbot-initial-login.enc"
+        if destination.is_symlink():
+            return False
+        if destination.exists() and dpapi.unprotect(destination.read_text("utf-8").strip()) == password:
+            return True
+        with tempfile.NamedTemporaryFile(dir=RUN_DIR, prefix=".initial-login-", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(encrypted.encode("utf-8"))
+        os.replace(temporary, destination)
+        return True
+    except Exception:
+        return False
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def preserve_log_credentials(name: str) -> bool:
+    if name != "astrbot.log":
+        return True
+    password = read_initial_password()
+    return not password or _cache_initial_password(password)
 
 
 def login(password: str) -> str:

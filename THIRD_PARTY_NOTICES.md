@@ -24,6 +24,13 @@
   不将其改写为 wheel 元数据所称的 MIT。
   来源：<https://github.com/jtushman/proxy_tools>。
 
+## 陪伴与表情兼容适配
+
+- Aurabot (`aureth-labs/dsh-aurabot-qq`) 与鲸鱼娘人设 (`Kaalia0912/dsh-whale-musume-persona`) 用于功能与表达方式参考。AstrBot 兼容实现没有复制其 DSH 运行时代码、完整提示词或桌宠素材；原始 MIT 许可、固定提交及参考范围见 `assets/plugins/astrbot_plugin_dafeiyu_companion/references/` 与 `SOURCES.md`。
+- `assets/plugins/astrbot_plugin_dafeiyu_stickers/vendor/nekowhale/` 引入 `Loping151/dsh-nekowhale-stickers` 的精选元数据和原始 GIF。该上游代码许可为 Apache-2.0，元数据为 CC BY-NC 4.0，图像按其 `LICENSE-ASSETS` 中的非商业分享条件分发；保留作者“可以叫我云大人 / 雾雪”、原站 https://kiriyuki.com 及角色设计者来源。图像未修改，每项路径、来源、校验值和选择范围见目录内清单及署名文件。
+- `yyh-001/dsh-meme` 用于了解按情绪选图与文本模型配图方式。其当前大肥鱼默认图库清单另标为个人使用，未作为公开下载素材复制进本项目；功能由本项目适配器与明确允许非商业分享的素材实现。
+- 原创六张贴纸仍按本项目 `LICENSE`、`NOTICE` 使用；社区素材保留各自条款，根目录许可不覆盖或替代上述许可。
+
 ## 运行时依赖
 
 本仓库不包含已安装运行时、第三方安装器、虚拟环境或打包的可执行文件。

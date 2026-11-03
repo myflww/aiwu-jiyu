@@ -13,6 +13,25 @@ from backend import astrbot_api, processes, plugins
 
 
 class DesktopSessionTests(unittest.TestCase):
+    def test_legacy_login_survives_diagnostic_log_cleanup(self):
+        with tempfile.TemporaryDirectory(prefix="aiwu-login-log-") as temporary, \
+             patch.object(astrbot_api, "RUN_DIR", Path(temporary) / "run"), \
+             patch.object(astrbot_api, "LOGS", Path(temporary) / "logs"):
+            astrbot_api.LOGS.mkdir()
+            log = astrbot_api.LOGS / "astrbot.log"
+            log.write_text("Initial password: example-legacy-secret\n", encoding="utf-8")
+            self.assertTrue(astrbot_api.preserve_log_credentials("astrbot.log"))
+            encrypted = (astrbot_api.RUN_DIR / "astrbot-initial-login.enc").read_text("utf-8")
+            self.assertNotIn("example-legacy-secret", encrypted)
+            log.write_text("", encoding="utf-8")
+            self.assertEqual(astrbot_api.read_initial_password(), "example-legacy-secret")
+
+    def test_log_cleanup_waits_when_legacy_login_cannot_be_preserved(self):
+        with patch.object(astrbot_api, "read_initial_password", return_value="example-secret"), \
+             patch.object(astrbot_api, "_cache_initial_password", return_value=False):
+            self.assertFalse(astrbot_api.preserve_log_credentials("astrbot.log"))
+            self.assertTrue(astrbot_api.preserve_log_credentials("napcat.log"))
+
     def test_private_secret_is_reused_and_plaintext_is_not_written(self):
         with tempfile.TemporaryDirectory(prefix="aiwu-session-") as temporary, \
              patch.object(astrbot_api, "RUN_DIR", Path(temporary)):

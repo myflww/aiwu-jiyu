@@ -21,6 +21,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "auto_login": True,
     "pc_access": {
         "enabled": False,
+        "desktop_enabled": False,
         "workspace": str(APP_HOME / "workspace"),
         "timeout_s": 60,
         "private_only": True,

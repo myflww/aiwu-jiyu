@@ -40,7 +40,7 @@ def current_version() -> str:
         version_key(value)
         return value.removeprefix("v")
     except (OSError, ValueError):
-        return "1.2.1"
+        return "1.3.0"
 
 
 def _trusted_url(url: str) -> bool:

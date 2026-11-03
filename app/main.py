@@ -78,8 +78,12 @@ def _single_instance():
 
 def _setup_log() -> None:
     try:
+        import os
+        from backend import log_retention
+
         ensure_dirs()
-        stream = open(LOGS / "app.log", "a", encoding="utf-8", buffering=1)
+        stream = log_retention.open_text_log(LOGS / "app.log")
+        log_retention.register_writer("app.log", os.getpid())
         sys.stdout = stream
         sys.stderr = stream
 
@@ -101,12 +105,11 @@ def main() -> None:
     args = parser.parse_args()
 
     _enable_dpi()
-    if getattr(sys, "frozen", False):
-        _setup_log()
-
     instance = _single_instance() if not args.headless and not args.preview else None
     if instance is False:
         return
+    if getattr(sys, "frozen", False):
+        _setup_log()
     try:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("myflww.AiwuJiyu.Desktop")
     except Exception:

@@ -105,8 +105,10 @@ def _kill_tree(pid: int) -> None:
 
 
 def _spawn(cmd: list[str], cwd: Path, log_name: str, *, environment: dict | None = None) -> subprocess.Popen:
+    from backend import log_retention
+
     LOGS.mkdir(parents=True, exist_ok=True)
-    handle = open(LOGS / log_name, "ab", buffering=0)
+    handle = log_retention.open_append_log(LOGS / log_name)
     startupinfo = subprocess.STARTUPINFO()
     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
     startupinfo.wShowWindow = subprocess.SW_HIDE
@@ -122,6 +124,7 @@ def _spawn(cmd: list[str], cwd: Path, log_name: str, *, environment: dict | None
             close_fds=True,
             env={**os.environ, **environment} if environment else None,
         )
+        log_retention.register_writer(log_name, process.pid, run_dir=RUN_DIR)
         return process
     finally:
         handle.close()
@@ -240,16 +243,10 @@ def restart_all(quick_qq: str | None = None) -> dict:
 
 
 def tail_log(name: str, max_chars: int = 12000) -> str:
-    files = {
-        "astrbot": LOGS / "astrbot.log",
-        "napcat": LOGS / "napcat.log",
-    }
-    path = files.get(name)
-    if not path or not path.exists():
+    from backend import log_retention
+
+    if name not in {"astrbot", "napcat"} or max_chars <= 0:
         return ""
-    try:
-        text = path.read_text(encoding="utf-8", errors="ignore")
-    except Exception:
-        return ""
+    text = log_retention.read_tail(name + ".log", min(max_chars + 128, 12000), log_dir=LOGS)
     text = re.sub(r"\x1b\[[0-9;]*m", "", text)
     return text[-max_chars:]

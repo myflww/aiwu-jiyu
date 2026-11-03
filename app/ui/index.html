@@ -90,7 +90,7 @@
       <div class="sidebar-art"><img id="sidebarMascot" src="/assets/ui/dafeiyu-rest.png" alt="抱着小鱼休息的大肥鱼" onerror="this.style.display='none'"></div>
       <p id="sidebarMascotCaption" role="status" aria-live="polite">正在看看小家的状态</p>
     </div>
-    <div class="sidebar-footer"><div class="sidebar-foot"><span class="local-dot"></span> 本机桌面版 <span id="sideVersion">v1.2.1</span></div><button class="sidebar-update" id="sideUpdate"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg><span id="sideUpdateLabel">检查更新</span><span class="update-dot hidden" id="sideUpdateDot"></span></button></div>
+    <div class="sidebar-footer"><div class="sidebar-foot"><span class="local-dot"></span> 本机桌面版 <span id="sideVersion">v1.3.0</span></div><button class="sidebar-update" id="sideUpdate"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg><span id="sideUpdateLabel">检查更新</span><span class="update-dot hidden" id="sideUpdateDot"></span></button></div>
   </aside>
 
   <main class="main">
@@ -150,7 +150,7 @@
   <div class="card" id="settingsFiles"><div class="setting-card-heading"><span class="setting-number pink">04</span><div><h2>工作目录</h2><div class="desc">她生成的文件会放在这个工作目录里。</div></div></div><label class="field"><span>大肥鱼工作目录</span><input type="text" id="setWorkspace" placeholder="例如 D:\AiwuJiyu\workspace"></label><div class="row wrap workspace-settings-actions"><button class="ghost" id="setWorkspaceBrowse">选择文件夹</button><button class="soft" id="setWorkspaceSave">保存目录</button><button class="text-button" data-go="artifacts">去看看作品箱 ↗</button></div><div class="hint" id="setWorkspaceHint">正在读取工作目录…</div><div class="notice blue">作品目录单独保存。是否允许她操作电脑，请在“我的肥鱼”里设置电脑权限。</div></div></div>
       <div class="section card update-settings" id="updateSettings">
         <div class="row between wrap"><div><h2>软件更新</h2><div class="desc">自动检查新版本，有更新时提醒你。下载和安装都由你决定。</div></div><label class="update-auto-toggle"><input type="checkbox" id="updateAutoCheck" checked><span>自动检查更新</span></label></div>
-        <div class="update-version-row"><span>当前版本 <b id="updateCurrentVersion">v1.2.1</b></span><span class="badge gray" id="updateVersionBadge">等待检查</span></div>
+        <div class="update-version-row"><span>当前版本 <b id="updateCurrentVersion">v1.3.0</b></span><span class="badge gray" id="updateVersionBadge">等待检查</span></div>
         <div class="update-status-message" id="updateMessage" role="status" aria-live="polite">正在读取更新设置…</div>
         <div class="update-download-progress hidden" id="updateProgressWrap"><div class="row between"><span>下载进度</span><span id="updatePercent">0%</span></div><div class="update-progress-track" role="progressbar" aria-label="更新下载进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="updateProgressTrack"><span id="updateProgress"></span></div></div>
         <div class="row wrap update-settings-actions"><button class="ghost" id="updateCheck"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg>检查更新</button><button class="primary hidden" id="updateDownload"><svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>下载更新</button><button class="primary hidden" id="updateInstall">安装更新</button><button class="text-button hidden" id="updateIgnore">忽略这个版本</button><a id="updateReleaseLink" href="https://github.com/myflww/aiwu-jiyu/releases" target="_blank" rel="noopener noreferrer">查看发布记录 ↗</a></div>
@@ -164,6 +164,7 @@
 
     <section id="view-logs" class="hidden">
   <div class="diagnostic-quick-status"><div><span class="local-dot" id="logAstrbotDot"></span><b>对话服务</b><span id="logAstrbotState">检测中</span></div><div><span class="local-dot" id="logNapcatDot"></span><b>QQ 连接</b><span id="logNapcatState">检测中</span></div><button class="text-button" data-go="overview">返回首页管理服务 ↗</button></div>
+  <div class="card log-retention-card"><div class="row between wrap"><h2>日志自动整理</h2><span class="badge green" id="logRetentionBadge">自动维护</span></div><p id="logRetentionRule">正在读取自动整理规则…</p><div class="hint" id="logRetentionStatus" role="status">仅整理控制台诊断日志，聊天记录和记忆库独立保存。</div></div>
   <div class="diagnostics-console card"><div class="console-topbar"><div class="log-tabs"><button class="log-tab active" data-log="astrbot">对话服务 <span>AstrBot</span></button><button class="log-tab" data-log="napcat">QQ 连接 <span>NapCat</span></button></div><div class="console-tools"><label><input type="checkbox" id="logFollow" checked>跟随新记录</label><button class="ghost" id="logRefresh" aria-label="刷新运行记录"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg></button><button class="ghost" id="logCopy">复制记录</button></div></div><div class="console-context"><span><span class="console-live-dot"></span><span id="logContext">对话服务 · 本机运行记录</span></span><span id="logUpdatedAt">等待读取</span></div><pre class="log" id="logView" tabindex="0" aria-label="运行日志内容">正在读取最近的运行记录…</pre><div class="console-footer"><span id="logLineCount">0 行记录</span><span>每 3 秒自动刷新 · 仅显示本机服务日志</span></div></div>
   <div class="diagnostic-tip"><svg class="icon" aria-hidden="true"><use href="#i-book"></use></svg><p><b>想请别人帮忙排查？</b>可以复制相关记录。分享前，请先检查其中是否包含你的 QQ 号、文件路径或其他私人信息。</p></div>
 </section>
@@ -237,6 +238,7 @@
 </section>
 
     <section id="view-plugins" class="hidden">
+  <div class="card plugin-dashboard-shortcuts" aria-label="本地后台快捷入口"><div><h2>本地后台</h2><p id="pluginsDashboardHint" role="status">连接本机服务后，可在浏览器打开后台。</p></div><div class="row wrap"><button class="soft" id="pluginsOpenAstrbot" disabled><span class="local-dot asleep" id="pluginsAstrbotDot" aria-hidden="true"></span>AstrBot 后台 <span aria-hidden="true">↗</span></button><button class="soft" id="pluginsOpenNapcat" disabled><span class="local-dot asleep" id="pluginsNapcatDot" aria-hidden="true"></span>NapCat 后台 <span aria-hidden="true">↗</span></button></div></div>
   <div class="plugin-page-toolbar"><div><span class="hint" id="pluginsDesc">正在读取插件…</span></div><button class="soft hidden" id="pluginsApply">应用更改 · 重启对话</button><button class="ghost" id="pluginsRefresh"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg>刷新状态</button></div>
   <div class="plugin-capability-grid" id="pluginsList"></div>
   <div class="section hidden" id="pluginExtraSection"><div class="section-head"><h2>其他插件</h2><span class="hint">你在本机另外安装的插件</span></div><div class="list" id="pluginExtraList"></div></div>

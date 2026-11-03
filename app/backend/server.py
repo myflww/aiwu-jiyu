@@ -17,11 +17,27 @@ from urllib.parse import parse_qs, urlparse
 
 from backend import autostart, config_store, installer, lovehouse, napcat_api, plugins, processes
 from backend import astrbot_api
-from backend import metrics, pc_access, updater
-from backend.paths import APP_HOME, ASSETS, LOGS, UI_DIR, ensure_dirs
+from backend import metrics, pc_access, updater, log_retention, companion, stickers
+from backend.paths import APP_HOME, ASSETS, LOGS, RUN_DIR, UI_DIR, ensure_dirs
 
 _lock = threading.Lock()
 _cache: dict[str, Any] = {"at": 0.0, "napcat": None}
+
+
+def _bool_field(body: dict, key: str, default: bool = False) -> bool:
+    value = body.get(key, default)
+    if not isinstance(value, bool):
+        raise ValueError(f"{key} 必须是布尔值")
+    return value
+
+
+class LocalServer(ThreadingHTTPServer):
+    log_retention_service = None
+
+    def server_close(self) -> None:
+        if self.log_retention_service:
+            self.log_retention_service.stop()
+        super().server_close()
 
 
 def _snapshot_napcat() -> dict:
@@ -93,6 +109,8 @@ def _apply_config(config: dict) -> dict:
     """Write AstrBot config and restart only AstrBot."""
     config_store.save(config)
     config_store.sync_astrbot_config(config)
+    companion.sync_config(config)
+    stickers.sync_config(config)
     try:
         pc_access.ensure_plugin_current()
         pc_access.sync_owner()
@@ -213,6 +231,12 @@ class Handler(BaseHTTPRequestHandler):
         }
         pc = {"enabled": False, "workspace": "", "members": {}, "audit": []}
         fixtures = {
+            "/api/stickers": {"ok": True, **stickers.status()},
+            "/api/companion": {"ok": True, **companion.DEFAULTS, "owner_configured": False,
+                                "plugin_installed": False},
+            "/api/logs/retention": {"ok": True, **log_retention.policy(), "preview": True,
+                                    "checked_at": None, "trimmed_files": 0, "cleared_files": 0,
+                                    "reclaimed_bytes": 0, "deferred": [], "errors": []},
             "/api/updates": {"ok": True, "current_version": updater.current_version(), "latest_version": "",
                              "available": False, "notify": False, "checking": False, "downloading": False,
                              "installing": False, "progress": 0, "downloaded": False, "download_verified": False,
@@ -282,6 +306,13 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/logs":
                 name = query.get("name", ["astrbot"])[0]
                 self._send(200, processes.tail_log(name).encode("utf-8"), "text/plain; charset=utf-8")
+            elif path == "/api/logs/retention":
+                service = getattr(self.server, "log_retention_service", None)
+                self._json(200, {"ok": True, **(service.snapshot() if service else log_retention.policy())})
+            elif path == "/api/companion":
+                self._json(200, {"ok": True, **companion.status()})
+            elif path == "/api/stickers":
+                self._json(200, {"ok": True, **stickers.status(settings=stickers.load_settings())})
             elif path == "/api/qr":
                 self._send(200, napcat_api.qr_png(refresh=query.get("refresh", ["0"])[0] == "1"), "image/png")
             elif path == "/api/qr/status":
@@ -363,6 +394,12 @@ class Handler(BaseHTTPRequestHandler):
             self._json(403, {"ok": False, "message": "这是界面预览，请在正式应用中设置"})
             return
         try:
+            if path.startswith("/api/"):
+                origin = self.headers.get("Origin")
+                expected_origin = f"http://127.0.0.1:{self.server.server_address[1]}"
+                if (origin and origin != expected_origin) or self.headers.get("Sec-Fetch-Site") == "cross-site":
+                    self._json(403, {"ok": False, "message": "请从爱屋及鱼应用窗口操作"})
+                    return
             if path.startswith("/api/updates/"):
                 origin = self.headers.get("Origin")
                 expected_origin = f"http://127.0.0.1:{self.server.server_address[1]}"
@@ -505,13 +542,29 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 self._json(200, plugins.set_enabled(body.get("id"), body.get("enabled")))
             elif path == "/api/pc-access":
+                desktop = _bool_field(body, "desktop_enabled") if "desktop_enabled" in body else None
                 result = pc_access.configure(
-                    enabled=bool(body.get("enabled")),
+                    enabled=_bool_field(body, "enabled"),
+                    desktop_enabled=desktop,
                     workspace=str(body.get("workspace") or ""),
                     timeout_s=int(body.get("timeout_s") or 60),
-                    private_only=bool(body.get("private_only", True)),
-                    confirm=bool(body.get("confirm")),
+                    private_only=_bool_field(body, "private_only", True),
+                    confirm=_bool_field(body, "confirm"),
                 )
+                self._json(200, {"ok": True, **result})
+            elif path == "/api/companion":
+                result = companion.configure(body)
+                current = next((item for item in plugins.list_plugins()
+                                if item["id"] == companion.PLUGIN_NAME), None)
+                if current and current.get("enabled") and processes.port_up(6185):
+                    _apply_config(config_store.load())
+                self._json(200, {"ok": True, **result})
+            elif path == "/api/stickers/settings":
+                result = stickers.configure(body)
+                current = next((item for item in plugins.list_plugins()
+                                if item["id"] == stickers.PLUGIN_ID), None)
+                if current and current.get("enabled") and processes.port_up(6185):
+                    _apply_config(config_store.load())
                 self._json(200, {"ok": True, **result})
             elif path == "/api/artifacts/open":
                 pc_access.open_artifact(str(body.get("path") or ""))
@@ -630,9 +683,10 @@ class Handler(BaseHTTPRequestHandler):
                 perm = pc_access.set_member(
                     config,
                     qq,
-                    read=bool(body.get("read")),
-                    write=bool(body.get("write")),
-                    run=bool(body.get("run")),
+                    read=_bool_field(body, "read"),
+                    write=_bool_field(body, "write"),
+                    run=_bool_field(body, "run"),
+                    desktop=_bool_field(body, "desktop"),
                 )
                 # 有权限就必须能和她说话。
                 if qq in perm:
@@ -687,13 +741,20 @@ def start_server(*, preview: bool = False, auto_start: bool = True, auto_update:
     if not preview and config_store.is_installed():
         try:
             plugins.install_bundled()
+            companion.sync_config(config)
+            stickers.sync_config(config)
         except Exception as exc:
             print(f"Bundled plugin synchronization deferred: {type(exc).__name__}", flush=True)
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = LocalServer(("127.0.0.1", 0), Handler)
     server.preview = preview
     server.daemon_threads = True
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
+    if not preview:
+        server.log_retention_service = log_retention.LogRetention(log_dir=LOGS, run_dir=RUN_DIR,
+                                                                 active_provider=processes.status,
+                                                                 before_trim=astrbot_api.preserve_log_credentials)
+        server.log_retention_service.start()
     if not preview and auto_update:
         updater.get_updater().start()
 
