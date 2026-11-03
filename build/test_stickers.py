@@ -10,6 +10,7 @@ from pathlib import Path
 import shutil
 import sys
 import tempfile
+import time
 from types import ModuleType, SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -30,7 +31,8 @@ def load_plugin():
     """Framework stubs are scoped to import, never installed into the process."""
     names = ["astrbot", "astrbot.api", "astrbot.api.event", "astrbot.api.star",
              "astrbot.core", "astrbot.core.platform", "astrbot.core.platform.message_type",
-             "astrbot.core.cron", "astrbot.core.cron.events", "astrbot.core.message", "astrbot.core.message.components"]
+             "astrbot.core.cron", "astrbot.core.cron.events", "astrbot.core.message", "astrbot.core.message.components",
+             "astrbot.core.db", "astrbot.core.db.po"]
     modules = {name: ModuleType(name) for name in names}
     identity = lambda *args, **kwargs: lambda function: function
     class ToolSet:
@@ -40,7 +42,8 @@ def load_plugin():
     modules["astrbot.api"].ToolSet = ToolSet
     modules["astrbot.api.event"].AstrMessageEvent = object
     modules["astrbot.api.event"].filter = SimpleNamespace(llm_tool=identity, command=identity,
-        on_llm_request=identity, on_llm_tool_respond=identity, on_decorating_result=identity)
+        on_llm_request=identity, on_llm_tool_respond=identity, on_decorating_result=identity, after_message_sent=identity)
+    modules["astrbot.core.db.po"].Conversation = type("Conversation", (SimpleNamespace,), {})
     modules["astrbot.core.cron.events"].CronMessageEvent = type("CronMessageEvent", (), {})
     modules["astrbot.core.message.components"].Plain = Plain
     modules["astrbot.core.message.components"].Image = Image
@@ -82,10 +85,13 @@ plugin_module, catalog_module = load_plugin()
 
 
 class FakeEvent:
+    next_id = 0
     def __init__(self, origin="qq-test:FriendMessage:example", message="发一张开心的大肥鱼表情",
-                 platform="aiocqhttp", kind=MessageType.FRIEND_MESSAGE, failure=False):
+                 platform="aiocqhttp", kind=MessageType.FRIEND_MESSAGE, failure=False, sender="sender-example"):
+        FakeEvent.next_id += 1
         self.unified_msg_origin = origin
-        self.message_obj = SimpleNamespace(message_id="example-message")
+        self.message_obj = SimpleNamespace(message_id=f"test-message-{FakeEvent.next_id}")
+        self.sender = sender
         self.message = message
         self.platform, self.kind = platform, kind
         self.extras, self.sent = {}, []
@@ -100,7 +106,7 @@ class FakeEvent:
         return self.kind
 
     def get_platform_id(self): return "qq-test"
-    def get_sender_id(self): return "sender-example"
+    def get_sender_id(self): return self.sender
     def get_self_id(self): return "bot-example"
     def get_result(self): return self.result
 
@@ -227,6 +233,27 @@ class PackTests(unittest.TestCase):
                              {"pack_selection": "https://example.com"}, {"pack_selection": []}, {"recipient": "other"}):
                     with self.assertRaises(ValueError): stickers.configure(body)
 
+    def test_missing_desktop_preferences_preserve_webui_and_explicit_fields_win(self):
+        with tempfile.TemporaryDirectory(prefix="aiwu-sticker-prefs-") as temporary:
+            root = Path(temporary)
+            target = root / "data/config/astrbot_plugin_dafeiyu_stickers_config.json"
+            target.parent.mkdir(parents=True)
+            original = {"enabled": False, "auto_match_enabled": False, "cooldown_seconds": 90,
+                        "pack_selection": "community", "unrelated": "preserve"}
+            target.write_text(json.dumps(original), encoding="utf-8")
+            with patch.object(stickers, "ASTRBOT", root), patch.object(stickers.config_store, "load", return_value={"stickers": None}):
+                self.assertFalse(stickers.sync_config({"stickers": None}))
+                self.assertFalse(stickers.sync_config({}))
+                self.assertEqual(stickers.load_settings(), {key: original[key] for key in stickers.DEFAULT_SETTINGS})
+                self.assertTrue(stickers.sync_config({"stickers": {"cooldown_seconds": 40}}))
+                saved = json.loads(target.read_text("utf-8"))
+                self.assertEqual(saved, {**original, "cooldown_seconds": 40})
+                with patch.object(stickers.config_store, "save") as save:
+                    result = stickers.configure({"auto_match_enabled": True})
+                self.assertEqual(result["settings"], {"auto_match_enabled": True, "cooldown_seconds": 40, "pack_selection": "community"})
+                self.assertFalse(json.loads(target.read_text("utf-8"))["enabled"])
+                self.assertEqual(save.call_args.args[0]["stickers"], result["settings"])
+
 
 class StickerSendTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
@@ -268,7 +295,7 @@ class StickerSendTests(unittest.IsolatedAsyncioTestCase):
             await self.plugin.send_dafeiyu_sticker(event, "love")
         self.assertEqual(len(event.sent), 1)
         same = FakeEvent()
-        with patch.object(self.plugin, "_now", return_value=110):
+        with patch.object(self.plugin, "_now", return_value=101):
             result = await self.plugin.send_dafeiyu_sticker(same, "sad")
         self.assertIn("避免刷屏", result)
         self.assertEqual(same.sent, [])
@@ -313,6 +340,24 @@ class StickerSendTests(unittest.IsolatedAsyncioTestCase):
         await self.plugin.attach_matching_sticker(event)
         self.assertFalse(any(isinstance(part, Image) for part in event.result.chain))
         self.assertIn("还没确认", event.result.chain[0].text)
+
+    async def test_cancelled_send_retains_uncertainty_without_permanent_sending_lock(self):
+        event = FakeEvent()
+        async def cancelled(result):
+            raise asyncio.CancelledError()
+        event.send = cancelled
+        with patch.object(self.plugin, "_now", return_value=100):
+            with self.assertRaises(asyncio.CancelledError):
+                await self.plugin.send_dafeiyu_sticker(event, "happy")
+        retry = FakeEvent()
+        with patch.object(self.plugin, "_now", return_value=104):
+            result = await self.plugin.send_dafeiyu_sticker(retry, "happy")
+        self.assertEqual(retry.sent, [])
+        self.assertIn("还没确认", result)
+        later = FakeEvent()
+        with patch.object(self.plugin, "_now", return_value=131):
+            await self.plugin.send_dafeiyu_sticker(later, "happy")
+        self.assertEqual(len(later.sent), 1)
 
     async def test_command_lists_or_sends_without_altering_other_messages(self):
         help_event = FakeEvent(message="/肥鱼表情")
@@ -437,11 +482,224 @@ class AutoStickerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNot(request.func_tool, original)
         self.assertEqual(original.tools, [])
         self.assertEqual(request.func_tool.tools, [tool])
-        self.assertEqual(request.system_prompt, "保留人格")
+        self.assertTrue(request.system_prompt.startswith("保留人格"))
         declined = FakeEvent(message="不要发表情包")
         result = await self.plugin.send_dafeiyu_sticker(declined, "happy")
         self.assertEqual(declined.sent, [])
-        self.assertIn("明确要看", result)
+        self.assertIn("没有收到表情请求", result)
+        self.assertEqual(request.system_prompt.count("[大肥鱼表情请求]"), 1)
+
+
+class ContextualStickerTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.plugin = plugin_module.DafeiyuStickers(None, {"auto_match_enabled": False})
+        tool = SimpleNamespace(name="send_dafeiyu_sticker", active=True,
+                               handler_module_path=self.plugin.__class__.__module__)
+        self.plugin.context = SimpleNamespace(get_llm_tool_manager=lambda: SimpleNamespace(func_list=[tool]))
+
+    async def offer(self, text="嘿嘿，被夸了 🐟\n\n那要不要再来一张？害羞的怎么样～", *, timestamp=100,
+                    bubbles=None, sender="sender-example", separate_turn=False):
+        sent = FakeEvent(message="发一张哈气表情", sender=sender)
+        with patch.object(self.plugin, "_now", return_value=timestamp):
+            await self.plugin.send_dafeiyu_sticker(sent, "angry")
+            event = FakeEvent(message="真可爱", sender=sender) if separate_turn else sent
+            event.result = Result([Plain(text)])
+            if not separate_turn:
+                await self.plugin.after_tool(event, None, None, None)
+            await self.plugin.attach_matching_sticker(event)
+            await event.send(event.result)  # Local fake final delivery receipt.
+            if bubbles:
+                event.set_extra("dafeiyu_bubbles_status", bubbles)
+                event.set_extra("dafeiyu_bubbles_final_text", text)
+            await self.plugin.remember_sent_offer(event)
+        return event
+
+    async def test_exact_screenshot_offer_accepts_both_natural_confirmations_without_keyword(self):
+        for phrase in ("可以呀", "你发"):
+            with self.subTest(phrase=phrase):
+                self.setUp()
+                await self.offer()
+                accepted = FakeEvent(message=phrase)
+                req = SimpleNamespace(system_prompt="原有人格", func_tool=SimpleNamespace(tools=[]))
+                with patch.object(self.plugin, "_now", return_value=104):
+                    await self.plugin.match_before_request(accepted, req)
+                    await self.plugin.match_before_request(accepted, req)
+                    reply = await self.plugin.send_dafeiyu_sticker(accepted, "angry")
+                    await self.plugin.send_dafeiyu_sticker(accepted, "happy")
+                self.assertEqual([item.name for item in req.func_tool.tools], ["send_dafeiyu_sticker"])
+                self.assertEqual(req.system_prompt.count("[大肥鱼表情请求]"), 1)
+                self.assertIn("emotion=shy", req.system_prompt)
+                self.assertIn("无需再问", req.system_prompt)
+                self.assertEqual(len(accepted.sent), 1)
+                self.assertEqual(accepted.get_extra(plugin_module.SELECTED_KEY), "shy")
+                self.assertIn("已向当前会话发送", reply)
+
+    async def test_separate_recent_success_and_successful_bubbles_can_offer_without_sticker_keyword(self):
+        await self.offer(separate_turn=True, bubbles="sent")
+        event = FakeEvent(message="你发吧！")
+        with patch.object(self.plugin, "_now", return_value=104):
+            await self.plugin.send_dafeiyu_sticker(event, "happy")
+        self.assertEqual(event.get_extra(plugin_module.SELECTED_KEY), "shy")
+
+    async def test_proposal_punctuation_does_not_erase_or_revive_a_previous_offer(self):
+        for ending in ("？", "！", "。", "！\n", "!\n\n"):
+            self.assertEqual(self.plugin._proposal_emotion("要不要再来一张害羞表情" + ending, "test"), "shy")
+        self.assertEqual(self.plugin._proposal_emotion("要不要来一张害羞表情？\n算啦，先聊别的。", "test"), "")
+
+    async def test_generic_yes_is_not_authorization_without_real_adjacent_offer(self):
+        for text in ("可以呀", "你发", "好呀，帮我打开记事本"):
+            event = FakeEvent(message=text)
+            await self.plugin.send_dafeiyu_sticker(event, "shy")
+            self.assertEqual(event.sent, [])
+        for proposal in ("害羞的表情很可爱。", "```要不要发一张害羞表情？```", "要不要开心还是害羞的表情？"):
+            self.setUp()
+            await self.offer(proposal)
+            event = FakeEvent(message="可以呀")
+            with patch.object(self.plugin, "_now", return_value=104):
+                await self.plugin.send_dafeiyu_sticker(event, "shy")
+            self.assertEqual(event.sent, [], proposal)
+
+    async def test_offer_expires_or_is_consumed_by_unrelated_or_declined_turn(self):
+        for intervening in ("明天天气如何", "不用了", "不要发表情"):
+            self.setUp()
+            await self.offer()
+            unrelated = FakeEvent(message=intervening)
+            with patch.object(self.plugin, "_now", return_value=104):
+                await self.plugin.match_before_request(unrelated, SimpleNamespace(system_prompt=""))
+                event = FakeEvent(message="可以呀")
+                await self.plugin.send_dafeiyu_sticker(event, "shy")
+            self.assertEqual(event.sent, [])
+        self.setUp()
+        await self.offer()
+        expired = FakeEvent(message="可以呀")
+        with patch.object(self.plugin, "_now", return_value=221):
+            await self.plugin.send_dafeiyu_sticker(expired, "shy")
+        self.assertEqual(expired.sent, [])
+
+    async def test_offer_never_crosses_conversation_sender_synthetic_or_failed_delivery(self):
+        for status in ("cancelled", "failed", "sending"):
+            self.setUp()
+            await self.offer(bubbles=status)
+            event = FakeEvent(message="可以呀")
+            with patch.object(self.plugin, "_now", return_value=104):
+                await self.plugin.send_dafeiyu_sticker(event, "shy")
+            self.assertEqual(event.sent, [])
+        self.setUp()
+        await self.offer()
+        for event in (FakeEvent(message="可以呀", sender="other-sender"),
+                      FakeEvent(message="可以呀", origin="qq-test:FriendMessage:other"),
+                      FakeEvent(message="可以呀", platform="cron"), FakeEvent(message="可以呀", platform="webchat")):
+            with patch.object(self.plugin, "_now", return_value=104):
+                await self.plugin.send_dafeiyu_sticker(event, "shy")
+            self.assertEqual(event.sent, [])
+
+    async def test_failed_final_send_never_commits_offer_or_shortens_auto_uncertainty(self):
+        self.plugin.config = {"auto_match_enabled": True}
+        failed = FakeEvent(message="开心", failure=True)
+        failed.result = Result([Plain("要不要再来一张害羞的表情？[sticker:happy]")])
+        with patch.object(self.plugin, "_now", return_value=100):
+            await self.plugin.attach_matching_sticker(failed)
+            with self.assertRaises(OSError):
+                await failed.send(failed.result)
+            # Real core catches the error but still runs after_message_sent.
+            await self.plugin.remember_sent_offer(failed)
+        self.assertTrue(failed.get_extra(plugin_module.UNCERTAIN_KEY))
+        yes = FakeEvent(message="可以呀")
+        direct = FakeEvent(message="再发一张表情")
+        with patch.object(self.plugin, "_now", return_value=104):
+            await self.plugin.send_dafeiyu_sticker(yes, "shy")
+            reply = await self.plugin.send_dafeiyu_sticker(direct, "shy")
+        self.assertEqual(yes.sent, [])
+        self.assertEqual(direct.sent, [])
+        self.assertIn("还没确认", reply)
+        self.assertIn("26 秒", reply)
+
+    async def test_receipt_composes_with_bubble_wrappers_in_both_orders(self):
+        for before in (True, False):
+            self.setUp()
+            event = FakeEvent(message="表情真可爱")
+            event.result = Result([Plain("要不要来一张害羞的表情？")])
+            def wrap():
+                original = event.send
+                async def bubbles(*args, **kwargs):
+                    event.set_extra("dafeiyu_bubbles_status", "sending")
+                    value = await original(*args, **kwargs)
+                    event.set_extra("dafeiyu_bubbles_status", "sent")
+                    event.set_extra("dafeiyu_bubbles_final_text", "要不要来一张害羞的表情？")
+                    return value
+                event.send = bubbles
+            with patch.object(self.plugin, "_now", return_value=100):
+                if before: wrap()
+                await self.plugin.attach_matching_sticker(event)
+                if not before: wrap()
+                await event.send(event.result)
+                await self.plugin.remember_sent_offer(event)
+            yes = FakeEvent(message="可以呀")
+            with patch.object(self.plugin, "_now", return_value=104):
+                await self.plugin.send_dafeiyu_sticker(yes, "happy")
+            self.assertEqual(len(yes.sent), 1)
+            self.assertEqual(yes.get_extra(plugin_module.SELECTED_KEY), "shy")
+    async def test_short_explicit_throttle_allows_retry_but_auto_and_uncertainty_keep_full_interval(self):
+        await self.offer()
+        early = FakeEvent(message="可以呀")
+        with patch.object(self.plugin, "_now", return_value=101):
+            blocked = await self.plugin.send_dafeiyu_sticker(early, "shy")
+        self.assertIn("2 秒", blocked)
+        self.assertEqual(early.sent, [])
+        retry = FakeEvent(message="你发")
+        with patch.object(self.plugin, "_now", return_value=103):
+            await self.plugin.send_dafeiyu_sticker(retry, "shy")
+        self.assertEqual(len(retry.sent), 1)
+        self.plugin.config = {"auto_match_enabled": True}
+        auto = FakeEvent(message="开心")
+        auto.result = Result([Plain("开心[sticker:happy]")])
+        with patch.object(self.plugin, "_now", return_value=110):
+            await self.plugin.attach_matching_sticker(auto)
+        self.assertFalse(any(isinstance(part, Image) for part in auto.result.chain))
+        direct = FakeEvent(message="再发一张开心表情")
+        with patch.object(self.plugin, "_now", return_value=110):
+            await self.plugin.send_dafeiyu_sticker(direct, "happy")
+        self.assertEqual(len(direct.sent), 1)
+        uncertain = FakeEvent(message="发一张表情", origin="qq-test:FriendMessage:uncertain", failure=True)
+        with patch.object(self.plugin, "_now", return_value=100):
+            await self.plugin.send_dafeiyu_sticker(uncertain, "happy")
+        retry_uncertain = FakeEvent(message="再发一张表情", origin=uncertain.unified_msg_origin)
+        with patch.object(self.plugin, "_now", return_value=110):
+            reply = await self.plugin.send_dafeiyu_sticker(retry_uncertain, "shy")
+        self.assertEqual(retry_uncertain.sent, [])
+        self.assertIn("还没确认", reply)
+        self.assertIn("20 秒", reply)
+
+    async def test_reloaded_private_context_recovery_uses_only_fresh_sdk_current_conversation(self):
+        origin, sender = "qq-test:FriendMessage:private-sender", "private-sender"
+        history = [{"role": "user", "content": "发张哈气表情"},
+                   {"role": "assistant", "content": "", "tool_calls": [{"id": "call-own", "function": {"name": "send_dafeiyu_sticker"}}]},
+                   {"role": "tool", "tool_call_id": "call-own", "content": "已向当前会话发送一张「哈气」大肥鱼贴纸，不要重复发送。"},
+                   {"role": "assistant", "content": "嘿嘿，被夸了 🐟\n\n那要不要再来一张？害羞的怎么样～"}]
+        def request(**changes):
+            data = {"platform_id": "qq-test", "user_id": origin, "updated_at": time.time(), "history": json.dumps(history)}
+            data.update(changes)
+            return SimpleNamespace(system_prompt="", conversation=plugin_module.Conversation(**data))
+        for changes in ({"updated_at": time.time() - 121}, {"user_id": "qq-test:FriendMessage:other"},
+                        {"history": json.dumps([*history[:1], {"role": "assistant", "tool_calls": 1}, *history[2:]])},
+                        {"history": json.dumps(history + [{"role": "assistant", "content": "今天吃什么？"}])}):
+            self.setUp()
+            event = FakeEvent(origin=origin, sender=sender, message="可以呀")
+            await self.plugin.match_before_request(event, request(**changes))
+            await self.plugin.send_dafeiyu_sticker(event, "shy")
+            self.assertEqual(event.sent, [])
+        self.setUp()
+        event = FakeEvent(origin=origin, sender=sender, message="你发")
+        await self.plugin.match_before_request(event, request())
+        await self.plugin.send_dafeiyu_sticker(event, "angry")
+        self.assertEqual(Path(event.sent[0]["path"]).name, "shy.png")
+        self.setUp()
+        unrelated = FakeEvent(origin=origin, sender=sender, message="先聊别的")
+        await self.plugin.match_before_request(unrelated, request())
+        later = FakeEvent(origin=origin, sender=sender, message="可以呀")
+        await self.plugin.match_before_request(later, request())
+        await self.plugin.send_dafeiyu_sticker(later, "shy")
+        self.assertEqual(later.sent, [])
 
 
 if __name__ == "__main__":

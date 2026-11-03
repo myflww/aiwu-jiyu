@@ -40,7 +40,7 @@ def current_version() -> str:
         version_key(value)
         return value.removeprefix("v")
     except (OSError, ValueError):
-        return "1.3.0"
+        return "1.3.1"
 
 
 def _trusted_url(url: str) -> bool:
@@ -242,11 +242,13 @@ class Updater:
                 self.state.update(checking=False, checked_epoch=time.time(),
                                   checked_at=datetime.now(timezone.utc).isoformat())
 
-    def download(self) -> dict:
+    def download(self, *, repair: bool = False) -> dict:
         with self.lock:
             if self.state["checking"] or self.state["downloading"] or self.state["installing"]:
                 return self.snapshot()
-            if not self.release or not self.state["available"]:
+            same_version_repair = (repair is True and self.release
+                                   and version_key(self.release["version"]) == version_key(self.version))
+            if not self.release or not (self.state["available"] or same_version_repair):
                 raise ValueError("请先检查是否有新版本")
             self.state.update(downloading=True, downloaded=False, download_verified=False,
                               progress=0, error="", message="正在下载安装包…")

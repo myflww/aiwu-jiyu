@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
+import stat
 import tempfile
+import time
 
 from backend import config_store
 from backend.paths import ASTRBOT, ASSETS
@@ -20,6 +23,25 @@ DEFAULTS = dict(_policy.DEFAULTS)
 def load(config: dict | None = None) -> dict:
     config = config_store.load() if config is None else config
     incoming = config.get("companion")
+    if not isinstance(incoming, dict):
+        # Existing users may have configured the optional plugin in AstrBot
+        # before saving any desktop preferences. Do not erase those choices on
+        # app startup; explicit desktop preferences become authoritative later.
+        path = ASTRBOT / "data" / "config" / f"{PLUGIN_NAME}_config.json"
+        try:
+            if (not path.is_symlink() and path.is_file() and path.stat().st_size <= 128 * 1024
+                    and not (getattr(path.stat(), "st_file_attributes", 0) & 0x400)):
+                with path.open("rb") as stream:
+                    raw = stream.read(128 * 1024 + 1)
+                data = json.loads(raw) if len(raw) <= 128 * 1024 else None
+                if isinstance(data, dict):
+                    incoming = {key: data[key] for key in DEFAULTS if key in data}
+                    if data.get("enabled") is False:
+                        # A WebUI master-off preference must remain off too.
+                        # This is adopted only before the first desktop save.
+                        incoming.update({key: False for key in _policy.BOOL_FIELDS})
+        except (OSError, ValueError, TypeError):
+            pass
     return _policy.normalize(incoming if isinstance(incoming, dict) else {})
 
 
@@ -72,6 +94,62 @@ def status(config: dict | None = None) -> dict:
     config = config_store.load() if config is None else config
     return {**load(config), "owner_configured": bool(config.get("owner_qq")),
             "plugin_installed": plugins.plugin_path(PLUGIN_NAME).is_dir(),
+            "runtime": _runtime_status(config),
             "privacy_summary": "只对主人私聊生效。活动感知仅含前台应用名与闲置时长；不记录按键、窗口标题或屏幕。启用后这些概况可用于模型回复。",
-            "proactive_summary": "先与她私聊建立会话；主动消息使用你的当前模型，可能产生 API 用量；免打扰时段不发送。",
+            "proactive_summary": "开启后由后台自主选话题，无需设置 cron。先与她私聊确认会话；使用当前模型，可能产生 API 用量；免打扰时段不发送。",
             "style_summary": "可选傲娇甜口与自然中文表达，减少固定欢迎词；保留现有人格和工具，不要求或展示隐藏思维链。"}
+
+
+def _runtime_status(config: dict) -> dict:
+    """Read a bounded public heartbeat; never return private state or error repr."""
+    options = load(config)
+    code = "not_running" if options["proactive_enabled"] else "disabled"
+    result = {"code": code, "message": _policy.RUNTIME_MESSAGES[code], "worker_running": False,
+              "heartbeat_at": None, "next_trigger_at": None, "session_known": False,
+              "last_result": None, "last_result_at": None, "last_success_at": None,
+              "daily_count": 0, "daily_limit": options["daily_limit"]}
+    path = ASTRBOT / "data" / "plugin_data" / PLUGIN_NAME / "runtime.json"
+    try:
+        # Reject redirected/reparse files and directories, not just a final symlink.
+        for candidate in (path, path.parent, path.parent.parent):
+            if candidate.is_symlink() or (getattr(candidate.stat(), "st_file_attributes", 0) & 0x400):
+                return result
+        info = path.stat()
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 16 * 1024 or info.st_nlink != 1:
+            return result
+        with path.open("rb") as stream:
+            raw = stream.read(16 * 1024 + 1)
+        if len(raw) > 16 * 1024:
+            return result
+        candidate = json.loads(raw)
+        expected = {**options, "owner_qq": str(config.get("owner_qq") or ""),
+                    "bot_qq": str(config.get("bot_qq") or "")}
+        if (not isinstance(candidate, dict) or type(candidate.get("version")) is not int or candidate.get("version") != 1
+                or candidate.get("signature") != _policy.runtime_signature(expected)):
+            return result
+        heartbeat = candidate.get("heartbeat_at")
+        if type(heartbeat) not in (int, float) or not math.isfinite(heartbeat) or not -30 <= time.time() - heartbeat <= 180:
+            return result
+        for key in ("heartbeat_at", "next_trigger_at", "last_result_at", "last_success_at"):
+            value = candidate.get(key)
+            if value is not None and (type(value) not in (int, float) or not math.isfinite(value) or not 0 < value < 4102444800):
+                return result
+            result[key] = value
+        if type(candidate.get("worker_running")) is not bool or type(candidate.get("session_known")) is not bool:
+            return result
+        status_code = candidate.get("code")
+        if status_code not in _policy.RUNTIME_MESSAGES:
+            return result
+        result.update(code=status_code, message=_policy.RUNTIME_MESSAGES[status_code],
+                      worker_running=candidate["worker_running"], session_known=candidate["session_known"])
+        count = candidate.get("daily_count")
+        if type(count) is int and 0 <= count <= 10:
+            result["daily_count"] = count
+        last_result = candidate.get("last_result")
+        if last_result in _policy.RUNTIME_MESSAGES:
+            result["last_result"] = last_result
+        if not result["worker_running"] and options["proactive_enabled"] and status_code != "stopped":
+            result.update(code="not_running", message=_policy.RUNTIME_MESSAGES["not_running"])
+        return result
+    except (OSError, ValueError, TypeError):
+        return result

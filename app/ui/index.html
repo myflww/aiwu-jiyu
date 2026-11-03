@@ -64,11 +64,11 @@
   <path d="M12 2v10" />
   <path d="M18.4 6.6a9 9 0 1 1-12.77.04" />
 </symbol>
-<!-- Love House pixel-heart mark, adapted from its project-banner.svg. -->
-<symbol id="i-lovehouse-heart" viewBox="0 0 162 198">
-  <path d="M18 18h36V0h54v18h36v36h18v54h-18v36h-18v18h-18v18H90v18H72v-18H54v-18H36v-18H18v-36H0V54h18z" fill="#713c39" />
-  <path d="M18 36h36V18h36v18h18V18h18v18h18v72h-18v36h-18v18H90v18H72v-18H54v-18H36v-36H18z" fill="#fa666e" />
-  <path d="M36 36h18V18h18v18H54v18H36z" fill="#ffe9d4" />
+<!-- Compact, symmetric pixel heart for legibility at small UI sizes. -->
+<symbol id="i-lovehouse-heart" viewBox="0 0 16 16">
+  <path d="M2 1h4v2h4V1h4v2h2v6h-2v2h-2v2h-2v2H6v-2H4v-2H2V9H0V3h2z" fill="#a64b57" />
+  <path d="M2 2h3v2h6V2h3v2h1v5h-2v2h-2v2H9v1H7v-1H5v-2H3V9H1V4h1z" fill="#fa666e" />
+  <path d="M3 3h2v2H3z" fill="#ffe9d4" />
 </symbol>
 </svg>
 <div class="app hidden" id="app">
@@ -90,7 +90,7 @@
       <div class="sidebar-art"><img id="sidebarMascot" src="/assets/ui/dafeiyu-rest.png" alt="抱着小鱼休息的大肥鱼" onerror="this.style.display='none'"></div>
       <p id="sidebarMascotCaption" role="status" aria-live="polite">正在看看小家的状态</p>
     </div>
-    <div class="sidebar-footer"><div class="sidebar-foot"><span class="local-dot"></span> 本机桌面版 <span id="sideVersion">v1.3.0</span></div><button class="sidebar-update" id="sideUpdate"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg><span id="sideUpdateLabel">检查更新</span><span class="update-dot hidden" id="sideUpdateDot"></span></button></div>
+    <div class="sidebar-footer"><div class="sidebar-foot"><span class="local-dot"></span> 本机桌面版 <span id="sideVersion">v1.3.1</span></div><button class="sidebar-update" id="sideUpdate"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg><span id="sideUpdateLabel">检查更新</span><span class="update-dot hidden" id="sideUpdateDot"></span></button></div>
   </aside>
 
   <main class="main">
@@ -133,7 +133,7 @@
       <details class="section card disclosure technical-details"><summary><span class="summary-heading"><svg class="icon" aria-hidden="true"><use href="#i-log"></use></svg>运行与诊断</span><span class="summary-meta">服务与电脑权限 <span class="chevron"></span></span></summary><div class="disclosure-body"><div class="notice blue">关闭窗口会留在系统托盘，服务会继续运行。需要下线时，点击首页的“一键关闭”。</div><div class="grid cols-2 technical-service-grid"><div><div class="row between"><h2>AstrBot · 对话服务</h2><span class="pill"><span class="dot" id="pillAstrbot"></span><span id="ovAstrbot">检测中</span></span></div><div class="desc" id="ovAstrbotDesc">—</div></div><div><div class="row between"><h2>NapCat · QQ 连接</h2><span class="pill"><span class="dot" id="pillNapcat"></span><span id="ovNapcat">检测中</span></span></div><div class="desc" id="ovNapcatDesc">—</div></div></div><div class="section pc-summary"><div class="row between"><h2>电脑操作权限 <span class="badge gray" id="pcBadge">未开启</span></h2><button class="soft" id="pcManage">设置权限</button></div><div class="desc" id="pcDesc">仅读写指定的工作目录。</div></div><dl class="kv technical-kv"><dt>本机端口</dt><dd>AstrBot 6185 / NapCat 6099 / OneBot 6199</dd><dt>安装目录</dt><dd id="ovInstall" class="mono small">—</dd></dl><div class="row wrap technical-actions"><button class="ghost" id="btnOpenAstrbot">对话服务面板</button><button class="ghost" id="btnOpenNapcat">QQ 连接面板</button><button class="ghost" id="btnOpenFolder">运行目录</button><span class="action-spacer"></span><button class="ghost" id="btnRestart">重新连接服务</button></div></div></details>
     </section>
     <section id="view-whitelist" class="hidden">
-  <div class="permission-summary"><div class="guardian-summary"><svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg><div><span>小家的主人</span><b id="wlOwnerSummary">尚未设置</b></div><span class="badge green">始终可聊天</span></div><div><span>受邀私聊</span><b id="wlPrivateCount">0</b><small>位伙伴</small></div><div><span>受邀群聊</span><b id="wlGroupCount">0</b><small>个群</small></div></div>
+  <div class="permission-summary"><div class="guardian-summary"><svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg><div><span>小家的主人</span><b id="wlOwnerSummary">尚未设置</b></div><span class="badge green">始终可聊天</span></div><div class="permission-stat"><span>受邀私聊</span><div class="permission-stat-value"><b id="wlPrivateCount">0</b><small>位伙伴</small></div></div><div class="permission-stat"><span>受邀群聊</span><div class="permission-stat-value"><b id="wlGroupCount">0</b><small>个群</small></div></div></div>
   <div class="permission-layout">
     <div class="permission-members card"><div class="row between wrap"><div><h2>聊天名单</h2><div class="desc" id="wlSummary">正在读取名单…</div></div><button class="ghost" id="wlApplyBtn">重新应用</button></div><div class="list" id="wlList" style="margin-top:18px"></div><div class="permission-legend"><span class="legend-dot chat"></span>可以聊天<span class="legend-dot files"></span>电脑操作需额外授权</div></div>
     <div class="permission-controls stack"><div class="card circle-switch-card"><div class="row between"><h2>仅回应名单</h2><label class="switch-control"><input type="checkbox" id="wlEnable" aria-label="只回应名单中的私聊与群聊"><span class="switch-visual"></span></label></div><p class="desc">开启后，只回应名单里的 QQ 和群聊。主人始终可以聊天。</p><div class="notice blue">添加一个群后，群里所有人都能唤醒她。请只邀请你信任的群聊。</div></div>
@@ -149,12 +149,12 @@
   <div class="card" id="settingsDaily"><div class="setting-card-heading"><span class="setting-number">03</span><div><h2>启动选项</h2><div class="desc">这里的开关更改后立即生效。</div></div></div><label class="setting-switch-row"><div><b>开机启动</b><span>登录 Windows 后，自动启动到系统托盘。</span></div><input type="checkbox" id="setAutostart"></label><label class="setting-switch-row"><div><b>记住已授权的 QQ 小号</b><span>启动时优先尝试快速登录，失败时再扫码。</span></div><input type="checkbox" id="setAutoLogin"></label><div class="hint" id="setAutostartHint">正在读取启动设置…</div><div class="hint" id="quickLoginHint">正在读取已授权的 QQ…</div><details class="inline-advanced"><summary>查看安装位置</summary><code class="folder-path" id="setInstallDir">—</code></details></div>
   <div class="card" id="settingsFiles"><div class="setting-card-heading"><span class="setting-number pink">04</span><div><h2>工作目录</h2><div class="desc">她生成的文件会放在这个工作目录里。</div></div></div><label class="field"><span>大肥鱼工作目录</span><input type="text" id="setWorkspace" placeholder="例如 D:\AiwuJiyu\workspace"></label><div class="row wrap workspace-settings-actions"><button class="ghost" id="setWorkspaceBrowse">选择文件夹</button><button class="soft" id="setWorkspaceSave">保存目录</button><button class="text-button" data-go="artifacts">去看看作品箱 ↗</button></div><div class="hint" id="setWorkspaceHint">正在读取工作目录…</div><div class="notice blue">作品目录单独保存。是否允许她操作电脑，请在“我的肥鱼”里设置电脑权限。</div></div></div>
       <div class="section card update-settings" id="updateSettings">
-        <div class="row between wrap"><div><h2>软件更新</h2><div class="desc">自动检查新版本，有更新时提醒你。下载和安装都由你决定。</div></div><label class="update-auto-toggle"><input type="checkbox" id="updateAutoCheck" checked><span>自动检查更新</span></label></div>
-        <div class="update-version-row"><span>当前版本 <b id="updateCurrentVersion">v1.3.0</b></span><span class="badge gray" id="updateVersionBadge">等待检查</span></div>
+        <div class="row between wrap"><div><h2>软件与插件更新</h2><div class="desc">启动时合并检查软件与随附插件，有新版会弹窗提醒。下载和安装都由你决定。</div></div><label class="update-auto-toggle"><input type="checkbox" id="updateAutoCheck" checked><span>自动检查并提醒</span></label></div>
+        <div class="update-version-row"><span>当前版本 <b id="updateCurrentVersion">v1.3.1</b></span><span>最新版本 <b id="updateLatestVersion">暂未确认</b></span><span class="badge gray" id="updateVersionBadge">等待检查</span></div>
         <div class="update-status-message" id="updateMessage" role="status" aria-live="polite">正在读取更新设置…</div>
         <div class="update-download-progress hidden" id="updateProgressWrap"><div class="row between"><span>下载进度</span><span id="updatePercent">0%</span></div><div class="update-progress-track" role="progressbar" aria-label="更新下载进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="updateProgressTrack"><span id="updateProgress"></span></div></div>
         <div class="row wrap update-settings-actions"><button class="ghost" id="updateCheck"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg>检查更新</button><button class="primary hidden" id="updateDownload"><svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>下载更新</button><button class="primary hidden" id="updateInstall">安装更新</button><button class="text-button hidden" id="updateIgnore">忽略这个版本</button><a id="updateReleaseLink" href="https://github.com/myflww/aiwu-jiyu/releases" target="_blank" rel="noopener noreferrer">查看发布记录 ↗</a></div>
-        <div class="hint update-install-note hidden" id="updateInstallNote">安装时会关闭本窗口，聊天服务继续运行。安装完成后即可打开新版本。</div>
+        <div class="hint update-install-note hidden" id="updateInstallNote">插件随完整安装包更新。安装时会关闭本窗口，完成后加载新版软件与随附插件。</div>
         <div class="hint" id="updateCheckedAt"></div>
       </div>
 
@@ -240,6 +240,7 @@
     <section id="view-plugins" class="hidden">
   <div class="card plugin-dashboard-shortcuts" aria-label="本地后台快捷入口"><div><h2>本地后台</h2><p id="pluginsDashboardHint" role="status">连接本机服务后，可在浏览器打开后台。</p></div><div class="row wrap"><button class="soft" id="pluginsOpenAstrbot" disabled><span class="local-dot asleep" id="pluginsAstrbotDot" aria-hidden="true"></span>AstrBot 后台 <span aria-hidden="true">↗</span></button><button class="soft" id="pluginsOpenNapcat" disabled><span class="local-dot asleep" id="pluginsNapcatDot" aria-hidden="true"></span>NapCat 后台 <span aria-hidden="true">↗</span></button></div></div>
   <div class="plugin-page-toolbar"><div><span class="hint" id="pluginsDesc">正在读取插件…</span></div><button class="soft hidden" id="pluginsApply">应用更改 · 重启对话</button><button class="ghost" id="pluginsRefresh"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg>刷新状态</button></div>
+  <div class="plugin-version-summary" id="pluginUpdateSummary" aria-label="随附插件版本"><div class="row between wrap"><div class="row wrap"><b>插件版本</b><span class="badge gray" id="pluginUpdateBadge">等待检查</span></div><button class="text-button" id="pluginUpdateOpen">前往更新 ↗</button></div><p id="pluginUpdateMessage" role="status" aria-live="polite">和软件一起检查随附插件版本；下载和更新都由你决定。</p><details><summary>查看当前与最新版本</summary><div id="pluginUpdateVersions"></div></details></div>
   <div class="plugin-capability-grid" id="pluginsList"></div>
   <div class="section hidden" id="pluginExtraSection"><div class="section-head"><h2>其他插件</h2><span class="hint">你在本机另外安装的插件</span></div><div class="list" id="pluginExtraList"></div></div>
   <details class="section card disclosure plugin-maintenance"><summary><span class="summary-heading"><svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg>插件维护</span><span class="summary-meta">文件修复与服务管理 <span class="chevron"></span></span></summary><div class="disclosure-body"><p class="desc">支持热切换时立即应用；出现“待应用”时，点击上方按钮重启对话服务。QQ 连接保持在线。</p><div class="row wrap" style="margin-top:15px"><button class="ghost" id="pluginsFolder">打开插件文件夹</button><button class="ghost" id="pluginsInstallLh">修复记忆插件文件</button><button class="soft" id="pluginsRestart">重启对话服务</button></div></div></details>

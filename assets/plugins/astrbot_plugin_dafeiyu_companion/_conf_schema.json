@@ -6,6 +6,8 @@
   "proactive_enabled": {"type": "bool", "description": "主动来找主人聊天", "default": false, "hint": "只向已建立的主人私聊会话发送；使用当前模型，可能产生 API 用量。"},
   "emotion_enabled": {"type": "bool", "description": "情绪陪伴表达", "default": false, "hint": "可调的角色状态模拟，不代表实际意识或心理诊断。"},
   "whale_style_enabled": {"type": "bool", "description": "大肥鱼口吻与自然中文回复", "default": false, "hint": "可选傲娇甜口表达，减少固定欢迎词与模板收尾；只调整可见回复，不要求或展示隐藏思维链。"},
+  "natural_bubbles_enabled": {"type": "bool", "description": "自然分条聊天", "default": false, "hint": "只在主人 QQ 私聊把适合的普通短文本自然分条；代码、链接、工具结果等保持完整。"},
+  "natural_bubbles_frequency": {"type": "string", "description": "自然分条频率", "default": "occasional", "options": ["occasional", "often"], "hint": "occasional 偶尔分条；often 更常分条。实际是否分条取决于内容。"},
   "activity_enabled": {"type": "bool", "description": "感知电脑活动概况", "default": false, "hint": "只读取前台应用进程名、闲置和离开/回来；概况可用于模型回复，不获取标题、按键或屏幕。"},
   "interval_minutes": {"type": "int", "description": "主动问候最短间隔（分钟）", "default": 120, "hint": "30–1440分钟；距最近私聊或主动问候均需达到此间隔。"},
   "daily_limit": {"type": "int", "description": "每日主动问候上限", "default": 3, "hint": "1–10次。"},

@@ -18,27 +18,32 @@ from astrbot.core.star.session_llm_manager import SessionServiceManager
 from astrbot.core.star.session_plugin_manager import SessionPluginManager
 
 from .engine import (activity_summary, foreground_activity, mood_after, mood_summary,
-                     normalize, quiet_now, text_history, valid_session, WHALE_STYLE_CONTEXT)
+                     normalize, quiet_now, text_history, valid_session, WHALE_STYLE_CONTEXT,
+                     PROACTIVE_ANGLES, RUNTIME_MESSAGES, runtime_signature, schedule_state)
+from .natural_bubbles import BubbleReplies
 
 PLUGIN_NAME = "astrbot_plugin_dafeiyu_companion"
 QQ_ADAPTERS = {"aiocqhttp", "qq"}
 
 
-@register(PLUGIN_NAME, "myflww", "大肥鱼陪伴：主动问候、情绪表达与授权活动概况", "1.0.0")
+@register(PLUGIN_NAME, "myflww", "大肥鱼陪伴：自主搭话、情绪表达与授权活动概况", "1.1.0")
 class DafeiyuCompanion(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
-        self.config = config or {}
+        self.config = config if config is not None else {}
         self._worker = None
         self._closed = False
         self._state_path = None
+        self._runtime_path = None
         self._state = {}
+        self._runtime = {}
         self._activity = {}
         self._previous_activity = {}
         self._activity_at = 0.0
         self._last_attempt = 0.0
         self._send_lock = asyncio.Lock()
         self._last_message_key = None
+        self._bubbles = BubbleReplies()
 
     def _options(self) -> dict:
         return normalize(self.config)
@@ -54,15 +59,21 @@ class DafeiyuCompanion(Star):
         return self._owner(), str(self.config.get("bot_qq") or "").strip()
 
     async def initialize(self):
-        if not self._enabled() or not self._owner():
+        if self._worker and not self._worker.done():
             return
+        if self._closed:
+            self._bubbles = BubbleReplies()
+        self._closed = False
+        # Keep a lightweight worker alive even when capabilities are off.
+        # AstrBot may update the config object after plugin initialization.
+        # Sampling, model calls and sending still require explicit capability flags.
         directory = StarTools.get_data_dir(PLUGIN_NAME)
         self._state_path = directory / "state.json"
+        self._runtime_path = directory / "runtime.json"
         if self._state_path.is_symlink():
             self._state_path = None
-            return
         try:
-            if self._state_path.is_file() and self._state_path.stat().st_size <= 16 * 1024:
+            if self._state_path and self._state_path.is_file() and self._state_path.stat().st_size <= 16 * 1024:
                 data = json.loads(self._state_path.read_text("utf-8"))
                 owner, bot = self._identity()
                 if (isinstance(data, dict) and data.get("owner") == owner and data.get("bot") == bot
@@ -70,10 +81,13 @@ class DafeiyuCompanion(Star):
                     self._state = data
         except (OSError, ValueError):
             self._state = {}
+        self._runtime = {key: self._state.get(key) for key in ("last_result", "last_result_at", "last_success_at")}
         self._worker = asyncio.create_task(self._loop(), name="dafeiyu-companion")
+        self._publish()
 
     async def terminate(self):
         self._closed = True
+        self._bubbles.close()
         if self._worker:
             self._worker.cancel()
             with suppress(asyncio.CancelledError):
@@ -81,29 +95,60 @@ class DafeiyuCompanion(Star):
             self._worker = None
         self._activity = {}
         self._previous_activity = {}
+        self._publish("stopped")
 
-    def _save(self) -> bool:
-        if self._state_path is None or self._state_path.is_symlink():
+    @staticmethod
+    def _write_json(path, data: dict) -> bool:
+        if path is None or path.is_symlink():
             return False
-        # Metadata and the last short greeting only: never duplicate chat history.
-        directory = self._state_path.parent
+        directory = path.parent
+        temporary = None
         try:
             directory.mkdir(parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(dir=directory, prefix=".companion-", delete=False) as stream:
                 temporary = Path(stream.name)
-                stream.write(json.dumps(self._state, ensure_ascii=False).encode("utf-8"))
+                stream.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
                 stream.flush()
                 os.fsync(stream.fileno())
-        except OSError:
-            return False
-        try:
-            os.replace(temporary, self._state_path)
+            os.replace(temporary, path)
             return True
         except OSError:
             return False
         finally:
             with suppress(OSError):
-                temporary.unlink(missing_ok=True)
+                if temporary:
+                    temporary.unlink(missing_ok=True)
+
+    def _save(self) -> bool:
+        # Metadata and the last short greeting only: never duplicate chat history.
+        return self._write_json(self._state_path, self._state)
+
+    def _schedule(self, now: datetime | None = None) -> dict:
+        owner, bot = self._identity()
+        known = (bool(owner and bot) and self._state.get("owner") == owner
+                 and self._state.get("bot") == bot and valid_session(self._state.get("umo"), owner))
+        return schedule_state(self._state, self._options(), now or datetime.now().astimezone(),
+                              enabled=self._enabled(), identity_ready=bool(owner and bot), session_known=known)
+
+    def _publish(self, code: str | None = None, *, result: str | None = None, now: datetime | None = None):
+        now = now or datetime.now().astimezone()
+        current = self._schedule(now)
+        if code:
+            current.update(code=code, message=RUNTIME_MESSAGES[code])
+        if result:
+            self._runtime.update(last_result=result, last_result_at=now.timestamp())
+            if result == "sent":
+                self._runtime["last_success_at"] = now.timestamp()
+            self._state.update({key: self._runtime.get(key) for key in (
+                "last_result", "last_result_at", "last_success_at")})
+            self._save()
+        self._runtime.update(current)
+        public = {key: self._runtime.get(key) for key in (
+            "code", "message", "next_trigger_at", "session_known", "daily_count", "daily_limit",
+            "last_result", "last_result_at", "last_success_at")}
+        public.update(version=1, signature=runtime_signature(self.config), heartbeat_at=now.timestamp(),
+                      worker_running=bool(self._worker and not self._worker.done() and not self._closed))
+        self._write_json(self._runtime_path, public)
 
     def _owner_event(self, event: AstrMessageEvent) -> bool:
         if not self._enabled() or not self._owner():
@@ -124,6 +169,7 @@ class DafeiyuCompanion(Star):
     async def observe_owner(self, event: AstrMessageEvent):
         if not self._owner_event(event):
             return
+        self._bubbles.observe(event)
         # on_llm_request may be called repeatedly for the same tool-loop event.
         if getattr(event, "_dafeiyu_companion_seen", False):
             return
@@ -139,6 +185,7 @@ class DafeiyuCompanion(Star):
         if self._options()["emotion_enabled"]:
             self._state["mood"] = mood_after(self._state.get("mood") or {}, event.get_message_str())
         self._save()
+        self._publish()
 
     async def _sample_activity(self):
         if not self._options()["activity_enabled"] or not self._enabled():
@@ -160,6 +207,20 @@ class DafeiyuCompanion(Star):
     async def _note(self) -> str:
         options = self._options()
         parts = []
+        # The model cannot infer an out-of-band scheduler from its tool list.
+        # Describe actual flags and observed readiness instead of claiming a
+        # promise to send, or confusing this worker with user-created cron jobs.
+        schedule = self._schedule()
+        if options["proactive_enabled"]:
+            parts.append("主动聊天能力事实：本机‘大肥鱼陪伴’插件已开启自主搭话开关，"
+                         "由独立后台每分钟检查已确认的主人私聊、间隔、每日上限和免打扰条件，"
+                         "满足条件时自行选话题并调用当前模型发起私聊，无需主人创建 cron 或逐次提醒。"
+                         "这不代表你有真实自主意识，也不代表此刻已经发送。当前状态：" + schedule["message"] +
+                         "不要因为工具列表里只有定时任务就说只能被动等待；也不要承诺准确发送时间、伪称已设定任务或已经发出消息。")
+        else:
+            parts.append("主动聊天能力事实：本机陪伴插件的自主搭话开关当前关闭，"
+                         "不要声称已开启或一定会主动联系；可说明在桌面端陪伴设置中启用后由后台自主选话题，"
+                         "无需主人编写 cron。")
         if options["whale_style_enabled"]:
             parts.append(WHALE_STYLE_CONTEXT)
         if options["emotion_enabled"]:
@@ -180,6 +241,23 @@ class DafeiyuCompanion(Star):
         marker = "[爱屋及鱼·可选陪伴状态]"
         if note and marker not in (req.system_prompt or ""):
             req.system_prompt = (req.system_prompt or "") + "\n\n" + marker + "\n" + note
+
+    @filter.on_llm_tool_respond()
+    async def companion_tool_round(self, event: AstrMessageEvent, *_args, **_kwargs):
+        if self._owner_event(event):
+            self._bubbles.mark_tool(event)
+
+    @filter.on_decorating_result()
+    async def natural_chat_bubbles(self, event: AstrMessageEvent):
+        if not self._owner_event(event) or not self._options()["natural_bubbles_enabled"]:
+            return
+
+        async def still_authorized():
+            return (self._owner_event(event) and self._options()["natural_bubbles_enabled"]
+                    and await self._session_allows(event.unified_msg_origin))
+
+        await self._bubbles.prepare(event, self._options(), still_authorized,
+                                    self.context.get_config(umo=event.unified_msg_origin))
 
     def _target_available(self, umo: str) -> bool:
         if not valid_session(umo, self._owner()):
@@ -215,90 +293,110 @@ class DafeiyuCompanion(Star):
             stamp = now.timestamp()
             owner, bot = self._identity()
             target = self._state.get("umo", "")
-            if (not self._enabled() or not options["proactive_enabled"] or not owner or not bot
-                    or self._state.get("owner") != owner or self._state.get("bot") != bot
-                    or not self._target_available(target)
-                    or quiet_now(now, options["quiet_start"], options["quiet_end"])):
+            scheduled = self._schedule(now)
+            self._publish(now=now)
+            if scheduled["code"] != "ready":
                 return False
-            if not await self._session_allows(target):
+            if not self._target_available(target):
+                self._publish("platform_unavailable", now=now)
                 return False
-            interval = options["interval_minutes"] * 60
             received = float(self._state.get("last_received") or 0)
-            sent = float(self._state.get("last_sent") or 0)
-            count = max(0, int(self._state.get("day_count", 0))) if self._state.get("day") == now.date().isoformat() else 0
-            if (not received or stamp - max(received, sent) < interval
-                    or stamp - received > 7 * 86400 or count >= options["daily_limit"]
-                    or stamp - self._last_attempt < max(600, interval)):
-                return False
-            self._last_attempt = stamp
-            # Never invent a session, use a random provider, run tools, or send a canned fallback.
-            provider = await self.context.get_using_provider_async(target)
-            if provider is None:
-                return False
-            manager = self.context.conversation_manager
-            cid = await manager.get_curr_conversation_id(target)
-            if not cid:
-                return False
-            conversation = await manager.get_conversation(target, cid)
-            if conversation is None:
-                return False
+            count = scheduled["daily_count"]
+            phase = "checking"
             try:
-                history = json.loads(conversation.history) if isinstance(conversation.history, str) else conversation.history
-            except (TypeError, ValueError):
+                if not await self._session_allows(target):
+                    self._publish("session_paused", now=now)
+                    return False
+                # Never invent a target, use a random provider, run tools, or
+                # send a canned fallback. Unready dependencies retry next tick,
+                # rather than silently delaying another whole two-hour interval.
+                provider = await self.context.get_using_provider_async(target)
+                if provider is None:
+                    self._publish("model_unavailable", now=now)
+                    return False
+                manager = self.context.conversation_manager
+                cid = await manager.get_curr_conversation_id(target)
+                conversation = await manager.get_conversation(target, cid) if cid else None
+                if conversation is None:
+                    self._publish("waiting_context", now=now)
+                    return False
+                try:
+                    history = json.loads(conversation.history) if isinstance(conversation.history, str) else conversation.history
+                except (TypeError, ValueError):
+                    history = None
+                contexts = text_history(history)
+                _, persona, _, _ = await self.context.persona_manager.resolve_selected_persona(
+                    umo=target, conversation_persona_id=getattr(conversation, "persona_id", None),
+                    platform_name="aiocqhttp")
+                system = str((persona or {}).get("prompt") or "")[:12000]
+                if not contexts or not system:
+                    self._publish("waiting_context", now=now)
+                    return False
+                note = await self._note()
+                # Rotate an original conversation angle instead of requesting
+                # the same generic greeting every time. This is a background
+                # initiation, never a fake user message or a user-created cron.
+                sequence = max(0, int(self._state.get("topic_sequence", 0)))
+                angle = PROACTIVE_ANGLES[sequence % len(PROACTIVE_ANGLES)]
+                self._state.update(last_sent=stamp, day=now.date().isoformat(), day_count=count + 1,
+                                   topic_sequence=sequence + 1)
+                if not self._save():
+                    self._publish("storage_error", result="storage_error", now=now)
+                    return False
+                phase = "generation"
+                self._publish("generating", now=now)
+                response = await asyncio.wait_for(provider.text_chat(
+                    prompt=("[本机后台自主搭话触发；这不是主人发来的消息] "
+                            "现在满足主人授权的主动聊天条件。由你自己开启一个自然小话题，"
+                            "不是等待主人安排任务，也不要解释 cron、插件或调度机制。"
+                            f"本次话题角度：{angle} 当前本机时间：{now:%m月%d日 %H:%M}。"
+                            "结合近期聊天和已有口吻，说一两句，最多100字；不要总用‘今天过得怎么样/在干嘛’，"
+                            "不要重复上次主动消息，不催回复，不虚构用户活动、新闻或现实经历，"
+                            "不调用工具、不输出角色分析或内部思考。如果此时确实不适合联系，只输出[暂不打扰]。"),
+                    contexts=contexts, system_prompt=system + "\n\n" + note,
+                    func_tool=None, image_urls=[], audio_urls=[], request_max_retries=1), timeout=45)
+                text = str(getattr(response, "completion_text", "") or "").strip()
+                if text == "[暂不打扰]":
+                    self._publish(result="declined", now=now)
+                    return False
+                if (not text or len(text) > 300 or getattr(response, "tools_call_name", None)
+                        or getattr(response, "is_chunk", False)):
+                    self._publish(result="generation_failed", now=now)
+                    return False
+                live = self._options()
+                fresh_now = datetime.now().astimezone() if supplied_now is None else now
+                if (not self._enabled() or not live["proactive_enabled"] or self._identity() != (owner, bot)
+                        or self._state.get("umo") != target or self._state.get("last_received") != received
+                        or quiet_now(fresh_now, live["quiet_start"], live["quiet_end"])
+                        or await manager.get_curr_conversation_id(target) != cid
+                        or not self._target_available(target) or not await self._session_allows(target)):
+                    self._publish(result="cancelled", now=fresh_now)
+                    return False
+                phase = "delivery"
+                sent_ok = await self.context.send_message(target, MessageChain().message(text))
+                if sent_ok:
+                    self._state.update(last_greeting=text, last_success_at=fresh_now.timestamp())
+                    self._save()
+                    self._publish(result="sent", now=fresh_now)
+                    return True
+                self._publish(result="delivery_uncertain", now=fresh_now)
                 return False
-            contexts = text_history(history)
-            if not contexts:
-                return False
-            personas = self.context.persona_manager
-            _, persona, _, _ = await personas.resolve_selected_persona(
-                umo=target, conversation_persona_id=getattr(conversation, "persona_id", None),
-                platform_name="aiocqhttp")
-            if not persona:
-                return False
-            system = str(persona.get("prompt") or "")[:12000]
-            if not system:
-                return False
-            note = await self._note()
-            # Reserve the interval and daily slot durably before a billable
-            # generation or delivery. Failed/uncertain attempts keep their
-            # reservation, so reloads cannot retry an already-delivered send.
-            self._state.update(last_sent=stamp, day=now.date().isoformat(), day_count=count + 1)
-            if not self._save():
-                return False
-            response = await asyncio.wait_for(provider.text_chat(
-                prompt="现在是用户允许的主动问候时间。结合已有上下文，作为大肥鱼自然地发一句简短关心或轻松话题，不催回复，不虚构用户活动，不输出工具调用或角色分析。最多100字。",
-                contexts=contexts, system_prompt=system + "\n\n" + note,
-                func_tool=None, image_urls=[], audio_urls=[], request_max_retries=1), timeout=45)
-            text = str(getattr(response, "completion_text", "") or "").strip()
-            if (not text or len(text) > 300 or getattr(response, "tools_call_name", None)
-                    or getattr(response, "is_chunk", False)):
-                return False
-            # Recheck after network wait: a new user message, changed identity,
-            # disabled capability, quiet window or switched conversation cancels the send.
-            live = self._options()
-            fresh_now = datetime.now().astimezone() if supplied_now is None else now
-            if (not self._enabled() or not live["proactive_enabled"] or self._identity() != (owner, bot)
-                    or self._state.get("umo") != target or self._state.get("last_received") != received
-                    or quiet_now(fresh_now, live["quiet_start"], live["quiet_end"])
-                    or await manager.get_curr_conversation_id(target) != cid
-                    or not self._target_available(target) or not await self._session_allows(target)):
-                return False
-            sent_ok = await self.context.send_message(target, MessageChain().message(text))
-            if sent_ok:
-                self._state.update(last_greeting=text)
-                self._save()
-                return True
-            return False
-
-    async def _loop(self):
-        while not self._closed:
-            await asyncio.sleep(60)
-            try:
-                if self._enabled() and valid_session(self._state.get("umo"), self._owner()):
-                    await self._sample_activity()
-                    await self._proactive_once()
             except asyncio.CancelledError:
                 raise
             except Exception:
-                # No exception repr: provider errors can contain URLs or credentials.
-                continue
+                # Never put provider error repr/URLs/credentials in public status.
+                result = "delivery_uncertain" if phase == "delivery" else "generation_failed"
+                self._publish(result=result, now=now)
+                return False
+
+    async def _loop(self):
+        while not self._closed:
+            try:
+                if self._enabled():
+                    await self._sample_activity()
+                await self._proactive_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self._publish(result="generation_failed")
+            await asyncio.sleep(60)

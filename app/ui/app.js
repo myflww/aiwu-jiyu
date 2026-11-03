@@ -14,6 +14,7 @@ let settingsDirty = false;
 let lovehouseState = null;
 let lovehouseSelected = "";
 let pluginList = [];
+let companionStatus = null;
 let pluginTogglePending = false;
 let pluginRestartPending = false;
 let metricsLoading = false;
@@ -30,6 +31,8 @@ let updateState = null;
 let updateRequestPending = false;
 let updateStatusLoading = false;
 let updateReachable = false;
+let updatePromptManual = false;
+const updatePromptSeen = new Set();
 let logRetentionFetchedAt = 0;
 
 const STEP_NAMES = ["安装位置", "运行环境", "对话模型", "连接 QQ", "主人身份", "完成"];
@@ -130,12 +133,109 @@ function versionLabel(version) {
   return version ? `v${String(version).replace(/^v/i, "")}` : "—";
 }
 
+function updateVersionKey(version) {
+  return String(version || "").replace(/^v/i, "");
+}
+
+function pluginUpdateRows(u = updateState || {}) {
+  return Array.isArray(u.plugin_updates?.plugins) ? u.plugin_updates.plugins : [];
+}
+
+function pendingUpdateChecks(u) {
+  return !!u?.checking || u?.plugin_updates?.state === "checking";
+}
+
+function updateNoticeData(u, manual = false, now = Date.now() / 1000) {
+  if (!u || pendingUpdateChecks(u) || (!manual && u.auto_check === false)
+      || Number(u.snoozed_until || 0) > now) return null;
+  const ignored = updateVersionKey(u.ignored_version);
+  const appVersion = updateVersionKey(u.latest_version);
+  const appAvailable = u.available === true && !!appVersion && !u.error && appVersion !== ignored;
+  const p = u.plugin_updates || {};
+  const pluginTag = updateVersionKey(p.tag || u.latest_version);
+  const plugins = p.state === "checked" && !p.error && (!ignored || pluginTag !== ignored)
+    ? pluginUpdateRows(u).filter(row => row && ["update_available", "available"].includes(row.status)
+      && row.is_installed !== false && typeof row.latest === "string" && row.latest) : [];
+  if (!appAvailable && !plugins.length) return null;
+  const keys = [];
+  if (appAvailable) keys.push(appVersion);
+  if (plugins.length) keys.push(pluginTag || "plugins:" + plugins.map(row => `${row.id}:${row.latest}`).sort().join(","));
+  return { appAvailable, plugins, keys: [...new Set(keys)],
+    title: appAvailable && plugins.length ? "软件和插件都有新版本啦" : plugins.length ? "大肥鱼的插件有新版本啦" : "爱屋及鱼有新版本啦" };
+}
+
+function updateVersionTable(rows) {
+  return `<div class="update-version-table-wrap"><table class="update-version-table"><thead><tr><th scope="col">项目</th><th scope="col">当前版本</th><th scope="col">最新版本</th></tr></thead><tbody>${rows.map(row => `<tr><th scope="row">${esc(row.name)}</th><td>${esc(row.current)}</td><td>${esc(row.latest)}</td></tr>`).join("")}</tbody></table></div>`;
+}
+
+function openUpdateSettings() {
+  closeModal();
+  showView("settings");
+  $("updateSettings")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function maybeShowUpdateNotice() {
+  if (!updateReachable || !localConnected || updateRequestPending || !updateState || pendingUpdateChecks(updateState)) return;
+  const notice = updateNoticeData(updateState, updatePromptManual);
+  if (!notice) { updatePromptManual = false; return; }
+  if (state?.preview) { updatePromptManual = false; return; }
+  // Existing settings and QR flows own their dialog. A later status poll will
+  // retry this queued notice after that dialog and the install wizard close.
+  if (document.hidden || $("modalBack")?.classList.contains("show") || $("app")?.classList.contains("hidden")) return;
+  if (notice.keys.every(key => updatePromptSeen.has(key))) { updatePromptManual = false; return; }
+  notice.keys.forEach(key => updatePromptSeen.add(key));
+  updatePromptManual = false;
+  const u = updateState;
+  const appLatest = u.error || !u.latest_version ? "暂未确认" : versionLabel(u.latest_version);
+  const rows = [{ name: "爱屋及鱼", current: versionLabel(u.current_version), latest: appLatest },
+    ...notice.plugins.map(row => ({ name: row.name || row.id, current: row.installed ? versionLabel(row.installed) : "未识别", latest: versionLabel(row.latest) }))];
+  openModal(notice.title, `<div class="version-update-prompt" id="updatePromptContent"><div class="version-update-intro"><span class="version-update-spark" aria-hidden="true">✦</span><p>发现了可以选择的更新。先看看版本，再决定什么时候更新。</p></div>${updateVersionTable(rows)}<p class="version-update-note">插件随爱屋及鱼安装包一起更新。“前往更新”只打开更新设置，不会自动下载或安装。</p><div class="row version-update-actions"><button class="ghost" id="updatePromptLater">稍后提醒</button><button class="primary" id="updatePromptOpen">前往更新</button></div></div>`, null);
+  // Keep the shared dialog's event handlers untouched; these controls disappear
+  // with its body and cannot affect a later settings/QR dialog.
+  $("modalOk").classList.add("hidden");
+  $("modalCancel").classList.add("hidden");
+  $("updatePromptLater").onclick = () => {
+    closeModal();
+    saveUpdatePreferences({ snooze_hours: 24 }, "好，明天再提醒软件与插件更新。");
+  };
+  $("updatePromptOpen").onclick = openUpdateSettings;
+  $("updatePromptOpen").focus();
+}
+
+function renderPluginUpdateStatus() {
+  const element = $("pluginUpdateSummary");
+  if (!element) return;
+  const p = updateState?.plugin_updates || {};
+  const rows = pluginUpdateRows();
+  const updates = p.state === "checked" ? rows.filter(row => ["update_available", "available"].includes(row.status)) : [];
+  const unknown = !rows.length || rows.some(row => !["current", "not_installed", "update_available", "available"].includes(row.status));
+  const checking = pendingUpdateChecks(updateState);
+  let label = "等待检查", message = "和软件一起检查随附插件版本；下载和更新都由你决定。";
+  if (!updateReachable) { label = "暂未连接"; message = "暂时读不到插件版本，请稍后手动检查。"; }
+  else if (checking) { label = "检查中"; message = "正在合并检查软件与随附插件版本…"; }
+  else if (updates.length) { label = `${updates.length} 个插件可更新`; message = "随爱屋及鱼安装包更新，可先到设置查看版本与下载选项。"; }
+  else if (p.state === "checked") { label = unknown ? "部分版本待确认" : "已检查"; message = unknown ? "有插件版本尚未确认，请展开查看；未确认不代表已是最新。" : "已安装的随附插件暂无可用更新。"; }
+  else if (p.state === "unavailable") { label = "检查未完成"; message = p.message || p.error || "暂时无法确认最新插件版本，请稍后再试。"; }
+  else if (p.state === "no_release") { label = "暂无版本清单"; message = p.message || "当前发行版尚无可验证的插件版本清单。"; }
+  setText("pluginUpdateBadge", label);
+  $("pluginUpdateBadge").className = "badge " + (updates.length || checking ? "amber" : p.state === "checked" && !unknown ? "green" : "gray");
+  setText("pluginUpdateMessage", message);
+  $("pluginUpdateVersions").innerHTML = rows.length ? updateVersionTable(rows.map(row => ({ name: row.name || row.id,
+    current: row.is_installed === false ? "未安装" : row.installed ? versionLabel(row.installed) : "未识别",
+    latest: row.latest ? versionLabel(row.latest) : "暂未确认" }))) : '<p class="hint">联网检查完成后显示各插件的当前版本与最新版本。</p>';
+  $("pluginUpdateOpen").onclick = () => { showView("settings"); $("updateSettings")?.scrollIntoView({ behavior: "smooth", block: "start" }); };
+}
+
 function renderUpdates() {
   const u = updateState || {};
   const available = !!u.available;
+  const pluginsAvailable = u.plugin_updates?.state === "checked" && !u.plugin_updates?.error
+    && pluginUpdateRows(u).some(row => ["update_available", "available"].includes(row.status));
+  const canRepairPlugins = pluginsAvailable && u.plugin_updates?.can_repair === true;
+  const packageAvailable = available || canRepairPlugins;
   const verified = !!(u.downloaded && u.download_verified);
   const downloading = !!u.downloading;
-  const checking = !!u.checking;
+  const checking = pendingUpdateChecks(u);
   const busy = updateRequestPending || checking || downloading;
   const progress = Math.max(0, Math.min(100, Number(u.progress) || 0));
   const latest = versionLabel(u.latest_version);
@@ -145,28 +245,34 @@ function renderUpdates() {
   }
   if (!updateRequestPending && typeof u.auto_check === "boolean") $("updateAutoCheck").checked = u.auto_check;
   $("updateAutoCheck").disabled = updateRequestPending || !localConnected;
-  const fresh = available && u.ignored_version !== u.latest_version;
+  const appFresh = available && updateVersionKey(u.ignored_version) !== updateVersionKey(u.latest_version);
+  const pluginFresh = !!updateNoticeData({ ...u, auto_check: true, snoozed_until: 0 })?.plugins.length;
+  const fresh = appFresh || pluginFresh;
   $("sideUpdateDot").classList.toggle("hidden", !fresh);
   $("sideUpdate").classList.toggle("has-update", fresh);
-  setText("sideUpdateLabel", downloading ? `更新下载中 ${progress}%` : verified ? "更新已备好 · 查看" : fresh ? "发现新版本 · 查看" : checking ? "正在检查更新" : "检查更新");
+  setText("sideUpdateLabel", downloading ? `更新下载中 ${progress}%` : verified ? "更新已备好 · 查看" : fresh ? pluginFresh && !appFresh ? "插件有更新 · 查看" : "发现新版本 · 查看" : checking ? "正在检查更新" : "检查更新");
+  setText("updateLatestVersion", u.latest_version && !u.error ? latest : "暂未确认");
   let message = u.message || "自动检查只会提醒，更新与否由你决定。";
   if (u.error) message = `更新暂未完成：${u.error}`;
   else if (downloading) message = `正在下载 ${latest}（${progress}%），你可以继续使用软件。`;
-  else if (verified) message = "更新包已通过校验。安装时本窗口会关闭，聊天服务继续运行。";
+  else if (verified) message = "更新包已通过校验。安装时本窗口会关闭，完成后加载新版软件与随附插件。";
   else if (checking) message = "正在检查更新…";
   else if (available) message = `${latest} 已发布。你可以现在更新，也可以继续使用当前版本。`;
+  else if (canRepairPlugins) message = "软件已是当前发行版本，但本机插件有更新。下载安装同版更新包即可修复插件，下载和安装仍由你决定。";
+  else if (pluginsAvailable) message = "本机插件有新版，但当前发行包尚未通过同版修复确认。请重新检查，或打开发布记录查看。";
   else if (u.checked_at && u.latest_version) message = "没有发现比当前版本更新的正式版本。";
   setText("updateMessage", message);
   $("updateMessage").classList.toggle("has-error", !!u.error);
-  setText("updateVersionBadge", checking ? "检查中" : downloading ? "正在下载" : u.error ? "请稍后重试" : verified ? "更新已备好" : available ? `可更新至 ${latest}` : u.checked_at ? "暂无新版本" : "等待检查");
-  $("updateVersionBadge").className = "badge " + (u.error ? "red" : verified ? "green" : available || checking ? "amber" : "gray");
+  setText("updateVersionBadge", checking ? "检查中" : downloading ? "正在下载" : u.error ? "请稍后重试" : verified ? "更新已备好" : available ? `可更新至 ${latest}` : pluginsAvailable ? "插件可更新" : u.checked_at && u.latest_version ? "暂无软件新版" : "等待确认");
+  $("updateVersionBadge").className = "badge " + (u.error ? "red" : verified ? "green" : packageAvailable || checking ? "amber" : "gray");
   $("updateCheck").disabled = busy || !localConnected;
   setText("updateCheck", checking ? "正在检查…" : "检查更新");
-  $("updateDownload").classList.toggle("hidden", !available || verified);
+  $("updateDownload").classList.toggle("hidden", !packageAvailable || verified);
   $("updateDownload").disabled = busy || !updateReachable || !localConnected;
-  setText("updateDownload", downloading ? `正在下载 ${progress}%` : u.error ? "重试下载" : "下载更新");
-  $("updateInstall").classList.toggle("hidden", !verified);
-  $("updateInstall").disabled = !verified || busy || !updateReachable || !localConnected;
+  setText("updateDownload", downloading ? `正在下载 ${progress}%` : u.error ? "重试下载" : pluginsAvailable && !available ? "下载插件更新安装包" : "下载更新");
+  $("updateInstall").classList.toggle("hidden", !verified || !packageAvailable);
+  $("updateInstall").disabled = !verified || !packageAvailable || busy || !updateReachable || !localConnected;
+  setText("updateInstall", canRepairPlugins && !available ? "安装并修复插件" : "安装更新");
   $("updateIgnore").classList.toggle("hidden", !available || verified || downloading);
   $("updateIgnore").disabled = busy;
   $("updateInstallNote").classList.toggle("hidden", !verified);
@@ -185,6 +291,8 @@ function renderUpdates() {
   setText("updateBannerAction", downloading ? `正在下载 ${progress}%` : verified ? "安装更新" : u.error ? "重试下载" : "下载更新");
   $("updateBannerAction").disabled = busy || !updateReachable || !localConnected;
   $("updateLater").disabled = updateRequestPending;
+  renderPluginUpdateStatus();
+  maybeShowUpdateNotice();
 }
 
 async function loadUpdateStatus() {
@@ -203,6 +311,11 @@ async function loadUpdateStatus() {
 
 async function runUpdateAction(action) {
   if (updateRequestPending) return;
+  if (action === "check") updatePromptManual = true;
+  if (["download", "install"].includes(action) && !updateState?.available && updateState?.plugin_updates?.can_repair !== true) {
+    toast("当前没有通过确认的软件更新或同版插件修复包，请先重新检查。");
+    return;
+  }
   if (action === "install" && !(updateState?.downloaded && updateState?.download_verified)) {
     toast("先下载并校验更新包，再来安装。");
     return;
@@ -212,8 +325,9 @@ async function runUpdateAction(action) {
   try {
     updateState = await api(`/api/updates/${action}`, { method: "POST", body: JSON.stringify({}) });
     updateReachable = true;
-    if (action === "install") toast("正在启动更新安装，软件窗口即将关闭。聊天服务继续运行。");
+    if (action === "install") toast("正在启动更新安装，软件窗口即将关闭。完成后加载新版软件与插件。");
   } catch (err) {
+    if (action === "check") updatePromptManual = false;
     updateState = { ...(updateState || {}), error: err.message || String(err) };
     toast(err.message || String(err));
   } finally { updateRequestPending = false; renderUpdates(); }
@@ -1221,8 +1335,11 @@ async function createLovehouseLibrary() {
 
 async function loadPlugins() {
   try {
-    const data = await api("/api/plugins");
+    const [data, companionData] = await Promise.all([
+      api("/api/plugins"), api("/api/companion").catch(() => null),
+    ]);
     pluginList = data.plugins || [];
+    companionStatus = companionData;
     renderPlugins();
   } catch (err) {
     $("pluginsList").innerHTML = emptyState("暂时没能打开百宝箱", err.message || "请检查本机服务，再点击刷新试试。", { error: true });
@@ -1246,7 +1363,7 @@ function renderPlugins() {
   function renderCard(item) {
     const card = cards[item.id] || { title:item.name || item.id, desc:item.desc || "本机安装的扩展插件。", icon:"puzzle",theme:"blue" };
     const installed = item.installed !== false;
-    const status = !installed ? "尚未部署，请先完成首次设置" : item.pending_change ? "已保存，重启对话服务后生效" : item.enabled ? card.action === "pc" ? (state?.pc_access?.enabled ? state.pc_access.desktop_enabled ? "已启用 · 完整桌面操控已授权" : "已启用 · 工作目录工具已授权" : "已启用 · 操作权限未授权") : card.action === "memory" ? "已启用 · 仅处理登记会话" : "已启用" : "已停用";
+    const status = !installed ? "尚未部署，请先完成首次设置" : item.pending_change ? "已保存，重启对话服务后生效" : item.enabled ? card.action === "pc" ? (state?.pc_access?.enabled ? state.pc_access.desktop_enabled ? "已启用 · 完整桌面操控已授权" : "已启用 · 工作目录工具已授权" : "已启用 · 操作权限未授权") : card.action === "memory" ? "已启用 · 仅处理登记会话" : card.action === "companion" ? `已启用 · ${companionStatus?.runtime?.message || (companionStatus?.enabled ? "陪伴设置已开启" : "请先选择陪伴方式")}` : "已启用" : "已停用";
     return `<article class="plugin-capability-card compact ${esc(card.theme)}"><div class="plugin-symbol"><svg class="icon" aria-hidden="true"><use href="#i-${esc(card.icon)}"></use></svg></div><div class="plugin-info"><h3>${esc(card.title)}</h3><p>${esc(card.desc)}</p><div class="plugin-module-status">${esc(status)}</div></div><div class="plugin-controls"><button type="button" class="plugin-switch" role="switch" aria-checked="${!!item.enabled}" aria-label="${esc(card.title)}" data-plugin-toggle="${esc(item.id)}" ${!installed || pluginTogglePending || !localConnected ? "disabled" : ""}><span class="switch-track" aria-hidden="true"><span></span></span><span class="switch-label">${item.enabled ? "已启用" : "已停用"}</span></button>${card.action ? `<button class="text-button" data-plugin-action="${card.action}">${esc(card.actionLabel)} ↗</button>` : ""}</div><details class="plugin-metadata"><summary>插件信息</summary><div><span>${esc(item.name || item.id)} · ${esc(item.version || "未知版本")}</span><span>作者：${esc(item.author || "未注明")}</span><code>${esc(item.id)}</code></div></details></article>`;
   }
   $("pluginsList").innerHTML = included.length ? included.map(renderCard).join("") : emptyState("没有随包插件", "完成首次设置后会自动部署。");
@@ -1267,12 +1384,17 @@ async function togglePlugin(id) {
   const item = pluginList.find(plugin => plugin.id === id);
   if (!item || pluginTogglePending) return;
   const focusId = id;
+  let companionSetupNeeded = false;
   pluginTogglePending = true;
   renderPlugins();
   try {
     const result = await api("/api/plugins/toggle", {method:"POST",body:JSON.stringify({id,enabled:!item.enabled})});
     if (result.plugins) pluginList = result.plugins;
     else await loadPlugins();
+    if (id === "astrbot_plugin_dafeiyu_companion" && !item.enabled) {
+      companionStatus = await api("/api/companion").catch(() => null);
+      companionSetupNeeded = !!companionStatus && !companionStatus.enabled;
+    }
     toast(result.message || (result.restart_required ? "已保存，重启对话服务后生效" : "插件状态已更新"));
   } catch (err) { toast(err.message || String(err)); }
   finally {
@@ -1280,6 +1402,7 @@ async function togglePlugin(id) {
     renderPlugins();
     $$("[data-plugin-toggle]").find(btn => btn.dataset.pluginToggle === focusId)?.focus();
   }
+  if (companionSetupNeeded) openCompanionModal();
 }
 
 function fmtFileSize(bytes) {
@@ -1289,6 +1412,21 @@ function fmtFileSize(bytes) {
   return `${value} B`;
 }
 
+function companionRuntimeTime(value) {
+  return Number.isFinite(value) && value > 0 ? new Date(value * 1000).toLocaleString("zh-CN", {month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}) : "—";
+}
+
+function renderCompanionRuntime(data) {
+  const runtime = data?.runtime || {};
+  setText("companionRuntimeMessage", runtime.message || "尚未取得运行状态，请刷新查看。");
+  setText("companionNextTrigger", companionRuntimeTime(runtime.next_trigger_at));
+  setText("companionLastSuccess", companionRuntimeTime(runtime.last_success_at));
+  setText("companionDailyCount", `${Number(runtime.daily_count) || 0} / ${Number(runtime.daily_limit || data?.daily_limit) || 3}`);
+  const outcomes = {sent:"已提交 QQ 发送",declined:"这次选择暂不打扰",cancelled:"条件变化，已取消",generation_failed:"生成未成功，保留本次名额",delivery_uncertain:"送达未确认，暂不重复发送",storage_error:"本机状态保存失败，未执行"};
+  setText("companionLastResult", outcomes[runtime.last_result] || "尚未尝试");
+  setText("companionSessionState", runtime.session_known ? "已连接主人私聊" : "等待主人在 QQ 发一条消息");
+}
+
 async function openCompanionModal() {
   try {
     const data = await api("/api/companion");
@@ -1296,13 +1434,20 @@ async function openCompanionModal() {
     const choice = (key, title, description) => `<label class="perm-row"><input type="checkbox" id="companion-${key}" ${data[key] ? "checked" : ""}><div><b>${title}</b><span class="small">${description}</span></div></label>`;
     openModal("大肥鱼的陪伴方式", `
       ${active ? "" : '<div class="notice blue">插件尚未启用。可以先保存偏好，再回到列表开启“主动陪伴与情绪”。</div>'}
+      <section class="companion-runtime-panel" aria-label="主动聊天运行状态">
+        <div class="row between"><h4>主动聊天状态</h4><button class="text-button" type="button" id="companionRefreshRuntime">刷新状态</button></div>
+        <p id="companionRuntimeMessage" role="status"></p>
+        <dl><dt>聊天连接</dt><dd id="companionSessionState"></dd><dt>下一次机会</dt><dd id="companionNextTrigger"></dd><dt>上次主动联系</dt><dd id="companionLastSuccess"></dd><dt>最近一次结果</dt><dd id="companionLastResult"></dd><dt>今日主动尝试</dt><dd id="companionDailyCount"></dd></dl>
+      </section>
       <div class="stack companion-options">
         ${choice("whale_style_enabled", "鲸鱼娘口吻增强", "傲娇嘴硬但温柔，用自然中文接话；保留当前人格和实际工具能力，不套模板结尾。")}
-        ${choice("proactive_enabled", "让她主动来找你", "只联系已和她私聊过的主人，遵守频率上限和免打扰时间。")}
+        ${choice("proactive_enabled", "让她主动来找你", "她会自己寻找话题，无需另设定时任务。保存后先在 QQ 与她聊一句，再按间隔主动联系主人。")}
+        ${choice("natural_bubbles_enabled", "像聊天一样分几条说", "合适的长回复会拆成 2–4 条，短句、代码、链接和工具结果保持完整；你发新消息时停止旧回复的后续分段。")}
         ${choice("emotion_enabled", "情绪陪伴", "结合你们的聊天节奏与文字调整表达；这是本地模拟的情绪状态。")}
         ${choice("activity_enabled", "感知电脑活动概况", "读取前台应用名称与离开/回来状态，提供给当前聊天模型；不记录键盘内容、不持续截屏。")}
       </div>
       <div class="companion-form-grid">
+        <label class="field"><span>分段发送频率</span><select id="companion-bubbles-frequency"><option value="occasional">偶尔 · 自然聊天节奏</option><option value="often">经常 · 更偏短消息</option></select></label>
         <label class="field"><span>主动聊天最短间隔（分钟）</span><input type="number" id="companion-interval" min="30" max="1440" value="${esc(data.interval_minutes || 120)}"></label>
         <label class="field"><span>每天最多主动联系</span><input type="number" id="companion-limit" min="1" max="10" value="${esc(data.daily_limit || 3)}"></label>
         <label class="field"><span>免打扰开始（0–23 时）</span><input type="number" id="companion-quiet-start" min="0" max="23" value="${esc(data.quiet_start ?? 23)}"></label>
@@ -1314,6 +1459,8 @@ async function openCompanionModal() {
       const body = {
         whale_style_enabled: $("companion-whale_style_enabled").checked,
         proactive_enabled: $("companion-proactive_enabled").checked,
+        natural_bubbles_enabled: $("companion-natural_bubbles_enabled").checked,
+        natural_bubbles_frequency: $("companion-bubbles-frequency").value,
         emotion_enabled: $("companion-emotion_enabled").checked,
         activity_enabled: $("companion-activity_enabled").checked,
         interval_minutes: Number($("companion-interval").value),
@@ -1325,6 +1472,15 @@ async function openCompanionModal() {
       await loadPlugins();
       toast(active ? "陪伴偏好已保存" : "偏好已保存，启用插件后生效");
     });
+    $("companion-bubbles-frequency").value = data.natural_bubbles_frequency === "often" ? "often" : "occasional";
+    const updateBubbleFrequency = () => { $("companion-bubbles-frequency").disabled = !$("companion-natural_bubbles_enabled").checked; };
+    $("companion-natural_bubbles_enabled").addEventListener("change", updateBubbleFrequency);
+    updateBubbleFrequency();
+    renderCompanionRuntime(data);
+    $("companionRefreshRuntime").addEventListener("click", event => withBusy(event.currentTarget, "读取中…", async () => {
+      companionStatus = await api("/api/companion");
+      renderCompanionRuntime(companionStatus);
+    }));
   } catch (err) { toast(err.message || String(err)); }
 }
 
@@ -1343,8 +1499,8 @@ async function openStickerLibrary() {
     openModal("表情匹配与素材库", `
       ${active ? "" : '<div class="notice blue">素材已经随应用附带，启用“大肥鱼表情包”后会在 QQ 生效。</div>'}
       <label class="perm-row" style="margin:14px 0"><input type="checkbox" id="sticker-auto" ${prefs.auto_match_enabled ? "checked" : ""}><div><b>按聊天情绪自动配图</b><span class="small">根据回复语气选择合适表情，每条回复最多一张；不强制每句话都配图。</span></div></label>
-      <div class="companion-form-grid"><label class="field"><span>发送间隔（秒）</span><input type="number" id="sticker-cooldown" min="10" max="300" value="${esc(prefs.cooldown_seconds)}"></label><label class="field"><span>使用素材</span><select id="sticker-pack"><option value="all">全部随附素材</option><option value="original">爱屋及鱼原创</option><option value="community">社区授权素材</option></select></label></div>
-      <p class="hint">共 ${items.length} 张随附素材。也可在 QQ 明确请求，或使用“/肥鱼表情 开心”。</p>
+      <div class="companion-form-grid"><label class="field"><span>自动配图间隔（秒）</span><input type="number" id="sticker-cooldown" min="10" max="300" value="${esc(prefs.cooldown_seconds)}"></label><label class="field"><span>使用素材</span><select id="sticker-pack"><option value="all">全部随附素材</option><option value="original">爱屋及鱼原创</option><option value="community">社区授权素材</option></select></label></div>
+      <p class="hint">共 ${items.length} 张随附素材。可直接说“发个害羞的表情包”，也能接住她提议后的“可以呀”。明确点图使用单独的短间隔保护，无需等待自动配图冷却。</p>
       <div class="sticker-library-grid" tabindex="0" aria-label="表情素材列表，可滚动浏览">${items.map(item => `<figure><img src="${esc(item.url || item.path)}" alt="${esc(item.label || item.id)}" loading="lazy"><figcaption>${esc(item.label || item.id)}<small>${item.pack_id === "community" ? "社区授权动图" : "原创贴纸"}</small></figcaption></figure>`).join("")}</div>
       <details class="hint sticker-credits"><summary>素材来源与许可</summary>${credits}</details>`, async () => {
         await api("/api/stickers/settings", {method:"POST",body:JSON.stringify({

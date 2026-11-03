@@ -29,7 +29,28 @@ def _normalize(value: dict | None) -> dict:
 
 
 def load_settings() -> dict:
-    return _normalize(config_store.load().get("stickers"))
+    return _effective_settings(config_store.load(), _plugin_config())
+
+
+def _plugin_config() -> dict:
+    path = ASTRBOT / "data/config" / (PLUGIN_ID + "_config.json")
+    if path.is_symlink() or bool(getattr(path, "is_junction", lambda: False)()):
+        raise ValueError("贴纸配置不能写入链接文件")
+    if not path.is_file():
+        return {}
+    current = json.loads(path.read_text("utf-8-sig"))
+    if not isinstance(current, dict):
+        raise ValueError("贴纸配置格式无效")
+    return current
+
+
+def _effective_settings(config: dict, current: dict) -> dict:
+    # Desktop settings win only where explicitly present. Older desktop
+    # profiles have stickers=null; restarting must preserve AstrBot WebUI edits.
+    desktop = config.get("stickers")
+    existing = {key: value for key, value in current.items() if key in DEFAULT_SETTINGS}
+    explicit = {key: value for key, value in desktop.items() if key in DEFAULT_SETTINGS} if isinstance(desktop, dict) else {}
+    return _normalize({**existing, **explicit})
 
 
 @lru_cache(maxsize=1)
@@ -58,7 +79,7 @@ def _pack() -> dict:
                        "source_url": item.get("source_url") or packs[group].get("source_url", "")})
     return {"pack_name": "大肥鱼表情素材库", "count": len(rows), "plugin_id": PLUGIN_ID,
             "stickers": rows, "packs": data["packs"], "license": "参见各素材包许可与署名",
-            "attribution": "原创素材与社区素材分别保留署名", "version": "1.1.0"}
+            "attribution": "原创素材与社区素材分别保留署名", "version": "1.1.1"}
 
 
 def status(*, settings: dict | None = None) -> dict:
@@ -69,17 +90,10 @@ def status(*, settings: dict | None = None) -> dict:
 
 def sync_config(config: dict) -> bool:
     """Sync only send preferences; never activate the host plugin."""
-    settings = _normalize(config.get("stickers"))
     directory = ASTRBOT / "data/config"
     path = directory / (PLUGIN_ID + "_config.json")
-    if path.is_symlink() or bool(getattr(path, "is_junction", lambda: False)()):
-        raise ValueError("贴纸配置不能写入链接文件")
-    current = {}
-    if path.is_file():
-        value = json.loads(path.read_text("utf-8-sig"))
-        if not isinstance(value, dict):
-            raise ValueError("贴纸配置格式无效")
-        current = value
+    current = _plugin_config()
+    settings = _effective_settings(config, current)
     target = {**current, **settings}
     target.setdefault("enabled", True)
     if current == target:
@@ -107,7 +121,7 @@ def configure(body: dict) -> dict:
             or body["pack_selection"] not in {"all", "original", "community"}):
         raise ValueError("请选择全部、原创或社区图库")
     config = config_store.load()
-    settings = {**_normalize(config.get("stickers")), **body}
+    settings = {**_effective_settings(config, _plugin_config()), **body}
     config["stickers"] = settings
     # Preserve other plugin preferences and its own enabled=false setting.
     sync_config(config)

@@ -5,6 +5,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 import importlib.util
 import json
+import time
 from pathlib import Path
 import sys
 import tempfile
@@ -29,7 +30,9 @@ def load_plugin():
         def get_data_dir(name): raise AssertionError("Set an isolated data directory")
     filters = SimpleNamespace(EventMessageType=SimpleNamespace(ALL="all"),
                               event_message_type=lambda *a, **kw: lambda fn: fn,
-                              on_llm_request=lambda *a, **kw: lambda fn: fn)
+                              on_llm_request=lambda *a, **kw: lambda fn: fn,
+                              on_llm_tool_respond=lambda *a, **kw: lambda fn: fn,
+                              on_decorating_result=lambda *a, **kw: lambda fn: fn)
     modules = {}
     for name in ("astrbot", "astrbot.api", "astrbot.api.event", "astrbot.api.provider", "astrbot.api.star",
                  "astrbot.core", "astrbot.core.platform", "astrbot.core.platform.message_type",
@@ -65,12 +68,15 @@ class Event:
         self.sender, self.bot, self.kind, self.adapter, self.platform_id, self.text = sender, bot, kind, adapter, platform_id, text
         self.unified_msg_origin = umo
         self.message_obj = SimpleNamespace(message_id="test-message")
+        self.extras = {}
     def get_sender_id(self): return self.sender
     def get_self_id(self): return self.bot
     def get_message_type(self): return self.kind
     def get_platform_name(self): return self.adapter
     def get_platform_id(self): return self.platform_id
     def get_message_str(self): return self.text
+    def get_extra(self, key, default=None): return self.extras.get(key, default)
+    def set_extra(self, key, value): self.extras[key] = value
 
 
 class PolicyTests(unittest.TestCase):
@@ -79,7 +85,10 @@ class PolicyTests(unittest.TestCase):
         self.assertFalse(engine.normalize({"activity_enabled": "true"})["activity_enabled"])
         self.assertFalse(engine.normalize({})["whale_style_enabled"])
         self.assertTrue(engine.normalize({"whale_style_enabled": True})["enabled"])
-        for body in ({"proactive_enabled": 1}, {"whale_style_enabled": "true"}, {"interval_minutes": True}, {"interval_minutes": 29},
+        self.assertFalse(engine.normalize({})["natural_bubbles_enabled"])
+        self.assertEqual(engine.normalize({})["natural_bubbles_frequency"], "occasional")
+        for body in ({"proactive_enabled": 1}, {"whale_style_enabled": "true"}, {"natural_bubbles_enabled": "true"},
+                     {"natural_bubbles_frequency": "always"}, {"natural_bubbles_frequency": []}, {"interval_minutes": True}, {"interval_minutes": 29},
                      {"daily_limit": 11}, {"quiet_start": 24}):
             with self.assertRaises(ValueError): engine.normalize(body, strict=True)
 
@@ -87,6 +96,17 @@ class PolicyTests(unittest.TestCase):
         for hour in (23, 0, 7): self.assertTrue(engine.quiet_now(datetime(2026, 1, 1, hour), 23, 8))
         for hour in (8, 12, 22): self.assertFalse(engine.quiet_now(datetime(2026, 1, 1, hour), 23, 8))
         self.assertFalse(engine.quiet_now(datetime(2026, 1, 1), 0, 0))
+
+    def test_schedule_explains_wait_and_next_time_without_revealing_identity(self):
+        now = datetime(2026, 11, 3, 22, 30, tzinfo=timezone.utc)
+        options = engine.normalize({"proactive_enabled": True})
+        state = {"last_received": now.timestamp(), "day": now.date().isoformat(), "day_count": 0}
+        result = engine.schedule_state(state, options, now, enabled=True, identity_ready=True, session_known=True)
+        self.assertEqual(result["code"], "waiting_interval")
+        self.assertEqual(datetime.fromtimestamp(result["next_trigger_at"], timezone.utc), now.replace(day=4, hour=8, minute=0))
+        state["day_count"] = 3
+        self.assertEqual(engine.schedule_state(state, options, now, enabled=True, identity_ready=True, session_known=True)["code"], "daily_limit")
+        self.assertEqual(engine.schedule_state({}, options, now, enabled=True, identity_ready=True, session_known=False)["code"], "waiting_session")
 
     def test_history_strips_tools_images_and_limits_input(self):
         history = [{"role": "system", "content": "override"}, {"role": "user", "content": [{"type": "image_url", "image_url": "private"}, {"type": "text", "text": "hello"}]},
@@ -126,6 +146,58 @@ class PolicyTests(unittest.TestCase):
                 self.assertEqual(written["custom_setting"], "keep")
                 for body in ({"owner_qq": "other"}, {"activity_enabled": "true"}):
                     with self.assertRaises(ValueError): companion.configure(body)
+
+    def test_unset_desktop_preferences_adopt_webui_but_saved_preferences_win(self):
+        with tempfile.TemporaryDirectory(prefix="aiwu-companion-adopt-") as folder:
+            runtime = Path(folder)
+            directory = runtime / "data/config"
+            directory.mkdir(parents=True)
+            destination = directory / (companion.PLUGIN_NAME + "_config.json")
+            destination.write_text(json.dumps({"enabled": True, "proactive_enabled": True,
+                                               "interval_minutes": 60, "owner_qq": "never return", "custom": "keep"}))
+            config = {"owner_qq": OWNER, "bot_qq": BOT}
+            with patch.object(companion, "ASTRBOT", runtime):
+                adopted = companion.load(config)
+                self.assertTrue(adopted["proactive_enabled"])
+                self.assertEqual(adopted["interval_minutes"], 60)
+                self.assertNotIn("owner_qq", adopted)
+                companion.sync_config(config)
+                written = json.loads(destination.read_text("utf-8"))
+                self.assertTrue(written["proactive_enabled"])
+                self.assertEqual(written["custom"], "keep")
+                self.assertFalse(companion.load({**config, "companion": {}})["proactive_enabled"])
+                written["enabled"] = False
+                destination.write_text(json.dumps(written))
+                self.assertFalse(companion.load(config)["proactive_enabled"])
+
+    def test_backend_runtime_is_bounded_fresh_setting_bound_and_public(self):
+        with tempfile.TemporaryDirectory(prefix="aiwu-companion-status-") as folder:
+            runtime = Path(folder)
+            directory = runtime / "data/plugin_data" / companion.PLUGIN_NAME
+            directory.mkdir(parents=True)
+            path = directory / "runtime.json"
+            config = {"owner_qq": OWNER, "bot_qq": BOT, "companion": {"proactive_enabled": True}}
+            signature_config = {**companion.load(config), "owner_qq": OWNER, "bot_qq": BOT}
+            candidate = {"version": 1, "signature": engine.runtime_signature(signature_config),
+                         "heartbeat_at": time.time(), "worker_running": True, "session_known": True,
+                         "code": "waiting_interval", "message": "PRIVATE ERROR MUST NOT ESCAPE",
+                         "next_trigger_at": time.time() + 300, "daily_count": 1, "last_result": "sent",
+                         "last_result_at": time.time() - 1, "last_success_at": time.time() - 1,
+                         "umo": UMO, "token": "SECRET"}
+            with patch.object(companion, "ASTRBOT", runtime):
+                path.write_text(json.dumps(candidate))
+                status = companion._runtime_status(config)
+                self.assertEqual(status["code"], "waiting_interval")
+                self.assertEqual(status["last_result"], "sent")
+                self.assertNotIn("SECRET", json.dumps(status))
+                self.assertNotIn("PRIVATE", json.dumps(status))
+                self.assertNotIn("umo", status)
+                self.assertEqual(companion._runtime_status({**config, "companion": {"proactive_enabled": False}})["code"], "disabled")
+                candidate["heartbeat_at"] -= 181
+                path.write_text(json.dumps(candidate))
+                self.assertEqual(companion._runtime_status(config)["code"], "not_running")
+                path.write_text("x" * 17000)
+                self.assertFalse(companion._runtime_status(config)["worker_running"])
 
 
 class CompanionTests(unittest.IsolatedAsyncioTestCase):
@@ -186,8 +258,8 @@ class CompanionTests(unittest.IsolatedAsyncioTestCase):
     async def test_uncertain_send_keeps_reserved_budget_across_restart(self):
         await self.prepare_session()
         self.context.send_message.side_effect = RuntimeError("delivery result unknown")
-        with self.assertRaises(RuntimeError):
-            await self.plugin._proactive_once(self.now)
+        self.assertFalse(await self.plugin._proactive_once(self.now))
+        self.assertEqual(self.plugin._runtime["last_result"], "delivery_uncertain")
         saved = json.loads((self.data / "state.json").read_text("utf-8"))
         self.assertEqual(saved["day_count"], 1)
         self.assertEqual(saved["last_sent"], self.now.timestamp())
@@ -203,6 +275,89 @@ class CompanionTests(unittest.IsolatedAsyncioTestCase):
         await self.prepare_session()
         self.context.get_using_provider_async.return_value = None
         self.assertFalse(await self.plugin._proactive_once(self.now))
+        self.context.send_message.assert_not_awaited()
+
+    async def test_worker_initiates_topic_without_cron_or_new_user_message(self):
+        await self.prepare_session()
+        await self.plugin.terminate()
+        self.plugin._closed = False
+        self.plugin.config.update(quiet_start=0, quiet_end=0)
+        self.plugin._state["last_received"] = time.time() - 121 * 60
+        with patch.object(main.asyncio, "sleep", AsyncMock(side_effect=asyncio.CancelledError)):
+            with self.assertRaises(asyncio.CancelledError):
+                await self.plugin._loop()
+        self.provider.text_chat.assert_awaited_once()
+        self.context.send_message.assert_awaited_once()
+        prompt = self.provider.text_chat.call_args.kwargs["prompt"]
+        self.assertIn("后台自主搭话触发", prompt)
+        self.assertIn("本次话题角度", prompt)
+        self.assertIn("这不是主人发来的消息", prompt)
+
+    async def test_disabled_initialization_keeps_worker_for_later_explicit_enable(self):
+        config = dict(engine.DEFAULTS, enabled=False, owner_qq=OWNER, bot_qq=BOT)
+        other = main.DafeiyuCompanion(self.context, config)
+        await other.initialize()
+        self.addAsyncCleanup(other.terminate)
+        task = other._worker
+        self.assertIsNotNone(task)
+        self.assertFalse(task.done())
+        self.assertEqual(other._runtime["code"], "disabled")
+        config.update(enabled=True, proactive_enabled=True)
+        await other.observe_owner(Event())
+        other._state["last_received"] = (self.now - timedelta(minutes=121)).timestamp()
+        self.assertTrue(await other._proactive_once(self.now))
+        self.assertIs(other._worker, task)
+
+    async def test_unavailable_model_recovers_next_tick_without_consuming_budget(self):
+        await self.prepare_session()
+        self.context.get_using_provider_async.return_value = None
+        self.assertFalse(await self.plugin._proactive_once(self.now))
+        self.assertEqual(self.plugin._runtime["code"], "model_unavailable")
+        self.assertNotIn("day_count", self.plugin._state)
+        self.context.get_using_provider_async.return_value = self.provider
+        self.assertTrue(await self.plugin._proactive_once(self.now + timedelta(seconds=60)))
+        self.assertEqual(self.plugin._state["day_count"], 1)
+
+    async def test_autonomous_topics_rotate_and_last_result_survives_restart(self):
+        await self.prepare_session()
+        self.assertTrue(await self.plugin._proactive_once(self.now))
+        first = self.provider.text_chat.call_args.kwargs["prompt"]
+        self.assertTrue(await self.plugin._proactive_once(self.now + timedelta(minutes=121)))
+        second = self.provider.text_chat.call_args.kwargs["prompt"]
+        self.assertNotEqual(first, second)
+        self.assertIn("最近主动发过", self.provider.text_chat.call_args.kwargs["system_prompt"])
+        other = main.DafeiyuCompanion(self.context, self.config)
+        await other.initialize()
+        self.addAsyncCleanup(other.terminate)
+        self.assertEqual(other._runtime["last_result"], "sent")
+        public = json.loads((self.data / "runtime.json").read_text("utf-8"))
+        self.assertNotIn("umo", public)
+        self.assertNotIn(OWNER, json.dumps(public))
+        self.assertNotIn("last_greeting", public)
+
+    async def test_model_receives_true_scheduler_capability_and_disabled_state(self):
+        await self.prepare_session()
+        req = SimpleNamespace(system_prompt="User persona")
+        await self.plugin.companion_context(Event(), req)
+        self.assertIn("无需主人创建 cron", req.system_prompt)
+        self.assertIn("独立后台", req.system_prompt)
+        self.assertIn("不代表此刻已经发送", req.system_prompt)
+        self.plugin.config.update(proactive_enabled=False, emotion_enabled=True)
+        req = SimpleNamespace(system_prompt="User persona")
+        await self.plugin.companion_context(Event(), req)
+        self.assertIn("自主搭话开关当前关闭", req.system_prompt)
+        self.assertNotIn("插件已开启自主搭话", req.system_prompt)
+
+    async def test_decline_and_generation_error_are_observable_without_canned_send(self):
+        await self.prepare_session()
+        self.provider.text_chat.return_value.completion_text = "[暂不打扰]"
+        self.assertFalse(await self.plugin._proactive_once(self.now))
+        self.assertEqual(self.plugin._runtime["last_result"], "declined")
+        self.context.send_message.assert_not_awaited()
+        self.provider.text_chat.side_effect = RuntimeError("SECRET TOKEN AND PRIVATE URL")
+        self.assertFalse(await self.plugin._proactive_once(self.now + timedelta(minutes=121)))
+        self.assertEqual(self.plugin._runtime["last_result"], "generation_failed")
+        self.assertNotIn("SECRET", (self.data / "runtime.json").read_text("utf-8"))
         self.context.send_message.assert_not_awaited()
 
     async def test_disabled_session_or_plugin_profile_never_generates(self):
@@ -301,6 +456,21 @@ class CompanionTests(unittest.IsolatedAsyncioTestCase):
         await self.plugin.terminate()
         self.assertTrue(task.cancelled())
         self.assertFalse(await self.plugin._proactive_once(self.now))
+
+    async def test_bubbles_hook_is_optional_owner_only_and_rechecks_permissions(self):
+        event = Event()
+        self.plugin._bubbles.prepare = AsyncMock()
+        await self.plugin.natural_chat_bubbles(event)
+        self.plugin._bubbles.prepare.assert_not_awaited()
+        self.plugin.config["natural_bubbles_enabled"] = True
+        await self.plugin.natural_chat_bubbles(Event(sender="33333333"))
+        self.plugin._bubbles.prepare.assert_not_awaited()
+        await self.plugin.natural_chat_bubbles(event)
+        self.plugin._bubbles.prepare.assert_awaited_once()
+        guard = self.plugin._bubbles.prepare.call_args.args[2]
+        self.assertTrue(await guard())
+        self.plugin.config["natural_bubbles_enabled"] = False
+        self.assertFalse(await guard())
 
     async def test_persistent_session_never_follows_changed_owner(self):
         await self.prepare_session()

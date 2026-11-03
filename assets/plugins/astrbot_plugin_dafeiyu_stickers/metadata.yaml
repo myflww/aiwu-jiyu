@@ -1,7 +1,7 @@
 name: astrbot_plugin_dafeiyu_stickers
 display_name: 大肥鱼自动心情贴纸与素材库
 desc: 按聊天气氛自动搭配大肥鱼表情；附带原创PNG与署名社区GIF，仅用于当前QQ回复，支持图库和发送间隔设置。
-version: v1.1.0
+version: v1.1.1
 author: myflww
 repo: https://github.com/myflww/aiwu-jiyu
 support_platforms:

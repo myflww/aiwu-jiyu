@@ -6,8 +6,9 @@
 
 - 项目：https://github.com/aureth-labs/dsh-aurabot-qq
 - 已核对提交：`b3301f6b014016e141c07d266a716c0fea566aab`
-- 已核对文件：`README.md`、`package.json`、`src/modules/API.md`、`src/modules/speakup/index.js`、`src/modules/mood/index.js`、`src/modules/stickers/index.js`、`LICENSE`。
+- 已核对文件：`README.md`、`package.json`、`src/modules/API.md`、`src/modules/speakup/index.js`、`src/features/companion.js`、`src/modules/mood/index.js`、`src/modules/stickers/index.js`、`LICENSE`。
 - 参考功能：主动搭话、心情上下文、按回复情绪挑选表情，以及功能分模块开关的方式。
+- 自主搭话核对：原实现由每分钟独立 `tick` 检查空闲、免打扰和名额并轮换话题角度，不依赖用户创建 cron。本适配用 AstrBot 插件生命周期启动独立后台，保持真实主人会话验证、预算先落盘和准确状态；话题角度为独立撰写，不采用原例子中编造现实经历的建议。
 - 原项目使用 DeepSeek Harness、Node.js ESM 与独立 OneBot 通道，不能作为 AstrBot 的 Python 插件直接加载。爱屋及鱼继续使用现有 NapCat 和 AstrBot，不增加第二套 QQ 桥接，也不替换爱之屋记忆。
 - 代码许可证：MIT；版权所有者为 `Copyright (c) 2026 Aurabot contributors`。原许可逐字保留在 `references/LICENSE-dsh-aurabot-qq.txt`。
 - 素材范围：原项目 README 另行说明其桌宠形象与动画采用 CC BY-NC-SA 4.0，并由独立素材仓库提供。这些素材未被引入，本次不能把代码的 MIT 许可推广到它们。

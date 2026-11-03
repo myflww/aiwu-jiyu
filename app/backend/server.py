@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlparse
 
 from backend import autostart, config_store, installer, lovehouse, napcat_api, plugins, processes
 from backend import astrbot_api
-from backend import metrics, pc_access, updater, log_retention, companion, stickers
+from backend import metrics, pc_access, updater, log_retention, companion, stickers, plugin_updates
 from backend.paths import APP_HOME, ASSETS, LOGS, RUN_DIR, UI_DIR, ensure_dirs
 
 _lock = threading.Lock()
@@ -33,11 +33,37 @@ def _bool_field(body: dict, key: str, default: bool = False) -> bool:
 
 class LocalServer(ThreadingHTTPServer):
     log_retention_service = None
+    plugin_update_requested = False
 
     def server_close(self) -> None:
         if self.log_retention_service:
             self.log_retention_service.stop()
         super().server_close()
+
+
+def _plugin_repair_allowed(service, plugin_status: dict) -> bool:
+    with service.lock:
+        release = service.release or {}
+        return (plugin_status.get("state") == "checked"
+                and plugin_status.get("update_available") is True
+                and plugin_status.get("tag") == release.get("tag")
+                and release.get("version") == service.version)
+
+
+def _updates_snapshot(server) -> dict:
+    service = updater.get_updater()
+    result = service.snapshot()
+    requested = bool(getattr(server, "plugin_update_requested", False))
+    if not result.get("checking") and (result.get("auto_check") or requested):
+        with service.lock:
+            release = dict(service.release or {})
+        if release.get("tag") and release.get("version") == result.get("latest_version"):
+            accepted = plugin_updates.start_check(release["tag"], force=requested)
+            if accepted.get("tag") == release["tag"]:
+                server.plugin_update_requested = False
+    plugin_status = plugin_updates.snapshot()
+    plugin_status["can_repair"] = _plugin_repair_allowed(service, plugin_status)
+    return {**result, "plugin_updates": plugin_status}
 
 
 def _snapshot_napcat() -> dict:
@@ -242,7 +268,10 @@ class Handler(BaseHTTPRequestHandler):
                              "installing": False, "progress": 0, "downloaded": False, "download_verified": False,
                              "auto_check": True, "checked_at": None, "error": "", "message": "",
                              "release_url": updater.REPO_URL + "/releases/latest", "ignored_version": "",
-                             "snoozed_until": 0},
+                             "snoozed_until": 0,
+                             "plugin_updates": {"state": "preview", "checking": False, "plugins": [],
+                                                "update_available": False, "can_repair": False,
+                                                "message": "预览不连接更新服务"}},
             "/api/state": {
                 "preview": True, "setup_complete": True, "installed": False,
                 "has_key": False, "owner_qq": "", "bot_qq": "", "bot_nickname": "大肥鱼",
@@ -294,7 +323,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/favicon.ico":
                 self._asset("ui/app-icon.ico")
             elif path in {"/api/updates", "/api/updates/status"}:
-                self._json(200, updater.get_updater().snapshot())
+                self._json(200, _updates_snapshot(self.server))
             elif path == "/api/state":
                 self._json(200, state())
             elif path == "/api/metrics":
@@ -408,9 +437,10 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 service = updater.get_updater()
                 if path == "/api/updates/check":
+                    self.server.plugin_update_requested = True
                     payload = service.check()
                 elif path == "/api/updates/download":
-                    payload = service.download()
+                    payload = service.download(repair=_plugin_repair_allowed(service, plugin_updates.snapshot()))
                 elif path in {"/api/updates/settings", "/api/updates/preferences"}:
                     payload = service.preferences(body)
                 elif path == "/api/updates/install":
@@ -424,7 +454,9 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     self._json(404, {"ok": False, "message": "更新接口不存在"})
                     return
-                self._json(200, payload)
+                plugin_status = plugin_updates.snapshot()
+                plugin_status["can_repair"] = _plugin_repair_allowed(service, plugin_status)
+                self._json(200, {**payload, "plugin_updates": plugin_status})
             elif path == "/api/setup/install":
                 config = config_store.load()
                 config["install_dir"] = str(config_store.APP_HOME)
@@ -732,6 +764,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def start_server(*, preview: bool = False, auto_start: bool = True, auto_update: bool = True) -> ThreadingHTTPServer:
+    reload_bundled = False
     if not preview:
         ensure_dirs()
     config = {} if preview else config_store.load()
@@ -740,9 +773,14 @@ def start_server(*, preview: bool = False, auto_start: bool = True, auto_update:
         config_store.save(config)
     if not preview and config_store.is_installed():
         try:
-            plugins.install_bundled()
+            bundle = plugins.install_bundled()
             companion.sync_config(config)
             stickers.sync_config(config)
+            changed = set(bundle.get("updated", [])) | set(bundle.get("installed", []))
+            reload_bundled = (auto_start and bool(changed)
+                              and any(item["id"] in changed and item.get("runtime_enabled", item.get("enabled"))
+                                      for item in bundle.get("plugins", []))
+                              and processes.port_up(6185))
         except Exception as exc:
             print(f"Bundled plugin synchronization deferred: {type(exc).__name__}", flush=True)
     server = LocalServer(("127.0.0.1", 0), Handler)
@@ -761,10 +799,17 @@ def start_server(*, preview: bool = False, auto_start: bool = True, auto_update:
     def _kick_services():
         time.sleep(1.0)
         try:
-            processes.start_all(_quick_qq())
-        except Exception:
-            pass
+            if reload_bundled and processes.port_up(6185):
+                stopped, _ = processes.stop_astrbot()
+                if not stopped:
+                    raise RuntimeError("Existing dialogue service could not be reloaded")
+                processes.start_astrbot()
+                processes.wait_port(6185, 40)
+            if auto_start and config.get("setup_complete") and config.get("auto_login", True):
+                processes.start_all(_quick_qq())
+        except Exception as exc:
+            print(f"Service startup deferred: {type(exc).__name__}", flush=True)
 
-    if not preview and auto_start and config.get("setup_complete") and config.get("auto_login", True):
+    if not preview and (reload_bundled or auto_start and config.get("setup_complete") and config.get("auto_login", True)):
         threading.Thread(target=_kick_services, daemon=True).start()
     return server

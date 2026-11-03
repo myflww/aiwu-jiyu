@@ -59,6 +59,21 @@ class UpdateTests(unittest.TestCase):
         self.assertGreater(updater.version_key("v1.10.0"), updater.version_key("1.9.0"))
         self.assertGreater(updater.version_key("1.2.0"), updater.version_key("1.2.0rc3"))
 
+    def test_same_version_plugin_repair_still_verifies_installer(self):
+        service = self.checked("1.2.0")
+        with self.assertRaises(ValueError):
+            service.download()
+        service.download(repair=True)
+        service.worker.join(3)
+        self.assertTrue(service.snapshot()["download_verified"])
+        self.assertEqual(service.installer_path.read_bytes(), self.binary)
+
+    def test_plugin_repair_cannot_downgrade_newer_app(self):
+        service = self.checked("1.3.0")
+        with self.assertRaises(ValueError):
+            service.download(repair=True)
+        self.assertNotIn(self.release["installer_url"], self.requests)
+
     def test_offline_reports_error(self):
         self.responses.clear()
         status = self.checked().snapshot()
