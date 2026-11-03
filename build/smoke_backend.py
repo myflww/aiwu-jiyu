@@ -34,6 +34,30 @@ def main() -> None:
                 assert not value["setup_complete"] and not value["installed"]
                 assert not value["has_key"] and not value["owner_qq"] and not value["bot_qq"]
                 assert not server.config_store.CONFIG_FILE.exists()
+                with patch.object(server.webbrowser, "open", return_value=True) as open_browser:
+                    client.request("POST", "/api/open-url", body=json.dumps({
+                        "url": "https://platform.deepseek.com/api_keys",
+                    }), headers={"Content-Type": "application/json"})
+                    response = client.getresponse()
+                    assert response.status == 200 and json.loads(response.read())["ok"]
+                    open_browser.assert_called_once_with("https://platform.deepseek.com/api_keys")
+                    open_browser.reset_mock()
+                    for url in ("https://platform.deepseek.com.evil.test/api_keys",
+                                "http://platform.deepseek.com/api_keys",
+                                "https://platform.deepseek.com/api_keys?key=private",
+                                "file:///C:/Windows/System32/cmd.exe"):
+                        client.request("POST", "/api/open-url", body=json.dumps({"url": url}),
+                                       headers={"Content-Type": "application/json"})
+                        response = client.getresponse()
+                        assert response.status != 200
+                        response.read()
+                    open_browser.assert_not_called()
+                with patch.object(server.webbrowser, "open", return_value=False):
+                    client.request("POST", "/api/open-url", body=json.dumps({
+                        "url": "https://platform.deepseek.com/api_keys",
+                    }), headers={"Content-Type": "application/json"})
+                    response = client.getresponse()
+                    assert response.status != 200 and not json.loads(response.read())["ok"]
             finally:
                 client.close()
                 fresh.shutdown()
@@ -75,7 +99,7 @@ def main() -> None:
             connection.close()
             instance.shutdown()
             instance.server_close()
-    print("PASS: fresh profile, preview isolation, blocked writes, assets and traversal")
+    print("PASS: fresh profile, external portal allowlist, browser failure, preview isolation, blocked writes, assets and traversal")
 
 
 if __name__ == "__main__":

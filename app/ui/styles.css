@@ -733,6 +733,111 @@ button.hero-stop:disabled { background: #f2f6f8; color: #61778a; border-color: #
   .appearance-option img { width: 55px; height: 65px; }
   .appearance-option span { font-size: 11px; }
 }
+/* Love House keeps its cream and pixel-heart identity inside the blue desktop shell. */
+.lovehouse-home { padding: 22px 25px; border-color: #eeddd3; background: linear-gradient(110deg,#fffaf0 0%,#fff7ef 58%,#ffefef 100%); box-shadow: 0 4px 20px #956d5f06; }
+.lovehouse-welcome { display: grid; grid-template-columns: minmax(0,1fr) 214px; align-items: center; gap: 20px; }
+.lovehouse-copy { min-width: 0; }
+.lovehouse-brand { display: flex; align-items: center; gap: 8px; color: #79514a; font-size: 13px; }
+.lovehouse-brand > b { font-size: 14px; letter-spacing: 1px; }
+.lovehouse-brand > span { color: #98665f; font: 10px "Consolas", monospace; letter-spacing: 1.4px; }
+.lovehouse-heart { width: 17px; height: 20px; flex: none; fill: none; stroke: none; shape-rendering: crispEdges; }
+.lovehouse-copy h2 { color: #674d48; font-size: 25px; line-height: 1.5; margin: 9px 0 7px; letter-spacing: .4px; }
+.lovehouse-copy > p { color: #806b62; font-size: 12px; line-height: 1.8; margin: 0 0 12px; }
+.lovehouse-service-line { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; font-size: 12px; color: #74645e; }
+.lovehouse-service-line .text-button { padding: 2px 0; font-size: 12px; color: #8b5e56; }
+.lovehouse-service-line > #lhDesc { overflow-wrap: anywhere; }
+.lovehouse-actions { gap: 9px; margin-top: 12px; }
+.lovehouse-actions .primary { background: #af5a65; border-color: #af5a65; }
+.lovehouse-actions .primary:hover:not(:disabled) { background: #984b56; border-color: #984b56; }
+.lovehouse-actions .ghost { border-color: #e2b9b4; background: #fffcf8; color: #8f5357; }
+.lovehouse-actions .ghost:hover:not(:disabled) { background: #fff0ed; }
+.lovehouse-actions .text-button { color: #816a61; padding: 8px 2px; font-size: 12px; }
+.lovehouse-art { height: 228px; position: relative; align-self: end; }
+.lovehouse-art-halo { position: absolute; width: 178px; height: 178px; border: 1px dashed #e7b6b0; border-radius: 50%; top: 25px; left: 18px; background: #ffe3de88; }
+.lovehouse-art img { position: relative; width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 6px 4px #b0706212); }
+.lovehouse-home .notice { background: #fffdf8; border-color: #ecd8c5; color: #806348; }
+.lovehouse-flow { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); padding: 0; margin: 15px 0 20px; list-style: none; gap: 12px; }
+.lovehouse-flow > li { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px 11px; }
+.lovehouse-flow .icon { width: 20px; height: 20px; color: #7996aa; }
+.lovehouse-flow .lovehouse-heart { width: 18px; height: 21px; }
+.lovehouse-flow li > div { min-width: 0; display: grid; gap: 4px; }
+.lovehouse-flow b { font-size: 12px; color: #546c80; font-weight: 600; }
+.lovehouse-flow li > div > span { font-size: 11px; color: #6c7e8d; line-height: 1.5; }
+.lovehouse-flow .flow-arrow { margin-left: auto; color: #b2a7a0; }
+.lovehouse-workspace { align-items: start; }
+.lovehouse-workspace .card h2 { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.lovehouse-section-number { display: inline-grid; place-items: center; width: 25px; height: 25px; border-radius: 8px; background: #fff0ee; color: #a86a68; font-size: 11px; font-weight: 600; }
+.lovehouse-library-count { font-size: 11px; color: #89736c; white-space: nowrap; }
+.lovehouse-libraries { margin: 15px 0 0; max-height: 330px; overflow: auto; padding: 1px; }
+.lovehouse-library-item { gap: 11px; padding: 13px; border-radius: 11px; }
+.lovehouse-library-item.selected { border-color: #dca7a3; background: #fff5f1; }
+.lovehouse-library-icon { display: grid; place-items: center; flex: none; width: 32px; height: 36px; border-radius: 8px; color: #a86d6a; background: #fff0eb; }
+.lovehouse-library-icon .icon { width: 19px; height: 19px; }
+.lovehouse-library-item .who { flex: 1; }
+.lovehouse-library-item .who > b { color: #6e554e; font-size: 13px; }
+.lovehouse-library-item .who > span { color: #7b7876; font-size: 11px; }
+.lovehouse-library-item.selected .badge { color: #91595c; background: #f8e0df; }
+.lovehouse-library-id { margin-top: 2px; font-size: 10px; color: #8d8b88; }
+.lovehouse-library-id summary { cursor: pointer; width: fit-content; padding: 2px 0; font-size: 10px; }
+.lovehouse-library-id > span { display: block; margin-top: 4px; font-size: 10px; color: #6e7e89; overflow-wrap: anywhere; }
+.lovehouse-new-library { margin-top: 16px; }
+.lovehouse-new-library > span { font-size: 12px; color: #7d6d64; }
+.lovehouse-target { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 15px; padding: 10px 12px; background: #fff5f1; border-radius: 9px; color: #8a6b61; font-size: 11px; }
+.lovehouse-target .icon { width: 15px; height: 15px; }
+.lovehouse-target b { color: #79514f; font-size: 12px; overflow-wrap: anywhere; }
+.lovehouse-connect-card textarea { min-height: 88px; }
+.lovehouse-sources-card h2 { display: flex; align-items: center; gap: 9px; }
+.lovehouse-sources-card h2 .lovehouse-heart { width: 14px; height: 17px; }
+.provider-shortcut { padding: 13px 15px; border: 1px solid #dbe8f2; border-radius: 11px; background: #f3f8fc; }
+.provider-link { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid #b9d2e4; border-radius: 8px; background: #fff; color: #326b95; font-size: 12px; font-weight: 600; line-height: 1.5; text-decoration: none; }
+.provider-link:hover { text-decoration: none; background: #eaf4fc; border-color: #83b4d6; }
+.provider-link[aria-disabled="true"] { opacity: .6; cursor: wait; }
+.provider-shortcut p { margin: 7px 0 0; color: #5e778c; font-size: 12px; line-height: 1.8; }
+.wizard-provider-shortcut { display: flex; align-items: center; flex-wrap: wrap; gap: 9px 16px; margin-bottom: 20px; }
+.wizard-provider-shortcut p { flex: 1; min-width: 180px; margin: 0; }
+@media (max-width:1100px) {
+  .lovehouse-home { padding: 21px; }
+  .lovehouse-welcome { grid-template-columns: minmax(0,1fr) 190px; gap: 12px; }
+  .lovehouse-copy h2 { font-size: 23px; }
+  .lovehouse-art { height: 218px; }
+  .lovehouse-art-halo { width: 163px; height: 163px; left: 10px; }
+  .lovehouse-flow { gap: 4px; }
+  .lovehouse-flow > li { padding-left: 5px; padding-right: 5px; gap: 8px; }
+}
+@media (max-width:760px) {
+  .lovehouse-welcome { grid-template-columns: minmax(0,1fr) 155px; }
+  .lovehouse-art { height: 205px; }
+  .lovehouse-art-halo { width: 140px; height: 140px; left: 6px; top: 30px; }
+  .lovehouse-flow { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .lovehouse-flow .flow-arrow { display: none; }
+  .lovehouse-flow > li { align-items: flex-start; }
+  .lovehouse-flow b { font-size: 11px; }
+  .lovehouse-flow li > div > span { font-size: 10px; }
+}
+@media (max-width:580px) {
+  .lovehouse-home { padding: 19px; }
+  .lovehouse-welcome { grid-template-columns: minmax(0,1fr) 115px; gap: 4px; }
+  .lovehouse-copy h2 { font-size: 21px; }
+  .lovehouse-copy > p { font-size: 11px; }
+  .lovehouse-copy > p br { display: none; }
+  .lovehouse-art { height: 180px; align-self: start; margin-top: 28px; }
+  .lovehouse-art-halo { width: 105px; height: 105px; top: 30px; }
+  .lovehouse-actions { gap: 7px; }
+  .lovehouse-actions button { font-size: 11px; padding: 8px 10px; }
+  .lovehouse-actions .text-button { padding-left: 0; }
+  .lovehouse-flow { gap: 0; margin-top: 12px; }
+  .lovehouse-flow > li { flex-direction: column; gap: 7px; padding: 6px; }
+  .lovehouse-library-item { gap: 8px; padding: 12px 10px; }
+  .lovehouse-library-item > .ghost { font-size: 11px; padding: 7px 9px; }
+}
+@media (max-width:400px) {
+  .lovehouse-welcome { grid-template-columns: minmax(0,1fr) 90px; }
+  .lovehouse-copy h2 { font-size: 19px; }
+  .lovehouse-art { height: 145px; }
+  .lovehouse-art-halo { width: 85px; height: 85px; left: 0; }
+  .lovehouse-brand { gap: 6px; }
+  .lovehouse-brand > span { font-size: 8px; letter-spacing: .6px; }
+}
 @media (prefers-reduced-motion:reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }

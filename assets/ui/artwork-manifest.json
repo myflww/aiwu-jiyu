@@ -66,6 +66,20 @@
       "width": 1199,
       "height": 1312,
       "alpha": true
+    },
+    {
+      "file": "dafeiyu-lovehouse.png",
+      "generator": "Built-in image_gen",
+      "use_case": "illustration-story",
+      "prompt": "Use case: illustration-story.\nAsset type: a transparent chibi character illustration for the Memory Cottage / LoveHouse page in the desktop app 爱屋及鱼.\nPrimary request: draw 大肥鱼, the SAME adorable blue whale maid girl as reference image 1, affectionately cradling the red pixel heart emblem of LoveHouse from reference image 2 with BOTH hands, in front of her chest. Replace the notebook concept with a big, recognizable crimson-red pixel heart cushion / emblem.\nInput images: image 1 is the exact character-identity and anime rendering-style reference; image 2 is the LoveHouse red pixel heart emblem reference, not a background reference.\nSubject invariants: round childlike chibi face and body, very large bright blue eyes, navy-to-sky-blue long wavy hair, single curved ahoge, ruffled white maid headband and blue bow, modest navy long-sleeve maid dress with white ruffled apron, blue oval brooch, cute blue whale tail with white underside. Match the delicate clean navy linework and polished cel-shaded soft highlights of image 1. Fully clothed, wholesome, warm affectionate cheerful smile, looking toward the viewer.\nComposition: a single centered seated full-body chibi character, 2.5-head proportions, cropped to neither head nor feet nor tail. The heart is broad and prominent, framed gently by both hands and held just below the face, not covering her eyes or face. Keep the red pixel heart's distinctive stepped block outline, dark red edge, bright scarlet body, and small pale square glint from image 2. It should read as LoveHouse's pixel heart at small UI sizes, not as a smooth pink heart. A few tiny pink heart sparkles may float near her hair, with generous transparent margins.\nLighting and mood: cute, lively, comforting, a little home for treasured memories. Character palette stays blue/navy/white, heart adds clear vivid red.\nBackground: genuinely transparent alpha outside precise silhouettes and tiny sparkles. No colored canvas, no background square, no drop shadow rectangle.\nText: none.\nAvoid: letters, logos rendered as text, watermark, notebook, speech bubble, extra characters, extra arms or fingers, giant hands, exposed chest, adult proportions, photorealism, 3D, changing identity.",
+      "references": [
+        {"role": "character identity and anime rendering style", "file": "assets/ui/dafeiyu-memory.png"},
+        {"role": "LoveHouse red pixel heart emblem", "source": "myflww/love-house:assets/branding/love-house-icon.png"}
+      ],
+      "generated_source": "exec-35966be4-a3e2-467a-8844-c5e4abc931b7.png",
+      "width": 1201,
+      "height": 1309,
+      "alpha": true
     }
   ]
 }

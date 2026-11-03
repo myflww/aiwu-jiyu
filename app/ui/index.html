@@ -64,6 +64,12 @@
   <path d="M12 2v10" />
   <path d="M18.4 6.6a9 9 0 1 1-12.77.04" />
 </symbol>
+<!-- Love House pixel-heart mark, adapted from its project-banner.svg. -->
+<symbol id="i-lovehouse-heart" viewBox="0 0 162 198">
+  <path d="M18 18h36V0h54v18h36v36h18v54h-18v36h-18v18h-18v18H90v18H72v-18H54v-18H36v-18H18v-36H0V54h18z" fill="#713c39" />
+  <path d="M18 36h36V18h36v18h18V18h18v18h18v72h-18v36h-18v18H90v18H72v-18H54v-18H36v-36H18z" fill="#fa666e" />
+  <path d="M36 36h18V18h18v18H54v18H36z" fill="#ffe9d4" />
+</symbol>
 </svg>
 <div class="app hidden" id="app">
   <aside class="sidebar" aria-label="主导航">
@@ -84,7 +90,7 @@
       <div class="sidebar-art"><img id="sidebarMascot" src="/assets/ui/dafeiyu-rest.png" alt="抱着小鱼休息的大肥鱼" onerror="this.style.display='none'"></div>
       <p id="sidebarMascotCaption" role="status" aria-live="polite">正在看看小家的状态</p>
     </div>
-    <div class="sidebar-footer"><div class="sidebar-foot"><span class="local-dot"></span> 本机桌面版 <span id="sideVersion">v1.2.0</span></div><button class="sidebar-update" id="sideUpdate"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg><span id="sideUpdateLabel">检查更新</span><span class="update-dot hidden" id="sideUpdateDot"></span></button></div>
+    <div class="sidebar-footer"><div class="sidebar-foot"><span class="local-dot"></span> 本机桌面版 <span id="sideVersion">v1.2.1</span></div><button class="sidebar-update" id="sideUpdate"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg><span id="sideUpdateLabel">检查更新</span><span class="update-dot hidden" id="sideUpdateDot"></span></button></div>
   </aside>
 
   <main class="main">
@@ -138,13 +144,13 @@
 
     <section id="view-settings" class="hidden">
   <div class="settings-section-nav" aria-label="设置分组"><button data-settings-anchor="settingsConversation">对话模型</button><button data-settings-anchor="settingsIdentity">主人身份</button><button data-settings-anchor="settingsDaily">启动习惯</button><button data-settings-anchor="settingsFiles">工作目录</button><button data-settings-anchor="settingsAppearance">界面立绘</button><button data-settings-anchor="updateSettings">软件更新</button></div>
-  <div class="settings-form-grid"><div class="card settings-model-card" id="settingsConversation"><div class="setting-card-heading"><span class="setting-number">01</span><div><h2>对话模型</h2><div class="desc">连接 DeepSeek。API Key 会加密保存在本机。</div></div></div><div class="stack"><label class="field"><span>DeepSeek API Key</span><input type="password" id="setKey" autocomplete="off" placeholder="留空保留已保存的 Key"></label><div class="key-status"><span class="local-dot"></span>当前 Key <span id="setKeyMask" class="mono">未保存</span></div><label class="field"><span>对话模型</span><select id="setModel"><option value="deepseek-chat">deepseek-chat · 日常对话</option><option value="deepseek-reasoner">deepseek-reasoner · 深度推理</option></select></label><details class="inline-advanced"><summary>自定义服务地址</summary><label class="field"><span>服务地址（API Base）</span><input type="text" id="setApiBase" value="https://api.deepseek.com/v1"></label></details></div></div>
+  <div class="settings-form-grid"><div class="card settings-model-card" id="settingsConversation"><div class="setting-card-heading"><span class="setting-number">01</span><div><h2>对话模型</h2><div class="desc">连接 DeepSeek。API Key 会加密保存在本机。</div></div></div><div class="stack"><div class="provider-shortcut"><a class="provider-link" href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer" data-deepseek-link>获取 DeepSeek API Key <span aria-hidden="true">↗</span></a><p>在浏览器打开官方 API 平台，创建或管理 Key 后回到这里填写。</p></div><label class="field"><span>DeepSeek API Key</span><input type="password" id="setKey" autocomplete="off" placeholder="留空保留已保存的 Key"></label><div class="key-status"><span class="local-dot"></span>当前 Key <span id="setKeyMask" class="mono">未保存</span></div><label class="field"><span>对话模型</span><select id="setModel"><option value="deepseek-chat">deepseek-chat · 日常对话</option><option value="deepseek-reasoner">deepseek-reasoner · 深度推理</option></select></label><details class="inline-advanced"><summary>自定义服务地址</summary><label class="field"><span>服务地址（API Base）</span><input type="text" id="setApiBase" value="https://api.deepseek.com/v1"></label></details></div></div>
   <div class="card settings-identity-card" id="settingsIdentity"><div class="setting-card-heading"><span class="setting-number pink">02</span><div><h2>主人身份</h2><div class="desc">填写你用来和她聊天的 QQ 主号。</div></div></div><label class="field"><span>主人 QQ</span><input type="text" id="setOwner" inputmode="numeric" placeholder="你的 QQ 主号，例如 123456789"></label><div class="notice">主人始终可以聊天。开启电脑权限后，主人可以使用全部操作权限；其他伙伴需要在“聊天权限”中逐项授权。</div></div>
   <div class="card" id="settingsDaily"><div class="setting-card-heading"><span class="setting-number">03</span><div><h2>启动选项</h2><div class="desc">这里的开关更改后立即生效。</div></div></div><label class="setting-switch-row"><div><b>开机启动</b><span>登录 Windows 后，自动启动到系统托盘。</span></div><input type="checkbox" id="setAutostart"></label><label class="setting-switch-row"><div><b>记住已授权的 QQ 小号</b><span>启动时优先尝试快速登录，失败时再扫码。</span></div><input type="checkbox" id="setAutoLogin"></label><div class="hint" id="setAutostartHint">正在读取启动设置…</div><div class="hint" id="quickLoginHint">正在读取已授权的 QQ…</div><details class="inline-advanced"><summary>查看安装位置</summary><code class="folder-path" id="setInstallDir">—</code></details></div>
   <div class="card" id="settingsFiles"><div class="setting-card-heading"><span class="setting-number pink">04</span><div><h2>工作目录</h2><div class="desc">她生成的文件会放在这个工作目录里。</div></div></div><label class="field"><span>大肥鱼工作目录</span><input type="text" id="setWorkspace" placeholder="例如 D:\AiwuJiyu\workspace"></label><div class="row wrap workspace-settings-actions"><button class="ghost" id="setWorkspaceBrowse">选择文件夹</button><button class="soft" id="setWorkspaceSave">保存目录</button><button class="text-button" data-go="artifacts">去看看作品箱 ↗</button></div><div class="hint" id="setWorkspaceHint">正在读取工作目录…</div><div class="notice blue">作品目录单独保存。是否允许她操作电脑，请在“我的肥鱼”里设置电脑权限。</div></div></div>
       <div class="section card update-settings" id="updateSettings">
         <div class="row between wrap"><div><h2>软件更新</h2><div class="desc">自动检查新版本，有更新时提醒你。下载和安装都由你决定。</div></div><label class="update-auto-toggle"><input type="checkbox" id="updateAutoCheck" checked><span>自动检查更新</span></label></div>
-        <div class="update-version-row"><span>当前版本 <b id="updateCurrentVersion">v1.2.0</b></span><span class="badge gray" id="updateVersionBadge">等待检查</span></div>
+        <div class="update-version-row"><span>当前版本 <b id="updateCurrentVersion">v1.2.1</b></span><span class="badge gray" id="updateVersionBadge">等待检查</span></div>
         <div class="update-status-message" id="updateMessage" role="status" aria-live="polite">正在读取更新设置…</div>
         <div class="update-download-progress hidden" id="updateProgressWrap"><div class="row between"><span>下载进度</span><span id="updatePercent">0%</span></div><div class="update-progress-track" role="progressbar" aria-label="更新下载进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="updateProgressTrack"><span id="updateProgress"></span></div></div>
         <div class="row wrap update-settings-actions"><button class="ghost" id="updateCheck"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg>检查更新</button><button class="primary hidden" id="updateDownload"><svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>下载更新</button><button class="primary hidden" id="updateInstall">安装更新</button><button class="text-button hidden" id="updateIgnore">忽略这个版本</button><a id="updateReleaseLink" href="https://github.com/myflww/aiwu-jiyu/releases" target="_blank" rel="noopener noreferrer">查看发布记录 ↗</a></div>
@@ -163,45 +169,44 @@
 </section>
 
     <section id="view-lovehouse" class="hidden">
-      <div class="card">
-        <div class="row between wrap">
-          <div>
-            <h2>记忆服务</h2>
-            <div class="desc" id="lhDesc">正在检测本机爱之屋…</div>
+      <div class="card lovehouse-home">
+        <div class="lovehouse-welcome">
+          <div class="lovehouse-copy">
+            <div class="lovehouse-brand"><svg class="lovehouse-heart" aria-hidden="true"><use href="#i-lovehouse-heart"></use></svg><b>爱之屋</b><span>LOVE HOUSE</span></div>
+            <h2>让一起走过的日子，<br>在爱之屋住下。</h2>
+            <p>由本机爱之屋提供记忆服务，<br>把登记的 QQ 对话整理成可再次想起的经历。</p>
+            <div class="lovehouse-service-line"><span class="badge amber" id="lhBadge">检测中</span><span id="lhDesc" role="status">正在检测本机爱之屋…</span><button class="text-button" id="lhRefresh">刷新</button></div>
+            <div class="row wrap lovehouse-actions">
+              <button class="primary" id="lhStart" disabled>启动爱之屋</button>
+              <button class="ghost" id="lhOpen" disabled>打开爱之屋 <span aria-hidden="true">↗</span></button>
+              <button class="text-button" id="lhOpenFolder" disabled>数据目录</button>
+            </div>
           </div>
-          <div class="row">
-            <span class="badge amber" id="lhBadge">检测中</span>
-            <button class="ghost" id="lhRefresh">刷新</button>
-          </div>
-        </div>
-        <div class="row wrap" style="margin-top:14px">
-          <button class="primary" id="lhStart" disabled>启动爱之屋</button>
-          <button class="ghost" id="lhOpen" disabled>打开爱之屋</button>
-          <button class="ghost" id="lhOpenFolder" disabled>打开数据目录</button>
+          <div class="lovehouse-art"><span aria-hidden="true" class="lovehouse-art-halo"></span><img src="/assets/ui/dafeiyu-lovehouse.png" alt="大肥鱼双手捧着爱之屋的红色像素爱心" onerror="this.src='/assets/ui/dafeiyu-memory.png';this.onerror=null"></div>
         </div>
         <div class="notice blue hidden" id="lhInstallNote" style="margin-top:12px">记忆小屋需要本机爱之屋提供支持。<a href="https://github.com/myflww/love-house/releases" target="_blank" rel="noopener noreferrer">前往官方发布页安装爱之屋 ↗</a>，安装后回到这里点击“刷新”。</div>
         <div class="notice blue" id="lhUpdateNote" style="margin-top:12px; display:none"></div>
       </div>
 
-      <div class="section grid cols-2">
-        <div class="card">
-          <div class="row between">
-            <div>
-              <h2>记忆库</h2>
-              <div class="desc">连接会固定到选中的库；不同库是独立存档。</div>
-            </div>
+      <ol class="lovehouse-flow" aria-label="记忆如何陪伴你"><li><svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg><div><b>登记 QQ 会话</b><span>只收下你选择的对话</span></div><span class="flow-arrow" aria-hidden="true">→</span></li><li><svg class="lovehouse-heart" aria-hidden="true"><use href="#i-lovehouse-heart"></use></svg><div><b>爱之屋整理</b><span>保存到独立的记忆库</span></div><span class="flow-arrow" aria-hidden="true">→</span></li><li><svg class="icon" aria-hidden="true"><use href="#i-book"></use></svg><div><b>聊天时再想起</b><span>按需召回相伴的经历</span></div></li></ol>
 
+      <div class="grid cols-2 lovehouse-workspace">
+        <div class="card lovehouse-library-card">
+          <div class="row between wrap">
+            <div>
+              <h2><span class="lovehouse-section-number">01</span>选择一本记忆库</h2>
+              <div class="desc">每本独立保存回忆，新登记的会话会连接到所选库。</div>
+            </div>
+            <span class="lovehouse-library-count" id="lhLibraryCount">正在读取</span>
           </div>
-          <div class="list" id="lhLibraries" style="margin-top:12px; max-height:320px; overflow:auto"></div>
-          <div class="input-row" style="margin-top:10px">
-            <input type="text" id="lhNewName" placeholder="新记忆库名称，例如 大肥鱼">
-            <button class="ghost" id="lhCreate" disabled>新建</button>
-          </div>
+          <div class="list lovehouse-libraries" id="lhLibraries"></div>
+          <label class="field lovehouse-new-library"><span>为新回忆起个名字</span><div class="input-row"><input type="text" id="lhNewName" placeholder="例如：和大肥鱼的日常"><button class="ghost" id="lhCreate" disabled>新建</button></div></label>
         </div>
 
-        <div class="card">
-          <h2>登记 QQ 会话</h2>
-            <div class="desc">仅保存登记的会话；在插件页启用记忆插件。</div>
+        <div class="card lovehouse-connect-card">
+          <h2><span class="lovehouse-section-number">02</span>连接你们的聊天</h2>
+          <div class="desc">仅保存登记的会话；在插件页启用记忆插件。</div>
+          <div class="lovehouse-target"><svg class="icon" aria-hidden="true"><use href="#i-book"></use></svg><span>目标记忆库</span><b id="lhSelectedName">请先选择记忆库</b></div>
           <label class="field" style="margin-top:12px"><span>需要保存的会话标识（UMO，每行一个）</span>
             <textarea id="lhUmos" rows="4" placeholder="qq-987654321:FriendMessage:123456789"></textarea>
           </label>
@@ -213,10 +218,10 @@
         </div>
       </div>
 
-      <div class="section card">
+      <div class="section card lovehouse-sources-card">
         <div class="row between">
           <div>
-            <h2>连接状态</h2>
+            <h2><svg class="lovehouse-heart" aria-hidden="true"><use href="#i-lovehouse-heart"></use></svg>已经连接的陪伴</h2>
             <div class="desc" id="lhSourceDesc">还没有连接。</div>
           </div>
 

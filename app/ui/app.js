@@ -37,7 +37,7 @@ const VIEW_META = {
   whitelist: ["聊天权限", "管理 QQ 私聊、群聊与操作授权"],
   settings: ["设置", "模型、身份与启动选项"],
   logs: ["诊断日志", "查看服务状态与运行记录"],
-  lovehouse: ["记忆小屋", "管理记忆库和 QQ 会话连接"],
+  lovehouse: ["记忆小屋", "与爱之屋相连，让陪伴慢慢成为回忆"],
   artifacts: ["作品箱", "浏览工作目录中的文件"],
   plugins: ["插件百宝箱", "独立启停插件，按需配置权限"],
 };
@@ -364,6 +364,7 @@ function renderWizard() {
     body.innerHTML = `
       <h2>让她听见，也能回应</h2>
       <p class="lead">填入你的 DeepSeek API Key，连接对话模型。Key 会加密保存在本机，用于请求你选择的模型服务。</p>
+      <div class="provider-shortcut wizard-provider-shortcut"><a class="provider-link" href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer" data-deepseek-link>获取 DeepSeek API Key <span aria-hidden="true">↗</span></a><p>在浏览器打开官方 API 平台。创建 Key 后，回到这里粘贴即可。</p></div>
       <div class="stack">
         <label class="field"><span>API Key</span>
           <input type="password" id="wizardKey" placeholder="sk-..." autocomplete="off">
@@ -1001,10 +1002,7 @@ async function loadLoveHouse() {
     if (!$("lhUmos").value.trim()) {
       $("lhUmos").value = (data.default_umos || []).join("\n");
     }
-    if (data.running && lovehouseSelected) {
-      loadLovehouseSources();
-      loadOrganizer();
-    }
+    await refreshLovehouseDetails();
   } catch (err) {
     $("lhDesc").textContent = err.message || String(err);
     $("lhBadge").className = "badge red";
@@ -1016,9 +1014,12 @@ function renderLoveHouse(data) {
   const version = data.version || "-";
   const latest = data.latest || "";
   const selected = (data.libraries || []).find((item) => item.id === lovehouseSelected);
+  setText("lhSelectedName", selected ? selected.name : "请先选择记忆库");
+  setText("lhLibraryCount", `${(data.libraries || []).filter(item => !item.is_demo).length} 本记忆库`);
   $("lhDesc").textContent = data.installed
-    ? `已安装 ${version}${latest && version !== latest ? `，最新 ${latest}` : ""}；数据目录 ${data.data_dir}`
-    : "这台电脑上还没有找到爱之屋。先安装爱之屋，再来布置记忆小屋。";
+    ? `已安装 ${version}`
+    : "先安装爱之屋，为回忆准备一个家。";
+  $("lhDesc").title = data.installed ? `数据目录：${data.data_dir || "本机爱之屋目录"}` : "";
   $("lhBadge").className = "badge " + (data.running ? "green" : data.installed ? "amber" : "red");
   $("lhBadge").textContent = data.running ? "服务在线" : data.installed ? "未启动" : "未安装";
   $("lhInstallNote").classList.toggle("hidden", !!data.installed);
@@ -1034,6 +1035,13 @@ function renderLoveHouse(data) {
     $(id).disabled = !!disabled;
     $(id).title = disabled ? reason : "";
   });
+  if (data.installed) $("lhOpenFolder").title = data.data_dir || "打开爱之屋数据目录";
+  if (!data.running || !selected) {
+    $("lhSources").innerHTML = "";
+    setText("lhSourceDesc", !data.installed ? "安装爱之屋后，即可连接需要保存的 QQ 会话。" : !data.running ? "启动爱之屋后，查看这本记忆库的会话连接。" : "选择一本记忆库后，查看已经连接的会话。");
+    $("lhOrganizerNotice").className = "notice";
+    setText("lhOrganizerNotice", "在爱之屋的“记忆整理”里配置模型 API，聊天原文才会整理成可召回的记忆。");
+  }
   const note = $("lhUpdateNote");
   if (data.update_available && latest) {
     note.style.display = "block";
@@ -1053,10 +1061,12 @@ function renderLovehouseLibraries() {
     return;
   }
   list.innerHTML = libraries.map((item) => `
-    <div class="list-item">
+    <div class="list-item lovehouse-library-item${item.id === lovehouseSelected ? " selected" : ""}">
+      <span class="lovehouse-library-icon" aria-hidden="true"><svg class="icon"><use href="#i-book"></use></svg></span>
       <div class="who">
         <b>${esc(item.name)}</b>
-        <span>${esc(item.node_count ?? 0)} 条记忆 · <span class="mono">${esc(item.id)}</span></span>
+        <span>${esc(item.node_count ?? 0)} 条记忆</span>
+        <details class="lovehouse-library-id"><summary>记忆库标识</summary><span class="mono">${esc(item.id)}</span></details>
       </div>
       ${item.id === lovehouseSelected
         ? '<span class="badge green">已选择</span>'
@@ -1067,20 +1077,28 @@ function renderLovehouseLibraries() {
       lovehouseSelected = btn.dataset.lib;
       renderLoveHouse(lovehouseState);
       renderLovehouseLibraries();
-      loadLovehouseSources();
-      loadOrganizer();
+      refreshLovehouseDetails();
     });
   });
 }
 
+async function refreshLovehouseDetails() {
+  if (!lovehouseSelected || !lovehouseState?.running) return;
+  $("lhSources").innerHTML = "";
+  setText("lhSourceDesc", "正在读取所选记忆库的会话连接…");
+  await Promise.all([loadLovehouseSources(), loadOrganizer()]);
+}
+
 async function loadLovehouseSources() {
-  if (!lovehouseSelected) return;
+  if (!lovehouseSelected || !lovehouseState?.running) return;
+  const libraryId = lovehouseSelected;
   try {
-    const data = await api(`/api/lovehouse/sources?library_id=${encodeURIComponent(lovehouseSelected)}`);
+    const data = await api(`/api/lovehouse/sources?library_id=${encodeURIComponent(libraryId)}`);
+    if (libraryId !== lovehouseSelected || !lovehouseState?.running) return;
     const sources = data.sources?.sources || [];
     const activeSources = sources.filter(item => item.enabled && !item.revoked);
     $("lhSourceDesc").textContent = sources.length
-      ? `当前库有 ${sources.length} 个已登记来源。`
+      ? `所选记忆库已登记 ${sources.length} 段会话，${activeSources.length} 段已启用。`
       : "暂无会话连接。选择记忆库后，在上方登记 QQ 会话。";
     $("lhSources").innerHTML = sources.length
       ? sources.map((item) => {
@@ -1103,14 +1121,19 @@ async function loadLovehouseSources() {
       }).join("")
       : "";
   } catch (err) {
+    if (libraryId !== lovehouseSelected || !lovehouseState?.running) return;
     $("lhSourceDesc").textContent = err.message || String(err);
   }
 }
 
 async function loadOrganizer() {
-  if (!lovehouseSelected) return;
+  if (!lovehouseSelected || !lovehouseState?.running) return;
+  const libraryId = lovehouseSelected;
+  $("lhOrganizerNotice").className = "notice";
+  setText("lhOrganizerNotice", "正在查看这本记忆库的整理模型…");
   try {
-    const data = await api(`/api/lovehouse/organizer?library_id=${encodeURIComponent(lovehouseSelected)}`);
+    const data = await api(`/api/lovehouse/organizer?library_id=${encodeURIComponent(libraryId)}`);
+    if (libraryId !== lovehouseSelected || !lovehouseState?.running) return;
     const info = data.organizer || {};
     const notice = $("lhOrganizerNotice");
     if (info.model_ready) {
@@ -1121,6 +1144,7 @@ async function loadOrganizer() {
       notice.innerHTML = `还需要在爱之屋的“记忆整理”里配置模型 API（Base URL、模型名、Key）。未配置时原文会保存，但不会自动整理成可召回的经历。${info.message ? `<br><span class="small">${esc(info.message)}</span>` : ""}`;
     }
   } catch (err) {
+    if (libraryId !== lovehouseSelected || !lovehouseState?.running) return;
     $("lhOrganizerNotice").textContent = err.message || String(err);
   }
 }
@@ -1152,9 +1176,12 @@ async function createLovehouseLibrary() {
     });
     $("lhNewName").value = "";
     lovehouseState = data;
-    lovehouseSelected = data.suggested_id || lovehouseSelected;
+    const createdId = data.result?.library?.id || data.result?.selected_id;
+    const selected = (data.libraries || []).find(item => item.id === createdId && !item.is_demo);
+    lovehouseSelected = selected?.id || data.suggested_id || lovehouseSelected;
     renderLoveHouse(data);
     renderLovehouseLibraries();
+    await refreshLovehouseDetails();
     toast("记忆库已创建");
   } catch (err) { toast(err.message || String(err)); }
 }
@@ -1471,7 +1498,28 @@ function openQrModal() {
   }, 2500);
 }
 
+async function openDeepseekPortal(event) {
+  const link = event.target.closest?.("a[data-deepseek-link]");
+  if (!link || state?.preview) return;
+  event.preventDefault();
+  if (link.dataset.busy === "true") return;
+  link.dataset.busy = "true";
+  link.setAttribute("aria-disabled", "true");
+  try {
+    await api("/api/open-url", {
+      method: "POST",
+      body: JSON.stringify({ url: "https://platform.deepseek.com/api_keys" }),
+    });
+    toast("已在默认浏览器打开 DeepSeek API 平台");
+  } catch (err) { toast(err.message || String(err)); }
+  finally {
+    link.dataset.busy = "false";
+    link.removeAttribute("aria-disabled");
+  }
+}
+
 function bindEvents() {
+  document.addEventListener("click", openDeepseekPortal);
   $$(".nav-item").forEach((btn) => btn.addEventListener("click", () => showView(btn.dataset.view)));
   $$("[data-go]").forEach((btn) => btn.addEventListener("click", () => showView(btn.dataset.go)));
   $$("[data-settings-anchor]").forEach(btn => btn.addEventListener("click", () => $(btn.dataset.settingsAnchor)?.scrollIntoView({ behavior: "smooth", block: "start" })));

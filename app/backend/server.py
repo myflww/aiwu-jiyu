@@ -532,13 +532,15 @@ class Handler(BaseHTTPRequestHandler):
                     "http://127.0.0.1:6185/",
                     "http://127.0.0.1:6099",
                     "http://127.0.0.1:6099/",
+                    "https://platform.deepseek.com/api_keys",
                 }:
                     raise ValueError("不支持的地址")
                 if "6185" in url and not processes.port_up(6185):
                     raise ValueError("AstrBot 没有在运行")
                 if "6099" in url and not processes.port_up(6099):
                     raise ValueError("NapCat 没有在运行")
-                webbrowser.open(url)
+                if not webbrowser.open(url):
+                    raise ValueError("无法打开默认浏览器，请检查系统浏览器设置后重试")
                 self._json(200, {"ok": True})
             elif path == "/api/lovehouse/open-folder":
                 subprocess.Popen(["explorer", str(lovehouse.DATA_DIR)])
