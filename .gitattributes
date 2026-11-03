@@ -3,3 +3,5 @@
 /assets/plugins/**/*.png -text
 /assets/plugins/**/*.gif -text
 /assets/plugins/**/*.webp -text
+# License provenance checks compare exact upstream bytes on Windows too.
+/assets/licenses/** text=auto eol=lf
