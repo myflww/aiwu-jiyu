@@ -10,7 +10,10 @@
       "license_source": "https://raw.githubusercontent.com/aureth-labs/dsh-aurabot-qq/b3301f6b014016e141c07d266a716c0fea566aab/LICENSE",
       "license_file": "LICENSE-dsh-aurabot-qq.txt",
       "sha256": "ab818d52c6ab6e784c9fc775f98037d180acf06f4421a7b84c77fe722baeb0f2",
-      "scope": "Behavior/style reference only; no source code, full prompt, DSH runtime, or upstream artwork copied."
+      "scope": "Behavior/style reference only; no source code, full prompt, DSH runtime, or upstream artwork copied.",
+      "reviewed_files": ["src/core/config.js", "src/features/companion.js", "src/modules/speakup/index.js"],
+      "verified_defaults": {"idle_minutes": 40, "min_interval_minutes": 60, "max_interval_minutes": 180, "daily_limit": 4, "awake_from": 8, "awake_to": 23},
+      "note": "Normal tick has no base trigger probability or unanswered probability decay. Optional nudge is a separate 50 percent single follow-up after 15-40 minutes."
     },
     {
       "repository": "https://github.com/Kaalia0912/dsh-whale-musume-persona",
@@ -21,6 +24,26 @@
       "license_file": "LICENSE-dsh-whale-musume-persona.txt",
       "sha256": "0b7a06b42f0b8cf724c0aa8189f60d40f8cf02d1201388d567f7c5ac514306f9",
       "scope": "Behavior/style reference only; no source code, full prompt, DSH runtime, or upstream artwork copied."
+    },
+    {
+      "repository": "https://github.com/Pancakes-Labs/astrbot_plugin_proactive_chat",
+      "commit": "95f459ef33208aa2c123c733ba1b5d2188dd0977",
+      "license": "AGPL-3.0",
+      "license_source": "https://github.com/Pancakes-Labs/astrbot_plugin_proactive_chat/blob/95f459ef33208aa2c123c733ba1b5d2188dd0977/LICENSE",
+      "reviewed_files": ["_conf_schema.json", "core/services/scheduler_service.py", "core/features/gating_feature.py", "metadata.yaml", "LICENSE"],
+      "verified_schema_defaults": {"friend_min_interval_minutes": 30, "friend_max_interval_minutes": 600, "friend_max_unanswered": 4, "quiet_hours": "1-7"},
+      "scope": "Read-only configuration and behavioral reference; no source code, prompts, runtime or UI copied. Original AstrBot implementation retains its own license.",
+      "note": "Scheduler and README fallback max interval 900 differs from schema 600. Neither is treated as an experimentally optimal value."
+    },
+    {
+      "repository": "https://github.com/Him666233/astrbot_plugin_group_chat_plus",
+      "commit": "aa97e0e35a18733e73db753238dd2a3021446e42",
+      "license": "AGPL-3.0",
+      "license_source": "https://github.com/Him666233/astrbot_plugin_group_chat_plus/blob/aa97e0e35a18733e73db753238dd2a3021446e42/LICENSE",
+      "reviewed_files": ["_conf_schema.json", "utils/proactive_chat_manager.py", "private_chat/private_chat_utils/private_chat_proactive_chat_manager.py", "metadata.yaml", "LICENSE"],
+      "verified_schema_defaults": {"proactive_probability": 0.3, "proactive_silence_threshold_seconds": 600, "check_interval_seconds": 60, "max_consecutive_failures": 3, "cooldown_seconds": 1800},
+      "scope": "Read-only probability and interaction-outcome reference; no source code, scoring implementation, prompts, runtime or UI copied.",
+      "note": "Adaptive score and cooldown are not equivalent to this plugin's independent user-selected exponential probability reduction. Older docs and class fallbacks differ from current schema."
     }
   ]
 }

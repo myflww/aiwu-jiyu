@@ -15,12 +15,30 @@
     "type": "string",
     "description": "参与匹配的图库",
     "default": "all",
-    "hint": "all：全部；original：原创PNG；community：保留来源署名的社区GIF。只能使用随附校验过的本地素材。"
+    "hint": "all：全部；original：原创PNG；community：署名社区GIF与已审核投稿；custom：本机个人图库。均为经过校验的本地图片。"
   },
   "cooldown_seconds": {
     "type": "int",
     "description": "同一会话自动配图间隔（秒）",
     "default": 30,
     "hint": "自动配图范围10至300秒；明确索要或承接近期表情提议时，成功发送后单独节流3秒。送达不确定时保留完整冷却，每条回复仍最多一张。"
+  },
+  "auto_probability": {
+    "type": "int",
+    "description": "自动配图概率（0至100）",
+    "default": 35,
+    "hint": "每条用户消息只抽样一次。100也只表示允许配图，模型仍可选择不发；明确索要不受此概率影响。"
+  },
+  "scenario_policy": {
+    "type": "string",
+    "description": "自动配图场景规则",
+    "default": "balanced",
+    "hint": "balanced：自然陪伴；playful：轻松场景更活泼；manual：只在明确索要或确认近期提议时发图。严肃、悲伤倾诉、任务/代码/链接和工具结果均不自动配图。"
+  },
+  "custom_enabled": {
+    "type": "bool",
+    "description": "允许使用本机个人表情",
+    "default": true,
+    "hint": "个人图库只从本机私有数据目录读取，可逐张停用或删除，不会自动上传到GitHub。"
   }
 }

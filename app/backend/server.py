@@ -18,10 +18,15 @@ from urllib.parse import parse_qs, urlparse
 from backend import autostart, config_store, installer, lovehouse, napcat_api, plugins, processes
 from backend import astrbot_api
 from backend import metrics, pc_access, updater, log_retention, companion, stickers, plugin_updates
+from backend import dashboard_credentials, custom_stickers, sticker_contributions
 from backend.paths import APP_HOME, ASSETS, LOGS, RUN_DIR, UI_DIR, ensure_dirs
 
 _lock = threading.Lock()
 _cache: dict[str, Any] = {"at": 0.0, "napcat": None}
+
+
+class _BodyTooLarge(ValueError):
+    pass
 
 
 def _bool_field(body: dict, key: str, default: bool = False) -> bool:
@@ -208,6 +213,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        self.send_header("X-Frame-Options", "DENY")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -217,14 +225,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def _body(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
+        limit = 12 * 1024 * 1024 if self.path == "/api/stickers/custom/import" else 1024 * 1024
+        if length < 0 or length > limit:
+            raise _BodyTooLarge("请求内容过大；单张表情包最多 8 MiB。")
         if length <= 0:
             return {}
         raw = self.rfile.read(length)
         try:
             data = json.loads(raw.decode("utf-8"))
-            return data if isinstance(data, dict) else {}
-        except Exception:
-            return {}
+            if not isinstance(data, dict):
+                raise ValueError("请求内容必须是对象。")
+            return data
+        except (UnicodeError, json.JSONDecodeError):
+            raise ValueError("请求内容不是有效的 JSON。") from None
 
     def _static(self, path: str) -> None:
         relative = path.lstrip("/") or "index.html"
@@ -260,6 +273,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/stickers": {"ok": True, **stickers.status()},
             "/api/companion": {"ok": True, **companion.DEFAULTS, "owner_configured": False,
                                 "plugin_installed": False},
+            "/api/stickers/contributions/auth": {"ok": True, "configured": False, "login": "", "remembered": False},
+            "/api/stickers/contributions/status": {"ok": True, "running": False, "state": "preview", "message": "预览不提交任何图片。", "pr_url": ""},
             "/api/logs/retention": {"ok": True, **log_retention.policy(), "preview": True,
                                     "checked_at": None, "trimmed_files": 0, "cleared_files": 0,
                                     "reclaimed_bytes": 0, "deferred": [], "errors": []},
@@ -341,7 +356,23 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/companion":
                 self._json(200, {"ok": True, **companion.status()})
             elif path == "/api/stickers":
-                self._json(200, {"ok": True, **stickers.status(settings=stickers.load_settings())})
+                self._json(200, {"ok": True, **stickers.status(settings=stickers.load_settings(), custom_items=custom_stickers.list_items())})
+            elif path.startswith("/api/stickers/custom/") and path.endswith("/image"):
+                identifier = path[len("/api/stickers/custom/"):-len("/image")]
+                asset, mime = custom_stickers.asset(identifier)
+                with asset.open("rb") as stream:
+                    content = stream.read(8 * 1024 * 1024 + 1)
+                if len(content) > 8 * 1024 * 1024:
+                    raise ValueError("图片超过大小上限。")
+                self._send(200, content, mime)
+            elif path == "/api/stickers/contributions/auth":
+                self._json(200, {"ok": True, **sticker_contributions.auth_status()})
+            elif path == "/api/stickers/contributions/status":
+                self._json(200, sticker_contributions.job_status())
+            elif path == "/api/dashboard/credentials":
+                self._json(405, {"ok": False, "message": "请在入口旁主动展开登录信息。"})
+            elif path.startswith(("/api/stickers/custom/", "/api/stickers/contributions/")):
+                self._json(405, {"ok": False, "message": "请在素材库中操作。"})
             elif path == "/api/qr":
                 self._send(200, napcat_api.qr_png(refresh=query.get("refresh", ["0"])[0] == "1"), "image/png")
             elif path == "/api/qr/status":
@@ -418,17 +449,61 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path
-        body = self._body()
         if getattr(self.server, "preview", False):
             self._json(403, {"ok": False, "message": "这是界面预览，请在正式应用中设置"})
             return
         try:
+            if path == "/api/dashboard/credentials" or path.startswith(("/api/stickers/custom/", "/api/stickers/contributions/")):
+                expected = f"http://127.0.0.1:{self.server.server_address[1]}"
+                if self.headers.get("Origin") != expected or self.headers.get("Host") != expected.removeprefix("http://"):
+                    self._json(403, {"ok": False, "message": "请在爱屋及鱼窗口中操作。"})
+                    return
             if path.startswith("/api/"):
                 origin = self.headers.get("Origin")
                 expected_origin = f"http://127.0.0.1:{self.server.server_address[1]}"
                 if (origin and origin != expected_origin) or self.headers.get("Sec-Fetch-Site") == "cross-site":
                     self._json(403, {"ok": False, "message": "请从爱屋及鱼应用窗口操作"})
                     return
+            body = self._body()
+            if path == "/api/dashboard/credentials":
+                self._json(200, {"ok": True, **dashboard_credentials.reveal(body.get("target"))})
+                return
+            if path == "/api/stickers/custom/import":
+                self._json(200, {"ok": True, "item": custom_stickers.import_item(body)})
+                return
+            if path in {"/api/stickers/custom/update", "/api/stickers/custom/delete"}:
+                identifier = body.get("id")
+                if path.endswith("/update"):
+                    self._json(200, {"ok": True, "item": custom_stickers.update_item(identifier, body.get("changes"))})
+                else:
+                    self._json(200, custom_stickers.delete_item(identifier))
+                return
+            if path.startswith("/api/stickers/contributions/"):
+                action = path.rsplit("/", 1)[-1]
+                if action == "connect":
+                    self._json(200, sticker_contributions.connect(body))
+                elif action == "disconnect":
+                    self._json(200, sticker_contributions.disconnect())
+                elif action == "preview":
+                    self._json(200, sticker_contributions.preview(str(body.get("item_id") or ""), body.get("attribution")))
+                elif action == "submit":
+                    self._json(200, sticker_contributions.start_submission(body))
+                elif action == "export":
+                    if not isinstance(body.get("fingerprint"), str) or len(body["fingerprint"]) != 64:
+                        raise ValueError("请先预览要导出的投稿内容。")
+                    content, filename = sticker_contributions.export_zip(str(body.get("item_id") or ""), body.get("attribution"), rights_confirmed=body.get("rights_confirmed"), fingerprint=body["fingerprint"])
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/zip")
+                    self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Content-Length", str(len(content)))
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+                    self.end_headers()
+                    self.wfile.write(content)
+                else:
+                    self._json(404, {"ok": False, "message": "投稿接口不存在。"})
+                return
             if path.startswith("/api/updates/"):
                 origin = self.headers.get("Origin")
                 expected_origin = f"http://127.0.0.1:{self.server.server_address[1]}"
@@ -756,6 +831,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {"ok": True})
             else:
                 self._json(404, {"ok": False, "message": "not found"})
+        except _BodyTooLarge as exc:
+            self._json(413, {"ok": False, "message": str(exc)})
+        except ValueError as exc:
+            self._json(400, {"ok": False, "message": str(exc)})
         except Exception as exc:  # noqa: BLE001
             self._json(500, {"ok": False, "message": str(exc)})
 

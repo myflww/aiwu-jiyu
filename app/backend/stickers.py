@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 
 from backend import config_store
@@ -14,7 +15,8 @@ from backend.paths import ASSETS, ASTRBOT
 PLUGIN_ID = "astrbot_plugin_dafeiyu_stickers"
 PACK_DIR = ASSETS / "plugins" / PLUGIN_ID / "pack"
 IDS = ("happy", "sad", "angry", "shy", "sleepy", "love")
-DEFAULT_SETTINGS = {"auto_match_enabled": True, "cooldown_seconds": 30, "pack_selection": "all"}
+DEFAULT_SETTINGS = {"auto_match_enabled": True, "cooldown_seconds": 30, "pack_selection": "all",
+                    "auto_probability": 35, "scenario_policy": "balanced", "custom_enabled": True}
 
 
 def _normalize(value: dict | None) -> dict:
@@ -23,9 +25,16 @@ def _normalize(value: dict | None) -> dict:
     if isinstance(seconds, bool) or not isinstance(seconds, int):
         seconds = 30
     selection = incoming.get("pack_selection", "all")
+    probability = incoming.get("auto_probability", 35)
+    if isinstance(probability, bool) or not isinstance(probability, int):
+        probability = 35
+    policy = incoming.get("scenario_policy", "balanced")
     return {"auto_match_enabled": incoming.get("auto_match_enabled", True) is True,
             "cooldown_seconds": max(10, min(300, seconds)),
-            "pack_selection": selection if isinstance(selection, str) and selection in {"all", "original", "community"} else "all"}
+            "pack_selection": selection if isinstance(selection, str) and selection in {"all", "original", "community", "custom"} else "all",
+            "auto_probability": max(0, min(100, probability)),
+            "scenario_policy": policy if isinstance(policy, str) and policy in {"balanced", "playful", "manual"} else "balanced",
+            "custom_enabled": incoming.get("custom_enabled", True) is True}
 
 
 def load_settings() -> dict:
@@ -71,21 +80,37 @@ def _pack() -> dict:
     rows = []
     for item in data["stickers"]:
         group = item.get("pack_id", "original")
-        relative = item["file"] if group == "community" else "pack/" + item["file"]
+        relative = ("community/submissions/" + item["submission"] + "/" + item["file"] if group == "contributed"
+                    else item["file"] if group == "community" else "pack/" + item["file"])
         url = f"/assets/plugins/{PLUGIN_ID}/{relative}"
         rows.append({key: item[key] for key in ("id", "label", "emotion", "width", "height", "size")}
                     | {"url": url, "path": url, "format": item.get("format", "PNG"), "pack_id": group,
-                       "aliases": item.get("aliases", []), "attribution": packs[group]["attribution"],
+                       "aliases": item.get("aliases", []), "attribution": item.get("attribution") or packs[group]["attribution"],
+                       "description": item.get("description") or item.get("caption", ""),
+                       "use_when": item.get("use_when") or item.get("use", ""), "avoid_when": item.get("avoid_when", ""),
                        "source_url": item.get("source_url") or packs[group].get("source_url", "")})
     return {"pack_name": "大肥鱼表情素材库", "count": len(rows), "plugin_id": PLUGIN_ID,
             "stickers": rows, "packs": data["packs"], "license": "参见各素材包许可与署名",
-            "attribution": "原创素材与社区素材分别保留署名", "version": "1.1.1"}
+            "attribution": "原创素材与社区素材分别保留署名", "version": "1.2.0"}
 
 
-def status(*, settings: dict | None = None) -> dict:
+def status(*, settings: dict | None = None, custom_items: list | None = None) -> dict:
     # Return detached JSON values so callers cannot change the cached inventory.
     # The preview path deliberately does not load an installed profile.
-    return json.loads(json.dumps({**_pack(), "settings": _normalize(settings)}, ensure_ascii=False))
+    result = json.loads(json.dumps({**_pack(), "settings": _normalize(settings)}, ensure_ascii=False))
+    rows = []
+    for item in custom_items or []:
+        if not isinstance(item, dict) or not re.fullmatch(r"custom-[a-f0-9]{24}", str(item.get("id", ""))):
+            continue
+        url = "/api/stickers/custom/" + item["id"] + "/image"
+        row = {key: item.get(key) for key in ("id", "title", "label", "emotion", "tags", "aliases", "description",
+               "use_when", "avoid_when", "attribution", "enabled", "format", "width", "height", "frames", "size")}
+        rows.append({**row, "pack_id": "custom", "url": url, "path": url})
+    result["stickers"].extend(rows)
+    result["count"] += len(rows)
+    result["packs"].append({"id": "custom", "name": "我的表情", "count": len(rows),
+                           "attribution": "本机个人素材", "license": "由用户管理；未默认授予公开再分发许可"})
+    return result
 
 
 def sync_config(config: dict) -> bool:
@@ -112,14 +137,19 @@ def sync_config(config: dict) -> bool:
 def configure(body: dict) -> dict:
     if not isinstance(body, dict) or set(body) - set(DEFAULT_SETTINGS):
         raise ValueError("贴纸设置字段无效")
-    if "auto_match_enabled" in body and not isinstance(body["auto_match_enabled"], bool):
+    if any(key in body and not isinstance(body[key], bool) for key in ("auto_match_enabled", "custom_enabled")):
         raise ValueError("自动匹配开关必须是布尔值")
     if "cooldown_seconds" in body and (isinstance(body["cooldown_seconds"], bool)
             or not isinstance(body["cooldown_seconds"], int) or not 10 <= body["cooldown_seconds"] <= 300):
         raise ValueError("贴纸间隔必须是10到300秒的整数")
     if "pack_selection" in body and (not isinstance(body["pack_selection"], str)
-            or body["pack_selection"] not in {"all", "original", "community"}):
-        raise ValueError("请选择全部、原创或社区图库")
+            or body["pack_selection"] not in {"all", "original", "community", "custom"}):
+        raise ValueError("请选择全部、原创、社区或自定义图库")
+    if "auto_probability" in body and (isinstance(body["auto_probability"], bool)
+            or not isinstance(body["auto_probability"], int) or not 0 <= body["auto_probability"] <= 100):
+        raise ValueError("自动配图概率必须是0至100的整数")
+    if "scenario_policy" in body and (not isinstance(body["scenario_policy"], str) or body["scenario_policy"] not in {"balanced", "playful", "manual"}):
+        raise ValueError("请选择自然陪伴、活泼互动或仅应请求的场景规则")
     config = config_store.load()
     settings = {**_effective_settings(config, _plugin_config()), **body}
     config["stickers"] = settings

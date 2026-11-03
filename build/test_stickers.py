@@ -52,6 +52,7 @@ def load_plugin():
             self.context = context
     modules["astrbot.api.star"].Star = Star
     modules["astrbot.api.star"].Context = object
+    modules["astrbot.api.star"].StarTools = SimpleNamespace(get_data_dir=lambda name: Path(tempfile.gettempdir()) / "aiwu-sticker-isolated-no-user-data" / name)
     modules["astrbot.api.star"].register = identity
     modules["astrbot.core.platform.message_type"].MessageType = MessageType
     package = ModuleType("_aiwu_sticker_test_plugin")
@@ -242,15 +243,15 @@ class PackTests(unittest.TestCase):
                         "pack_selection": "community", "unrelated": "preserve"}
             target.write_text(json.dumps(original), encoding="utf-8")
             with patch.object(stickers, "ASTRBOT", root), patch.object(stickers.config_store, "load", return_value={"stickers": None}):
-                self.assertFalse(stickers.sync_config({"stickers": None}))
+                self.assertTrue(stickers.sync_config({"stickers": None}))  # Populate new fields without overriding saved ones.
                 self.assertFalse(stickers.sync_config({}))
-                self.assertEqual(stickers.load_settings(), {key: original[key] for key in stickers.DEFAULT_SETTINGS})
+                self.assertEqual(stickers.load_settings(), {**stickers.DEFAULT_SETTINGS, **{key: original[key] for key in original if key in stickers.DEFAULT_SETTINGS}})
                 self.assertTrue(stickers.sync_config({"stickers": {"cooldown_seconds": 40}}))
                 saved = json.loads(target.read_text("utf-8"))
-                self.assertEqual(saved, {**original, "cooldown_seconds": 40})
+                self.assertEqual(saved, {**stickers.DEFAULT_SETTINGS, **original, "cooldown_seconds": 40})
                 with patch.object(stickers.config_store, "save") as save:
                     result = stickers.configure({"auto_match_enabled": True})
-                self.assertEqual(result["settings"], {"auto_match_enabled": True, "cooldown_seconds": 40, "pack_selection": "community"})
+                self.assertEqual(result["settings"], {**stickers.DEFAULT_SETTINGS, "auto_match_enabled": True, "cooldown_seconds": 40, "pack_selection": "community"})
                 self.assertFalse(json.loads(target.read_text("utf-8"))["enabled"])
                 self.assertEqual(save.call_args.args[0]["stickers"], result["settings"])
 
@@ -373,7 +374,7 @@ class StickerSendTests(unittest.IsolatedAsyncioTestCase):
 
 
 class AutoStickerTests(unittest.IsolatedAsyncioTestCase):
-    def setUp(self): self.plugin = plugin_module.DafeiyuStickers(None)
+    def setUp(self): self.plugin = plugin_module.DafeiyuStickers(None, {"auto_probability": 100})
 
     async def test_normal_chat_uses_bounded_prompt_then_appends_image_without_extra_send(self):
         event = FakeEvent(message="今天终于完成任务啦")
@@ -399,7 +400,7 @@ class AutoStickerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(event.result.chain[0].text, protected)
         self.assertIs(event.result.chain[1], face)
         self.assertEqual(event.result.chain[2].text, "一起庆祝")
-        self.assertIsInstance(event.result.chain[-1], Image)
+        self.assertFalse(any(isinstance(part, Image) for part in event.result.chain))  # Code/link answers stay text-only.
 
     async def test_maximum_one_image_multiple_markers_cooldown_and_conversation_isolation(self):
         event = FakeEvent(message="好消息")
@@ -594,7 +595,7 @@ class ContextualStickerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(event.sent, [])
 
     async def test_failed_final_send_never_commits_offer_or_shortens_auto_uncertainty(self):
-        self.plugin.config = {"auto_match_enabled": True}
+        self.plugin.config = {"auto_match_enabled": True, "auto_probability": 100}
         failed = FakeEvent(message="开心", failure=True)
         failed.result = Result([Plain("要不要再来一张害羞的表情？[sticker:happy]")])
         with patch.object(self.plugin, "_now", return_value=100):
@@ -650,7 +651,7 @@ class ContextualStickerTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(self.plugin, "_now", return_value=103):
             await self.plugin.send_dafeiyu_sticker(retry, "shy")
         self.assertEqual(len(retry.sent), 1)
-        self.plugin.config = {"auto_match_enabled": True}
+        self.plugin.config = {"auto_match_enabled": True, "auto_probability": 100}
         auto = FakeEvent(message="开心")
         auto.result = Result([Plain("开心[sticker:happy]")])
         with patch.object(self.plugin, "_now", return_value=110):

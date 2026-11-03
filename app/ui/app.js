@@ -72,9 +72,175 @@ function renderDashboardShortcuts() {
     button.disabled = !localConnected || !up || !!state?.preview || button.dataset.busy === "true";
     button.title = state?.preview ? "预览模式不打开本地后台" : !localConnected ? "请先重新连接本机服务" : !up ? `${label} 未启动，请先在首页一键开启` : `在默认浏览器打开本机 ${label} 后台`;
     $("plugins" + suffix + "Dot")?.classList.toggle("asleep", !localConnected || !up);
+    const reveal = $("plugins" + suffix + "CredentialsToggle");
+    if (reveal) {
+      reveal.disabled = !localConnected || !!state?.preview || state?.installed === false;
+      reveal.title = state?.preview ? "预览模式不读取登录凭据" : !localConnected ? "请先重新连接本机服务" : "按需查看本机保存的登录信息";
+      if (reveal.disabled) clearDashboardCredentials(key);
+    }
   });
   const a = !!state?.status?.astrbot?.up, n = !!state?.status?.napcat?.up;
   setText("pluginsDashboardHint", !localConnected ? "请先重新连接本机服务，再打开后台。" : state?.preview ? "后台入口预览；正式运行时在默认浏览器打开。" : a && n ? "在默认浏览器打开，仅连接这台电脑的服务。" : !a && !n ? "服务未启动，请先在首页一键开启。" : `${a ? "NapCat" : "AstrBot"} 未启动，请先在首页一键开启。`);
+}
+
+const dashboardCredentialViews = new Map();
+const DASHBOARD_CREDENTIAL_SUFFIXES = { astrbot: "Astrbot", napcat: "Napcat" };
+
+function dashboardCredentialElements(target) {
+  const suffix = DASHBOARD_CREDENTIAL_SUFFIXES[target];
+  return suffix ? { button: $("plugins" + suffix + "CredentialsToggle"), panel: $("plugins" + suffix + "Credentials") } : {};
+}
+
+function clearDashboardCredentials(target = null) {
+  const targets = target ? [target] : Object.keys(DASHBOARD_CREDENTIAL_SUFFIXES);
+  targets.forEach(key => {
+    const view = dashboardCredentialViews.get(key);
+    if (view) { view.generation += 1; view.controller?.abort(); view.controller = null; }
+    const { button, panel } = dashboardCredentialElements(key);
+    if (panel) {
+      panel.querySelectorAll("input,textarea").forEach(control => { control.value = ""; control.defaultValue = ""; });
+      panel.querySelectorAll("button").forEach(control => { control.onclick = null; });
+      panel.replaceChildren();
+      panel.classList.add("hidden");
+    }
+    if (button) { button.setAttribute("aria-expanded", "false"); button.removeAttribute("aria-busy"); button.textContent = "登录信息"; }
+  });
+}
+
+function dashboardCredentialControl(identifier, value, hidden) {
+  const control = document.createElement(hidden ? "input" : "textarea");
+  if (hidden) control.type = "password";
+  else control.rows = 2;
+  control.id = identifier;
+  control.className = "dashboard-credential-value";
+  control.readOnly = true;
+  control.autocomplete = "off";
+  control.spellcheck = false;
+  control.setAttribute("autocapitalize", "off");
+  control.value = value;
+  return control;
+}
+
+async function copyDashboardCredential(row) {
+  const control = row.querySelector(".dashboard-credential-value");
+  if (!control?.value || row.closest(".dashboard-credentials")?.classList.contains("hidden")) return;
+  let copied = false;
+  if (navigator.clipboard?.writeText) {
+    try { await navigator.clipboard.writeText(control.value); copied = true; } catch (_) { /* Local WebView fallback below. */ }
+  }
+  if (!copied && control.value && row.isConnected && !document.hidden) {
+    const buffer = document.createElement("textarea");
+    buffer.className = "dashboard-copy-buffer";
+    buffer.setAttribute("aria-hidden", "true");
+    buffer.value = control.value;
+    document.body.appendChild(buffer);
+    try { buffer.select(); copied = document.execCommand("copy"); } catch (_) { copied = false; }
+    finally { buffer.value = ""; buffer.remove(); }
+  }
+  toast(copied ? "已复制登录信息" : "复制未完成，请显示后手动选择复制。");
+}
+
+function renderDashboardCredentials(target, data) {
+  const { panel } = dashboardCredentialElements(target);
+  if (!panel || panel.classList.contains("hidden")) return;
+  panel.replaceChildren();
+  const heading = document.createElement("strong");
+  heading.textContent = target === "astrbot" ? "AstrBot 登录信息" : "NapCat 登录信息";
+  panel.appendChild(heading);
+  const allowed = target === "astrbot" ? ["username", "password"] : ["token"];
+  (Array.isArray(data.fields) ? data.fields : []).slice(0, 3).forEach(field => {
+    if (!allowed.includes(field.id) || typeof field.value !== "string" || !field.value || field.value.length > 4096) return;
+    const row = document.createElement("div");
+    row.className = "dashboard-credential-field";
+    const identifier = `dashboard-${target}-${field.id}`;
+    const label = document.createElement("label");
+    label.htmlFor = identifier;
+    label.textContent = typeof field.label === "string" ? field.label.slice(0, 120) : field.id;
+    row.appendChild(label);
+    const sensitive = field.id !== "username";
+    const control = dashboardCredentialControl(identifier, field.value, true);
+    if (!sensitive) control.type = "text";
+    row.appendChild(control);
+    const actions = document.createElement("div");
+    actions.className = "dashboard-credential-actions";
+    if (sensitive) {
+      const visibility = document.createElement("button");
+      visibility.type = "button";
+      visibility.className = "text-button";
+      visibility.textContent = "显示";
+      visibility.setAttribute("aria-pressed", "false");
+      visibility.setAttribute("aria-controls", identifier);
+      visibility.onclick = () => {
+        const previous = row.querySelector(".dashboard-credential-value");
+        const show = previous.tagName === "INPUT";
+        const replacement = dashboardCredentialControl(identifier, previous.value, !show);
+        previous.value = "";
+        previous.replaceWith(replacement);
+        visibility.textContent = show ? "隐藏" : "显示";
+        visibility.setAttribute("aria-pressed", String(show));
+      };
+      actions.appendChild(visibility);
+    }
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "text-button";
+    copy.textContent = "复制";
+    copy.onclick = () => copyDashboardCredential(row);
+    actions.appendChild(copy);
+    row.appendChild(actions);
+    panel.appendChild(row);
+  });
+  (Array.isArray(data.warnings) ? data.warnings : []).slice(0, 5).forEach(message => {
+    if (typeof message !== "string") return;
+    const note = document.createElement("p");
+    note.className = "dashboard-credential-note";
+    note.textContent = message.slice(0, 600);
+    panel.appendChild(note);
+  });
+}
+
+async function toggleDashboardCredentials(target) {
+  const { button, panel } = dashboardCredentialElements(target);
+  if (!button || !panel) return;
+  if (button.getAttribute("aria-expanded") === "true") { clearDashboardCredentials(target); return; }
+  if (!localConnected || state?.preview || state?.installed === false || document.hidden) return;
+  const view = dashboardCredentialViews.get(target) || { generation: 0, controller: null };
+  dashboardCredentialViews.set(target, view);
+  const generation = ++view.generation;
+  const controller = new AbortController();
+  view.controller = controller;
+  button.setAttribute("aria-expanded", "true");
+  button.setAttribute("aria-busy", "true");
+  button.textContent = "收起信息";
+  panel.classList.remove("hidden");
+  const loading = document.createElement("p");
+  loading.setAttribute("role", "status");
+  loading.textContent = "正在读取本机登录信息…";
+  panel.replaceChildren(loading);
+  let data = null;
+  try {
+    data = await api("/api/dashboard/credentials", { method: "POST", cache: "no-store", credentials: "same-origin",
+      body: JSON.stringify({ target }), signal: controller.signal });
+    if (controller.signal.aborted || view.generation !== generation || document.hidden || $("view-plugins")?.classList.contains("hidden")) return;
+    renderDashboardCredentials(target, data);
+  } catch (_) {
+    if (!controller.signal.aborted && view.generation === generation) {
+      loading.textContent = "暂时没能读取登录信息，请收起后重试。";
+      panel.replaceChildren(loading);
+    }
+  } finally {
+    if (Array.isArray(data?.fields)) data.fields.forEach(field => { if (field && typeof field === "object") field.value = ""; });
+    data = null;
+    if (view.generation === generation) { view.controller = null; button.removeAttribute("aria-busy"); }
+  }
+}
+
+function bindDashboardCredentialEvents() {
+  Object.keys(DASHBOARD_CREDENTIAL_SUFFIXES).forEach(target => {
+    dashboardCredentialElements(target).button?.addEventListener("click", () => toggleDashboardCredentials(target));
+  });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) clearDashboardCredentials(); });
+  window.addEventListener("pagehide", () => clearDashboardCredentials());
 }
 
 async function openLocalDashboard(name, button) {
@@ -417,6 +583,7 @@ function renderPills() {
 }
 
 function showView(name) {
+  clearDashboardCredentials();
   $$(".nav-item").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.view === name);
     if (btn.dataset.view === name) btn.setAttribute("aria-current", "page");
@@ -448,6 +615,7 @@ function showApp() {
 }
 
 function showWizard(step) {
+  clearDashboardCredentials();
   $("app").classList.add("hidden");
   $("wizard").classList.remove("hidden");
   wizardMaxStep = Math.max(wizardMaxStep, step);
@@ -1419,12 +1587,95 @@ function companionRuntimeTime(value) {
 function renderCompanionRuntime(data) {
   const runtime = data?.runtime || {};
   setText("companionRuntimeMessage", runtime.message || "尚未取得运行状态，请刷新查看。");
-  setText("companionNextTrigger", companionRuntimeTime(runtime.next_trigger_at));
-  setText("companionLastSuccess", companionRuntimeTime(runtime.last_success_at));
-  setText("companionDailyCount", `${Number(runtime.daily_count) || 0} / ${Number(runtime.daily_limit || data?.daily_limit) || 3}`);
-  const outcomes = {sent:"已提交 QQ 发送",declined:"这次选择暂不打扰",cancelled:"条件变化，已取消",generation_failed:"生成未成功，保留本次名额",delivery_uncertain:"送达未确认，暂不重复发送",storage_error:"本机状态保存失败，未执行"};
+  const zone = runtime.timezone || data?.timezone || "local";
+  const time = value => companionTimeInZone(value, zone);
+  setText("companionNextTrigger", time(runtime.next_trigger_at));
+  setText("companionChanceWindow", runtime.next_window_start && runtime.next_window_end
+    ? runtime.next_window_start === runtime.next_window_end ? time(runtime.next_window_start)
+      : `${time(runtime.next_window_start)} — ${time(runtime.next_window_end)}` : "—");
+  setText("companionScheduleState", `${(runtime.schedule_mode || data?.schedule_mode) === "random" ? "随机机会" : "固定机会"} · ${zone === "Asia/Shanghai" ? "北京时间" : zone === "UTC" ? "UTC" : "本机时区"}`);
+  setText("companionLastSuccess", time(runtime.last_success_at));
+  setText("companionDailyCount", `${Number(runtime.daily_count) || 0} / ${Number(runtime.daily_limit ?? data?.daily_limit ?? 4)}`);
+  const probability = Number(runtime.effective_probability ?? data?.trigger_probability ?? 100);
+  setText("companionEffectiveProbability", `${Number.isFinite(probability) ? probability : 0}%`);
+  setText("companionUnanswered", `${Number(runtime.unanswered_count) || 0} 次${runtime.paused_until_reply ? " · 等待主人回应后恢复" : ""}`);
+  const outcomes = {eligible:"机会已命中，尚未确认发送",probability_skipped:"概率落空，未调用模型",sent:"已提交 QQ 适配器",declined:"这次选择暂不打扰",cancelled:"条件变化，已取消",generation_failed:"生成未成功，保留本次名额",delivery_uncertain:"送达未确认，暂不重复发送",storage_error:"本机状态保存失败，未执行"};
   setText("companionLastResult", outcomes[runtime.last_result] || "尚未尝试");
-  setText("companionSessionState", runtime.session_known ? "已连接主人私聊" : "等待主人在 QQ 发一条消息");
+  setText("companionLastOpportunity", runtime.last_opportunity_at ? `${time(runtime.last_opportunity_at)} · ${outcomes[runtime.last_opportunity_result] || "已记录机会"}` : "尚无机会记录");
+  setText("companionTriggerSource", runtime.last_trigger_source === "background_idle" ? "本机后台自主机会" : "尚无记录");
+  setText("companionInitiatedCount", `${Number(runtime.initiated_count) || 0} 次（适配器接受）`);
+  const receipts = {adapter_accepted:"适配器已接受，不代表主人已读",delivery_uncertain:"送达未确认，已保留名额避免重发",not_sent:"本次尚未发送"};
+  setText("companionLastReceipt", receipts[runtime.last_receipt] || "尚无发送回执");
+  setText("companionSessionState", runtime.session_known ? "已确认主人私聊" : "等待主人在 QQ 发一条消息");
+}
+
+function companionTimeInZone(value, zone) {
+  if (!Number.isFinite(value) || value <= 0) return "—";
+  try {
+    return new Date(value * 1000).toLocaleString("zh-CN", {month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit",
+      ...(zone === "Asia/Shanghai" || zone === "UTC" ? {timeZone:zone} : {})});
+  } catch (_) { return companionRuntimeTime(value); }
+}
+
+function updateCompanionScheduleFields() {
+  const random = $("companion-mode").value === "random";
+  $("companion-fixed-fields").classList.toggle("hidden", random);
+  $("companion-random-fields").classList.toggle("hidden", !random);
+  $("companion-interval").disabled = random;
+  $("companion-min-interval").disabled = !random;
+  $("companion-max-interval").disabled = !random;
+}
+
+function companionFormInteger(id, low, high, label, fallback) {
+  const input = $(id), raw = input.value.trim(), value = raw ? Number(raw) : NaN;
+  if (!Number.isInteger(value) || value < low || value > high) {
+    if (fallback !== undefined) return fallback;
+    input.focus();
+    throw new Error(`${label}请填写 ${low}–${high} 的整数。`);
+  }
+  return value;
+}
+
+function readCompanionPreferences(data) {
+  const mode = $("companion-mode").value;
+  if (!["fixed", "random"].includes(mode)) throw new Error("请选择固定或随机机会模式。");
+  const zone = $("companion-timezone").value;
+  if (!["local", "Asia/Shanghai", "UTC"].includes(zone)) throw new Error("请选择有效的时区。");
+  let min = companionFormInteger("companion-min-interval", 5, 1440, "随机最短间隔", mode === "fixed" ? data.min_interval_minutes ?? 60 : undefined);
+  let max = companionFormInteger("companion-max-interval", 5, 2880, "随机最长间隔", mode === "fixed" ? data.max_interval_minutes ?? 180 : undefined);
+  if (max < min) {
+    if (mode === "random") { $("companion-max-interval").focus(); throw new Error("随机最长间隔不能小于最短间隔。"); }
+    min = data.min_interval_minutes ?? 60; max = data.max_interval_minutes ?? 180;
+  }
+  return {
+    whale_style_enabled: $("companion-whale_style_enabled").checked,
+    proactive_enabled: $("companion-proactive_enabled").checked,
+    natural_bubbles_enabled: $("companion-natural_bubbles_enabled").checked,
+    natural_bubbles_frequency: $("companion-bubbles-frequency").value,
+    emotion_enabled: $("companion-emotion_enabled").checked,
+    activity_enabled: $("companion-activity_enabled").checked,
+    schedule_mode: mode, min_interval_minutes: min, max_interval_minutes: max, timezone: zone,
+    interval_minutes: companionFormInteger("companion-interval", 5, 1440, "固定间隔", mode === "random" ? data.interval_minutes ?? 120 : undefined),
+    daily_limit: companionFormInteger("companion-limit", 0, 20, "每日生成预算"),
+    quiet_start: companionFormInteger("companion-quiet-start", 0, 23, "免打扰开始小时"),
+    quiet_end: companionFormInteger("companion-quiet-end", 0, 23, "免打扰结束小时"),
+    idle_minutes: companionFormInteger("companion-idle", 0, 1440, "私聊安静时间"),
+    trigger_probability: companionFormInteger("companion-probability", 0, 100, "基础触发概率"),
+    unanswered_decay_percent: companionFormInteger("companion-decay", 0, 100, "未回应概率降低比例"),
+    max_unanswered: companionFormInteger("companion-unanswered", 0, 20, "未回应暂停次数"),
+    session_expiry_days: companionFormInteger("companion-expiry", 0, 365, "私聊有效天数"),
+  };
+}
+
+function fillCompanionReference(data) {
+  const preset = data?.presets?.dsh_reference;
+  if (!preset || typeof preset !== "object") { toast("尚未读到参考值，请关闭后重试。"); return; }
+  const fields = {schedule_mode:"companion-mode",min_interval_minutes:"companion-min-interval",
+    max_interval_minutes:"companion-max-interval",idle_minutes:"companion-idle",daily_limit:"companion-limit",
+    quiet_start:"companion-quiet-start",quiet_end:"companion-quiet-end",timezone:"companion-timezone"};
+  Object.entries(fields).forEach(([key, id]) => { if (preset[key] !== undefined) $(id).value = String(preset[key]); });
+  updateCompanionScheduleFields();
+  setText("companionPresetNote", "已填入 Aurabot 参考值，尚未保存。能力开关、基础概率和未回应减扰保持你的选择。");
 }
 
 async function openCompanionModal() {
@@ -1432,46 +1683,55 @@ async function openCompanionModal() {
     const data = await api("/api/companion");
     const active = pluginList.find(item => item.id === "astrbot_plugin_dafeiyu_companion")?.enabled;
     const choice = (key, title, description) => `<label class="perm-row"><input type="checkbox" id="companion-${key}" ${data[key] ? "checked" : ""}><div><b>${title}</b><span class="small">${description}</span></div></label>`;
-    openModal("大肥鱼的陪伴方式", `
+    openModal("大肥鱼的陪伴方式", `<div class="companion-settings-sheet">
       ${active ? "" : '<div class="notice blue">插件尚未启用。可以先保存偏好，再回到列表开启“主动陪伴与情绪”。</div>'}
       <section class="companion-runtime-panel" aria-label="主动聊天运行状态">
         <div class="row between"><h4>主动聊天状态</h4><button class="text-button" type="button" id="companionRefreshRuntime">刷新状态</button></div>
         <p id="companionRuntimeMessage" role="status"></p>
-        <dl><dt>聊天连接</dt><dd id="companionSessionState"></dd><dt>下一次机会</dt><dd id="companionNextTrigger"></dd><dt>上次主动联系</dt><dd id="companionLastSuccess"></dd><dt>最近一次结果</dt><dd id="companionLastResult"></dd><dt>今日主动尝试</dt><dd id="companionDailyCount"></dd></dl>
+        <dl><dt>聊天连接</dt><dd id="companionSessionState"></dd><dt>机会安排</dt><dd id="companionScheduleState"></dd><dt>下一次机会预估</dt><dd id="companionNextTrigger"></dd><dt>机会区间</dt><dd id="companionChanceWindow"></dd><dt>当前有效概率</dt><dd id="companionEffectiveProbability"></dd><dt>连续未回应</dt><dd id="companionUnanswered"></dd><dt>今日生成预算</dt><dd id="companionDailyCount"></dd></dl>
+        <details class="companion-runtime-details"><summary>查看自主机会与发送记录</summary><dl><dt>最近机会</dt><dd id="companionLastOpportunity"></dd><dt>触发来源</dt><dd id="companionTriggerSource"></dd><dt>最近一次结果</dt><dd id="companionLastResult"></dd><dt>上次适配器接受</dt><dd id="companionLastSuccess"></dd><dt>累计主动发起</dt><dd id="companionInitiatedCount"></dd><dt>最近发送回执</dt><dd id="companionLastReceipt"></dd></dl></details>
       </section>
       <div class="stack companion-options">
         ${choice("whale_style_enabled", "鲸鱼娘口吻增强", "傲娇嘴硬但温柔，用自然中文接话；保留当前人格和实际工具能力，不套模板结尾。")}
-        ${choice("proactive_enabled", "让她主动来找你", "她会自己寻找话题，无需另设定时任务。保存后先在 QQ 与她聊一句，再按间隔主动联系主人。")}
+        ${choice("proactive_enabled", "让她主动来找你", "她会自己寻找话题，无需另设定时任务。保存后先在 QQ 聊一句；机会到来仍须通过概率、未回应和预算判断。")}
         ${choice("natural_bubbles_enabled", "像聊天一样分几条说", "合适的长回复会拆成 2–4 条，短句、代码、链接和工具结果保持完整；你发新消息时停止旧回复的后续分段。")}
         ${choice("emotion_enabled", "情绪陪伴", "结合你们的聊天节奏与文字调整表达；这是本地模拟的情绪状态。")}
         ${choice("activity_enabled", "感知电脑活动概况", "读取前台应用名称与离开/回来状态，提供给当前聊天模型；不记录键盘内容、不持续截屏。")}
       </div>
       <div class="companion-form-grid">
         <label class="field"><span>分段发送频率</span><select id="companion-bubbles-frequency"><option value="occasional">偶尔 · 自然聊天节奏</option><option value="often">经常 · 更偏短消息</option></select></label>
-        <label class="field"><span>主动聊天最短间隔（分钟）</span><input type="number" id="companion-interval" min="30" max="1440" value="${esc(data.interval_minutes || 120)}"></label>
-        <label class="field"><span>每天最多主动联系</span><input type="number" id="companion-limit" min="1" max="10" value="${esc(data.daily_limit || 3)}"></label>
+      </div>
+      <div class="companion-schedule-head"><h4>主动机会安排</h4><button class="soft" type="button" id="companionReferencePreset">填入 Aurabot 参考值</button></div>
+      <p class="companion-reference-note" id="companionPresetNote">参考 <a href="https://github.com/aureth-labs/dsh-aurabot-qq/blob/b3301f6b014016e141c07d266a716c0fea566aab/src/core/config.js" target="_blank" rel="noopener noreferrer">Aurabot 的公开配置 ↗</a>，不是实验验证的最佳频率。填入后需点击“保存设置”才生效。</p>
+      <div class="companion-form-grid">
+        <label class="field companion-wide"><span>安排方式</span><select id="companion-mode"><option value="fixed">固定机会间隔</option><option value="random">随机机会区间</option></select></label>
+        <div class="companion-wide" id="companion-fixed-fields"><label class="field"><span>固定机会间隔（分钟）</span><input type="number" id="companion-interval" min="5" max="1440" step="1" value="${esc(data.interval_minutes ?? 120)}"></label></div>
+        <div class="companion-wide companion-random-fields" id="companion-random-fields"><label class="field"><span>最短机会间隔（分钟）</span><input type="number" id="companion-min-interval" min="5" max="1440" step="1" value="${esc(data.min_interval_minutes ?? 60)}"></label><label class="field"><span>最长机会间隔（分钟）</span><input type="number" id="companion-max-interval" min="5" max="2880" step="1" value="${esc(data.max_interval_minutes ?? 180)}"></label></div>
+        <label class="field companion-wide"><span>每天主动生成预算（0–20 次）</span><input type="number" id="companion-limit" min="0" max="20" step="1" value="${esc(data.daily_limit ?? 4)}"><small>0 不调用模型；生成失败或选择沉默也占名额，概率落空不占用。</small></label>
         <label class="field"><span>免打扰开始（0–23 时）</span><input type="number" id="companion-quiet-start" min="0" max="23" value="${esc(data.quiet_start ?? 23)}"></label>
         <label class="field"><span>免打扰结束（0–23 时）</span><input type="number" id="companion-quiet-end" min="0" max="23" value="${esc(data.quiet_end ?? 8)}"></label>
+        <label class="field companion-wide"><span>免打扰与每日预算时区</span><select id="companion-timezone"><option value="local">跟随这台电脑</option><option value="Asia/Shanghai">北京时间 · UTC+8</option><option value="UTC">世界时 · UTC</option></select></label>
       </div>
+      <details class="companion-advanced"><summary>高级调度 · 概率与未回应减扰</summary><div class="companion-form-grid">
+        <label class="field"><span>私聊至少安静（分钟）</span><input type="number" id="companion-idle" min="0" max="1440" step="1" value="${esc(data.idle_minutes ?? 40)}"><small>与机会间隔同时满足，0不额外限制。</small></label>
+        <label class="field"><span>机会基础概率（%）</span><input type="number" id="companion-probability" min="0" max="100" step="1" value="${esc(data.trigger_probability ?? 100)}"><small>0 不调用模型；未命中会等下一次机会。</small></label>
+        <label class="field"><span>每次未回应后概率降低（%）</span><input type="number" id="companion-decay" min="0" max="100" step="1" value="${esc(data.unanswered_decay_percent ?? 50)}"><small>0 不衰减；50表示每次再乘一半。</small></label>
+        <label class="field"><span>连续未回应后暂停（次）</span><input type="number" id="companion-unanswered" min="0" max="20" step="1" value="${esc(data.max_unanswered ?? 4)}"><small>0 不限制；主人聊一句即可恢复。</small></label>
+        <label class="field companion-wide"><span>无主人私聊后暂停（天）</span><input type="number" id="companion-expiry" min="0" max="365" step="1" value="${esc(data.session_expiry_days ?? 7)}"><small>0 不限制。不会通过群聊或陌生人重建联系目标。</small></label>
+      </div><p class="companion-reference-note">未回复暂停参考 <a href="https://github.com/Pancakes-Labs/astrbot_plugin_proactive_chat/blob/95f459ef33208aa2c123c733ba1b5d2188dd0977/core/features/gating_feature.py" target="_blank" rel="noopener noreferrer">AstrBot 主动消息 ↗</a>；概率随互动调整参考 <a href="https://github.com/Him666233/astrbot_plugin_group_chat_plus/blob/aa97e0e35a18733e73db753238dd2a3021446e42/utils/proactive_chat_manager.py" target="_blank" rel="noopener noreferrer">chat_plus ↗</a>。百分比衰减是本适配的独立选项，不是 Aurabot 的既有规则或科学结论。</p></details>
       <p class="hint">${esc(data.proactive_summary || "主动聊天使用当前模型，可能产生 API 用量。先与她私聊一次，再等待主动问候。")}</p>
       <div class="hint">屏幕截图与鼠标键盘操作在“电脑操作 → 操作权限”单独授权。保存后，已启用的陪伴插件会重新加载。</div>
-    `, async () => {
-      const body = {
-        whale_style_enabled: $("companion-whale_style_enabled").checked,
-        proactive_enabled: $("companion-proactive_enabled").checked,
-        natural_bubbles_enabled: $("companion-natural_bubbles_enabled").checked,
-        natural_bubbles_frequency: $("companion-bubbles-frequency").value,
-        emotion_enabled: $("companion-emotion_enabled").checked,
-        activity_enabled: $("companion-activity_enabled").checked,
-        interval_minutes: Number($("companion-interval").value),
-        daily_limit: Number($("companion-limit").value),
-        quiet_start: Number($("companion-quiet-start").value),
-        quiet_end: Number($("companion-quiet-end").value),
-      };
+    </div>`, async () => {
+      const body = readCompanionPreferences(data);
       await api("/api/companion", {method:"POST",body:JSON.stringify(body)});
       await loadPlugins();
       toast(active ? "陪伴偏好已保存" : "偏好已保存，启用插件后生效");
     });
+    $("companion-mode").value = data.schedule_mode === "random" ? "random" : "fixed";
+    $("companion-timezone").value = ["local", "Asia/Shanghai", "UTC"].includes(data.timezone) ? data.timezone : "local";
+    $("companion-mode").addEventListener("change", updateCompanionScheduleFields);
+    $("companionReferencePreset").addEventListener("click", () => fillCompanionReference(data));
+    updateCompanionScheduleFields();
     $("companion-bubbles-frequency").value = data.natural_bubbles_frequency === "often" ? "often" : "occasional";
     const updateBubbleFrequency = () => { $("companion-bubbles-frequency").disabled = !$("companion-natural_bubbles_enabled").checked; };
     $("companion-natural_bubbles_enabled").addEventListener("change", updateBubbleFrequency);
@@ -1484,35 +1744,201 @@ async function openCompanionModal() {
   } catch (err) { toast(err.message || String(err)); }
 }
 
+let stickerTransientURL = null;
+let stickerContributionTimer = null;
+let stickerLibraryGeneration = 0;
+
+function clearStickerTransient() {
+  stickerLibraryGeneration += 1;
+  if (stickerTransientURL) URL.revokeObjectURL(stickerTransientURL);
+  stickerTransientURL = null;
+  if (stickerContributionTimer) clearInterval(stickerContributionTimer);
+  stickerContributionTimer = null;
+  if ($("stickerGithubToken")) $("stickerGithubToken").value = "";
+}
+
 async function openStickerLibrary() {
+  const openingGeneration = ++stickerLibraryGeneration;
   try {
     const data = await api("/api/stickers");
-    const items = data.stickers || [];
-    const prefs = data.settings || {auto_match_enabled:true,cooldown_seconds:30,pack_selection:"all"};
+    if (openingGeneration !== stickerLibraryGeneration) return;
+    const prefs = data.settings || {};
     const active = pluginList.find(item => item.id === "astrbot_plugin_dafeiyu_stickers")?.enabled;
-    const credits = (data.packs || []).map(pack => {
+    const bundled = (data.stickers || []).filter(item => item.pack_id !== "custom");
+    let personal = (data.stickers || []).filter(item => item.pack_id === "custom");
+    let editing = null, selectedFile = null, selectedShare = null, sharePreview = null;
+    let shareGeneration = 0, editorGeneration = 0;
+    let github = {configured:false,login:""}, contributionRunning = false, contributionPollGeneration = 0;
+    const emotions = {happy:"开心",sad:"委屈",angry:"生气",shy:"害羞",sleepy:"晚安",love:"喜欢",confused:"疑惑",daily:"日常"};
+    const creditHTML = (data.packs || []).map(pack => {
       const author = pack.attribution;
-      const lines = typeof author === "string" ? [author] : [author?.author, author?.website, author?.bilibili,
-        ...(author?.designers || []).map(item => `${item.name} · ${item.url}`)];
-      return `<p><b>${esc(pack.name)}</b><br>${lines.filter(Boolean).map(esc).join("<br>")}<br>${esc(pack.source_url || "")}<br>${esc(typeof pack.license === "string" ? pack.license : "详见随附 LICENSE-ASSETS 与署名文件")}</p>`;
+      const lines = typeof author === "string" ? [author] : [author?.author,author?.website,author?.bilibili,...(author?.designers || []).map(item=>`${item.name} · ${item.url}`)];
+      return `<p><b>${esc(pack.name)}</b><br>${lines.filter(Boolean).map(esc).join("<br>")}<br>${esc(pack.source_url || "")}<br>${esc(typeof pack.license === "string" ? pack.license : "详见随附许可与署名文件")}</p>`;
     }).join("");
     openModal("表情匹配与素材库", `
-      ${active ? "" : '<div class="notice blue">素材已经随应用附带，启用“大肥鱼表情包”后会在 QQ 生效。</div>'}
-      <label class="perm-row" style="margin:14px 0"><input type="checkbox" id="sticker-auto" ${prefs.auto_match_enabled ? "checked" : ""}><div><b>按聊天情绪自动配图</b><span class="small">根据回复语气选择合适表情，每条回复最多一张；不强制每句话都配图。</span></div></label>
-      <div class="companion-form-grid"><label class="field"><span>自动配图间隔（秒）</span><input type="number" id="sticker-cooldown" min="10" max="300" value="${esc(prefs.cooldown_seconds)}"></label><label class="field"><span>使用素材</span><select id="sticker-pack"><option value="all">全部随附素材</option><option value="original">爱屋及鱼原创</option><option value="community">社区授权素材</option></select></label></div>
-      <p class="hint">共 ${items.length} 张随附素材。可直接说“发个害羞的表情包”，也能接住她提议后的“可以呀”。明确点图使用单独的短间隔保护，无需等待自动配图冷却。</p>
-      <div class="sticker-library-grid" tabindex="0" aria-label="表情素材列表，可滚动浏览">${items.map(item => `<figure><img src="${esc(item.url || item.path)}" alt="${esc(item.label || item.id)}" loading="lazy"><figcaption>${esc(item.label || item.id)}<small>${item.pack_id === "community" ? "社区授权动图" : "原创贴纸"}</small></figcaption></figure>`).join("")}</div>
-      <details class="hint sticker-credits"><summary>素材来源与许可</summary>${credits}</details>`, async () => {
-        await api("/api/stickers/settings", {method:"POST",body:JSON.stringify({
-          auto_match_enabled:$("sticker-auto").checked,
-          cooldown_seconds:Number($("sticker-cooldown").value),
-          pack_selection:$("sticker-pack").value,
-        })});
-        await loadPlugins();
-        toast(active ? "表情匹配偏好已保存" : "偏好已保存，启用插件后生效");
+      ${active ? "" : '<div class="notice blue">素材已随应用附带，启用“大肥鱼表情包”后会在 QQ 生效。</div>'}
+      <label class="perm-row"><input type="checkbox" id="sticker-auto" ${prefs.auto_match_enabled !== false ? "checked" : ""}><div><b>按聊天气氛自动配图</b><span class="small">模型可以选择不发图；严肃求助、低落倾诉和技术任务优先好好说话，明确点图不受自动概率影响。</span></div></label>
+      <div class="companion-form-grid"><label class="field"><span>使用素材</span><select id="sticker-pack"><option value="all">全部可用素材</option><option value="original">爱屋及鱼原创</option><option value="community">社区授权与已收录投稿</option><option value="custom">只用我的表情包</option></select></label><label class="field"><span>自动配图间隔（秒）</span><input type="number" id="sticker-cooldown" min="10" max="300" value="${esc(prefs.cooldown_seconds ?? 30)}"></label></div>
+      <details class="sticker-advanced"><summary>高级设置 · 什么时候发图</summary><div class="companion-form-grid"><label class="field"><span>每轮自动配图机会（%）</span><input type="number" id="sticker-probability" min="0" max="100" value="${esc(prefs.auto_probability ?? 35)}"></label><label class="field"><span>聊天场景策略</span><select id="sticker-scenario"><option value="balanced">适度陪伴 · 优先匹配语境</option><option value="playful">轻松活泼 · 仍避开严肃场景</option><option value="manual">只在明确点图时发送</option></select></label></div><label class="perm-row"><input type="checkbox" id="sticker-custom-enabled" ${prefs.custom_enabled !== false ? "checked" : ""}><div><b>允许选用我的表情包</b><span class="small">还会检查每张素材自己的启用状态、适用和避用场景。100% 也不强制每轮发图。</span></div></label></details>
+      <p class="hint">随附 ${bundled.length} 张素材。你可以自然地说想看哪种表情，也能接着她刚提出的邀请说“可以呀”。</p>
+      <div class="sticker-library-grid" tabindex="0" aria-label="随附表情素材列表，可滚动浏览">${bundled.map(item=>`<figure><img src="${esc(item.url || item.path)}" alt="${esc(item.label || item.id)}" loading="lazy"><figcaption>${esc(item.label || item.id)}<small>${item.pack_id === "original" ? "原创贴纸" : item.pack_id === "contributed" ? "已收录用户投稿" : "社区授权动图"}</small>${item.pack_id === "contributed" ? `<small>作者：${esc(typeof item.attribution === "string" ? item.attribution : "见素材许可")}</small>` : ""}</figcaption></figure>`).join("")}</div>
+      <details class="sticker-advanced" id="stickerPersonalDetails"><summary>高级设置 · 我的表情包与社区投稿</summary>
+        <p class="hint">导入、编辑和停用会立即保存到这台电脑；自动配图选项需点底部保存。支持 PNG、JPEG、WebP、GIF，每张不超过 8 MiB。图片的使用场景写得越清楚，她越容易选对。</p>
+        <div class="row between wrap"><b id="stickerPersonalCount"></b><button class="soft" type="button" id="stickerAddCustom">导入自己的表情包</button></div>
+        <p class="hint" id="stickerGlobalContributionStatus" role="status"></p><div class="custom-sticker-grid" id="stickerPersonalList"></div>
+        <section class="sticker-edit-panel hidden" id="stickerEditor" aria-label="编辑个人表情包">
+          <h4 id="stickerEditorTitle">导入表情包</h4><label class="field"><span>本地图片</span><input type="file" id="stickerCustomFile" accept="image/png,image/jpeg,image/webp,image/gif"></label>
+          <img class="custom-sticker-preview hidden" id="stickerCustomPreview" alt="待导入的个人表情包">
+          <div class="companion-form-grid"><label class="field"><span>表情名称</span><input id="stickerCustomTitle" type="text" maxlength="60" placeholder="例如 今天也很元气"></label><label class="field"><span>主要心情</span><select id="stickerCustomEmotion">${Object.entries(emotions).map(([value,label])=>`<option value="${value}">${label}</option>`).join("")}</select></label></div>
+          <label class="field"><span>关键词（用逗号分隔，最多 12 个）</span><input id="stickerCustomTags" type="text" placeholder="例如 夸奖、开心、好耶"></label>
+          <label class="field"><span>画面说明</span><input id="stickerCustomDescription" type="text" maxlength="240" placeholder="描述图片表达的意思"></label>
+          <div class="companion-form-grid"><label class="field"><span>适合什么时候发</span><input id="stickerCustomUse" type="text" maxlength="160" placeholder="例如 被夸奖、分享好消息"></label><label class="field"><span>什么时候不要发</span><input id="stickerCustomAvoid" type="text" maxlength="160" placeholder="例如 对方难过、认真求助"></label></div>
+          <label class="field"><span>作者署名</span><input id="stickerCustomAttribution" type="text" maxlength="100" placeholder="个人使用可留空，公开投稿时必须填写"></label>
+          <div class="row wrap"><button class="soft" type="button" id="stickerSaveCustom">保存到我的图库</button><button class="text-button" type="button" id="stickerCancelCustom">收起编辑</button></div>
+        </section>
+        <section class="sticker-share-panel hidden" id="stickerSharePanel" aria-label="预览社区表情投稿">
+          <h4>把这张表情分享给大家</h4><p id="stickerShareSelection"></p><label class="field"><span>公开作者署名</span><input type="text" id="stickerShareAttribution" maxlength="100"></label>
+          <button class="soft" type="button" id="stickerPrepareShare">预览投稿内容</button><div id="stickerSharePreview" class="sticker-share-preview"></div>
+          <label class="perm-row"><input type="checkbox" id="stickerShareRights"><div><b>确认公开投稿权与许可</b><span class="small">我拥有这张图的公开分发权，同意按 CC BY-NC 4.0 分享图片和这里展示的说明、署名。投稿进入公开 GitHub PR，审核收录后随新版分发。</span></div></label>
+          <p class="hint"><a href="https://creativecommons.org/licenses/by-nc/4.0/" target="_blank" rel="noopener noreferrer">查看 CC BY-NC 4.0 许可 ↗</a></p>
+          <details class="sticker-github-auth"><summary>GitHub 账号（可选，连接后可一键投稿）</summary><p id="stickerGithubStatus" class="hint">尚未连接自己的 GitHub 账号。</p><label class="field"><span>你自己的 GitHub 访问令牌</span><input type="password" id="stickerGithubToken" autocomplete="off" placeholder="不会随软件附带，也不会写入投稿文件"></label><label class="small"><input type="checkbox" id="stickerGithubRemember"> 在此电脑加密记住授权</label><div class="row wrap"><button class="soft" type="button" id="stickerGithubConnect">连接 GitHub</button><button class="text-button" type="button" id="stickerGithubDisconnect">断开授权</button></div><p class="hint">外部贡献者可使用仅公开仓库的 public_repo 授权。未授权也能导出投稿包，自行上传。<a href="https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens" target="_blank" rel="noopener noreferrer">GitHub 授权说明 ↗</a></p></details>
+          <div class="row wrap"><button class="soft" type="button" id="stickerSubmitShare" disabled>一键投稿到 GitHub</button><button class="ghost" type="button" id="stickerExportShare" disabled>导出投稿包</button></div><p class="hint" id="stickerShareStatus" role="status"></p><a id="stickerShareResult" class="hidden" target="_blank" rel="noopener noreferrer">查看已提交的 PR ↗</a>
+        </section>
+      </details>
+      <details class="hint sticker-credits"><summary>随附素材来源与许可</summary>${creditHTML}</details>`, async()=>{
+        await api("/api/stickers/settings",{method:"POST",body:JSON.stringify({auto_match_enabled:$("sticker-auto").checked,
+          cooldown_seconds:Number($("sticker-cooldown").value),pack_selection:$("sticker-pack").value,
+          auto_probability:Number($("sticker-probability").value),scenario_policy:$("sticker-scenario").value,
+          custom_enabled:$("sticker-custom-enabled").checked})});
+        await loadPlugins();toast(active ? "表情偏好已保存" : "偏好已保存，启用插件后生效");
       });
-    $("sticker-pack").value = prefs.pack_selection;
-  } catch (err) { toast(err.message || String(err)); }
+    $("sticker-pack").value = prefs.pack_selection || "all";
+    $("sticker-scenario").value = prefs.scenario_policy || "balanced";
+    const instanceGeneration = stickerLibraryGeneration;
+    const isCurrent = () => instanceGeneration === stickerLibraryGeneration && !!$("stickerPersonalList");
+    function shareButtons() {
+      if (!isCurrent()) return;
+      const ready = !!sharePreview && $("stickerShareRights").checked && !contributionRunning;
+      $("stickerSubmitShare").disabled = !ready || !github.configured;
+      $("stickerExportShare").disabled = !ready;
+      $("stickerGithubConnect").disabled = contributionRunning;
+      $("stickerGithubDisconnect").disabled = contributionRunning || !github.configured;
+      $("stickerShareAttribution").disabled = contributionRunning;
+      $("stickerPrepareShare").disabled = contributionRunning;
+      $("stickerShareRights").disabled = contributionRunning;
+      $("stickerPersonalList").querySelectorAll("[data-sticker-share]").forEach(button=>{button.disabled=contributionRunning;});
+      setText("stickerGithubStatus", github.configured ? `已连接 ${github.login}${github.remembered ? " · 本机加密保存" : " · 仅本次打开有效"}` : "尚未连接。可以先导出投稿包，或连接自己的账号后提交 PR。");
+    }
+    function invalidateShare() { shareGeneration+=1;sharePreview=null;if(!isCurrent())return;$("stickerShareRights").checked=false;$("stickerSharePreview").replaceChildren();$("stickerShareResult").classList.add("hidden");$("stickerShareResult").removeAttribute("href");shareButtons(); }
+    function resetPreview() { if(stickerTransientURL) URL.revokeObjectURL(stickerTransientURL);stickerTransientURL=null;$("stickerCustomPreview").removeAttribute("src");$("stickerCustomPreview").classList.add("hidden"); }
+    function editItem(item=null) {
+      editorGeneration += 1;
+      editing=item;selectedFile=null;resetPreview();$("stickerCustomFile").value="";
+      $("stickerCustomFile").disabled=!!item;$("stickerEditor").classList.remove("hidden");
+      setText("stickerEditorTitle",item ? "编辑这张表情" : "导入自己的表情包");
+      const fields={Title:item?.title || "",Emotion:item?.emotion || "daily",Tags:(item?.tags || []).join("，"),Description:item?.description || "",Use:item?.use_when || "",Avoid:item?.avoid_when || "",Attribution:item?.attribution || ""};
+      Object.entries(fields).forEach(([key,value])=>{$("stickerCustom"+key).value=value;});
+      $("stickerCustomPreview").classList.toggle("hidden",!item);
+      if(item) $("stickerCustomPreview").src=item.url;
+      $("stickerEditor").scrollIntoView({block:"nearest",behavior:"smooth"});
+    }
+    async function refreshPersonal() {
+      const latest=await api("/api/stickers");if(!isCurrent())return;personal=(latest.stickers || []).filter(item=>item.pack_id==="custom");renderPersonal();
+    }
+    function renderPersonal() {
+      if(!isCurrent())return;
+      setText("stickerPersonalCount",`我的图库 · ${personal.length} 张`);
+      $("stickerPersonalList").innerHTML=personal.length ? personal.map(item=>`<article class="custom-sticker-card"><img src="${esc(item.url)}" alt="${esc(item.title)}" loading="lazy"><b>${esc(item.title)}</b><small>${esc(emotions[item.emotion] || item.emotion)} · ${item.enabled ? "已启用" : "已停用"}</small><div class="row wrap"><button type="button" class="text-button" data-sticker-edit="${esc(item.id)}">编辑</button><button type="button" class="text-button" data-sticker-toggle="${esc(item.id)}">${item.enabled ? "停用" : "启用"}</button><button type="button" class="text-button" data-sticker-share="${esc(item.id)}">投稿</button><button type="button" class="text-button" data-sticker-delete="${esc(item.id)}">移除</button></div></article>`).join("") : '<p class="hint">还没有自己的表情包，导入第一张试试吧。</p>';
+      $("stickerPersonalList").querySelectorAll("[data-sticker-edit]").forEach(button=>button.addEventListener("click",()=>editItem(personal.find(item=>item.id===button.dataset.stickerEdit))));
+      $("stickerPersonalList").querySelectorAll("[data-sticker-toggle]").forEach(button=>button.addEventListener("click",()=>withBusy(button,"保存中…",async()=>{
+        const item=personal.find(item=>item.id===button.dataset.stickerToggle);await api("/api/stickers/custom/update",{method:"POST",body:JSON.stringify({id:item.id,changes:{enabled:!item.enabled}})});await refreshPersonal();
+      })));
+      $("stickerPersonalList").querySelectorAll("[data-sticker-delete]").forEach(button=>button.addEventListener("click",()=>withBusy(button,"移除中…",async()=>{
+        const item=personal.find(item=>item.id===button.dataset.stickerDelete);
+        if(!confirm(`从这台电脑的个人图库移除“${item.title}”？已提交的 GitHub 投稿不会因此撤回。`)) return;
+        await api("/api/stickers/custom/delete",{method:"POST",body:JSON.stringify({id:item.id})});
+        if(!isCurrent())return;
+        if(selectedShare?.id===item.id){selectedShare=null;invalidateShare();$("stickerSharePanel").classList.add("hidden");}
+        await refreshPersonal();
+      })));
+      $("stickerPersonalList").querySelectorAll("[data-sticker-share]").forEach(button=>button.addEventListener("click",async()=>{
+        selectedShare=personal.find(item=>item.id===button.dataset.stickerShare);invalidateShare();
+        $("stickerSharePanel").classList.remove("hidden");setText("stickerShareSelection",`选中素材：${selectedShare.title}`);
+        $("stickerShareAttribution").value=selectedShare.attribution || github.login || "";
+        $("stickerSharePanel").scrollIntoView({block:"nearest",behavior:"smooth"});
+      }));
+    }
+    $("stickerAddCustom").addEventListener("click",()=>editItem());
+    $("stickerCancelCustom").addEventListener("click",()=>{editorGeneration+=1;$("stickerEditor").classList.add("hidden");resetPreview();selectedFile=null;});
+    ["Title","Emotion","Tags","Description","Use","Avoid","Attribution"].forEach(name=>$("stickerCustom"+name).addEventListener("input",()=>{editorGeneration+=1;}));
+    $("stickerCustomFile").addEventListener("change",()=>{
+      editorGeneration+=1;
+      resetPreview();selectedFile=$("stickerCustomFile").files?.[0] || null;
+      if(!selectedFile) return;
+      if(selectedFile.size>8*1024*1024 || (selectedFile.type && !["image/png","image/jpeg","image/webp","image/gif"].includes(selectedFile.type))){selectedFile=null;$("stickerCustomFile").value="";toast("请选择不超过 8 MiB 的 PNG、JPEG、WebP 或 GIF。");return;}
+      stickerTransientURL=URL.createObjectURL(selectedFile);$("stickerCustomPreview").src=stickerTransientURL;$("stickerCustomPreview").classList.remove("hidden");
+    });
+    $("stickerSaveCustom").addEventListener("click",event=>withBusy(event.currentTarget,"保存中…",async()=>{
+      const savedGeneration=editorGeneration, savedItem=editing, savedFile=selectedFile;
+      const changes={title:$("stickerCustomTitle").value.trim(),emotion:$("stickerCustomEmotion").value,
+        tags:$("stickerCustomTags").value.split(/[,，、]/).map(s=>s.trim()).filter(Boolean),description:$("stickerCustomDescription").value.trim(),
+        use_when:$("stickerCustomUse").value.trim(),avoid_when:$("stickerCustomAvoid").value.trim(),attribution:$("stickerCustomAttribution").value.trim()};
+      if(!changes.title) throw new Error("先给这张表情起个名字。");
+      if(savedItem) await api("/api/stickers/custom/update",{method:"POST",body:JSON.stringify({id:savedItem.id,changes})});
+      else {
+        if(!savedFile) throw new Error("请先选择本地图片。");
+        const encoded=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(",")[1]);reader.onerror=()=>reject(new Error("图片读取失败。"));reader.readAsDataURL(savedFile);});
+        await api("/api/stickers/custom/import",{method:"POST",body:JSON.stringify({...changes,enabled:true,image_base64:encoded})});
+      }
+      await refreshPersonal();if(!isCurrent())return;if(editorGeneration===savedGeneration){$("stickerEditor").classList.add("hidden");resetPreview();selectedFile=null;}invalidateShare();toast("已保存到个人图库，素材选择会立即读取新内容。");
+    }));
+    $("stickerShareAttribution").addEventListener("input",invalidateShare);
+    $("stickerShareRights").addEventListener("change",shareButtons);
+    $("stickerPrepareShare").addEventListener("click",event=>withBusy(event.currentTarget,"准备预览…",async()=>{
+      if(!selectedShare) throw new Error("请先选择一张个人表情包。");
+      const chosen=selectedShare, attribution=$("stickerShareAttribution").value.trim();invalidateShare();const requestGeneration=shareGeneration;
+      const prepared=await api("/api/stickers/contributions/preview",{method:"POST",body:JSON.stringify({item_id:chosen.id,attribution})});
+      if(!isCurrent() || requestGeneration!==shareGeneration || selectedShare?.id!==chosen.id || $("stickerShareAttribution").value.trim()!==attribution)return;
+      sharePreview=prepared;
+      const meta=sharePreview.metadata;
+      $("stickerSharePreview").innerHTML=`<img src="${esc(selectedShare.url)}" alt="将公开投稿的图片"><div><b>${esc(meta.title)}</b><p>目标：myflww/aiwu-jiyu 的公开 PR</p><p>作者：${esc(meta.attribution)} · ${esc(sharePreview.license)}</p><p>心情：${esc(emotions[meta.emotion] || meta.emotion)} · 标签：${esc((meta.tags || []).join("、") || "未填写")}</p><p>说明：${esc(meta.description || "未填写")}</p><p>适用：${esc(meta.use_when || "未填写")}<br>避用：${esc(meta.avoid_when || "未填写")}</p><p>${sharePreview.files.length} 个文件 · ${fmtFileSize(sharePreview.size)}；不会包含本机路径、账号配置或聊天记录。</p><details><summary>查看将公开的文件</summary><ul>${sharePreview.files.map(path=>`<li><code>${esc(path)}</code></li>`).join("")}</ul></details></div>`;
+      $("stickerShareRights").checked=false;shareButtons();
+    }));
+    $("stickerGithubConnect").addEventListener("click",event=>withBusy(event.currentTarget,"连接中…",async()=>{
+      const input=$("stickerGithubToken");const token=input.value.trim();input.value="";
+      github=await api("/api/stickers/contributions/connect",{method:"POST",body:JSON.stringify({token,remember:$("stickerGithubRemember").checked})});shareButtons();toast("已连接你的 GitHub 账号。");
+    }).finally(shareButtons));
+    $("stickerGithubDisconnect").addEventListener("click",event=>withBusy(event.currentTarget,"断开中…",async()=>{github=await api("/api/stickers/contributions/disconnect",{method:"POST",body:"{}"});shareButtons();}).finally(shareButtons));
+    const shareBody=()=>({item_id:selectedShare?.id,attribution:$("stickerShareAttribution").value.trim(),fingerprint:sharePreview?.fingerprint,rights_confirmed:$("stickerShareRights").checked,license:"CC-BY-NC-4.0"});
+    async function pollContribution() {
+      if(!isCurrent()) return;
+      const requestGeneration=++contributionPollGeneration;
+      const result=await api("/api/stickers/contributions/status");if(!isCurrent() || requestGeneration!==contributionPollGeneration)return;contributionRunning=result.running===true;setText("stickerShareStatus",result.message);setText("stickerGlobalContributionStatus",result.state==='idle'?'':result.message);shareButtons();
+      if(sharePreview?.fingerprint===result.fingerprint && result.pr_url && /^https:\/\/github\.com\/myflww\/aiwu-jiyu\/pull\/\d+$/.test(result.pr_url)){$("stickerShareResult").href=result.pr_url;$("stickerShareResult").classList.remove("hidden");}
+      if(!contributionRunning && stickerContributionTimer){clearInterval(stickerContributionTimer);stickerContributionTimer=null;}
+    }
+    $("stickerSubmitShare").addEventListener("click",event=>withBusy(event.currentTarget,"提交中…",async()=>{
+      if(!sharePreview || !$("stickerShareRights").checked || !github.configured) throw new Error("先预览并确认公开许可，再连接 GitHub 投稿。");
+      const result=await api("/api/stickers/contributions/submit",{method:"POST",body:JSON.stringify(shareBody())});
+      if(!isCurrent())return;
+      contributionPollGeneration+=1;
+      contributionRunning=result.running===true;setText("stickerShareStatus",result.message);shareButtons();
+      if(stickerContributionTimer) clearInterval(stickerContributionTimer);
+      stickerContributionTimer=setInterval(()=>pollContribution().catch(err=>{if(isCurrent())setText("stickerShareStatus",err.message);}),2000);await pollContribution();
+    }).finally(shareButtons));
+    $("stickerExportShare").addEventListener("click",event=>withBusy(event.currentTarget,"打包中…",async()=>{
+      if(!sharePreview || !$("stickerShareRights").checked) throw new Error("先预览并确认公开投稿许可。");
+      const exporting=sharePreview,requestGeneration=shareGeneration;
+      const response=await fetch("/api/stickers/contributions/export",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(shareBody())});
+      if(!response.ok){const error=await response.json();throw new Error(error.message || "导出未完成。");}
+      const content=await response.blob();if(!isCurrent() || requestGeneration!==shareGeneration || !$("stickerShareRights").checked)return;
+      const url=URL.createObjectURL(content),link=document.createElement("a");link.href=url;link.download=`AiwuJiyu-sticker-${exporting.fingerprint.slice(0,12)}.zip`;document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+      setText("stickerShareStatus","投稿包已生成。可在 GitHub 的新建 Issue 或 PR 中上传，由维护者审核。");
+    }).finally(shareButtons));
+    renderPersonal();shareButtons();
+    api("/api/stickers/contributions/auth").then(value=>{if(isCurrent()){github=value;shareButtons();}}).catch(()=>{});
+    pollContribution().then(()=>{if(isCurrent() && contributionRunning && !stickerContributionTimer)stickerContributionTimer=setInterval(()=>pollContribution().catch(err=>{if(isCurrent())setText("stickerShareStatus",err.message);}),2000);}).catch(()=>{});
+  } catch(err){toast(err.message || String(err));}
 }
 
 async function loadArtifacts() {
@@ -1742,6 +2168,7 @@ async function copyLogs() {
 }
 
 function openModal(title, body, onOk) {
+  clearStickerTransient();
   if (!$("modalBack").classList.contains("show")) modalReturnFocus = document.activeElement;
   $("modalTitle").textContent = title;
   $("modalBody").innerHTML = body;
@@ -1756,6 +2183,7 @@ function openModal(title, body, onOk) {
 }
 
 function closeModal() {
+  clearStickerTransient();
   if ($("modalQr")) {
     clearInterval(qrModalWatch);
     clearInterval(qrTimer);
@@ -1824,6 +2252,7 @@ async function openDeepseekPortal(event) {
 }
 
 function bindEvents() {
+  bindDashboardCredentialEvents();
   document.addEventListener("click", openDeepseekPortal);
   $$(".nav-item").forEach((btn) => btn.addEventListener("click", () => showView(btn.dataset.view)));
   $$("[data-go]").forEach((btn) => btn.addEventListener("click", () => showView(btn.dataset.go)));

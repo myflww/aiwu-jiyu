@@ -88,8 +88,8 @@ class PolicyTests(unittest.TestCase):
         self.assertFalse(engine.normalize({})["natural_bubbles_enabled"])
         self.assertEqual(engine.normalize({})["natural_bubbles_frequency"], "occasional")
         for body in ({"proactive_enabled": 1}, {"whale_style_enabled": "true"}, {"natural_bubbles_enabled": "true"},
-                     {"natural_bubbles_frequency": "always"}, {"natural_bubbles_frequency": []}, {"interval_minutes": True}, {"interval_minutes": 29},
-                     {"daily_limit": 11}, {"quiet_start": 24}):
+                     {"natural_bubbles_frequency": "always"}, {"natural_bubbles_frequency": []}, {"interval_minutes": True}, {"interval_minutes": 4},
+                     {"daily_limit": 21}, {"quiet_start": 24}):
             with self.assertRaises(ValueError): engine.normalize(body, strict=True)
 
     def test_quiet_hours_cross_midnight(self):
@@ -97,9 +97,43 @@ class PolicyTests(unittest.TestCase):
         for hour in (8, 12, 22): self.assertFalse(engine.quiet_now(datetime(2026, 1, 1, hour), 23, 8))
         self.assertFalse(engine.quiet_now(datetime(2026, 1, 1), 0, 0))
 
+    def test_upstream_reference_defaults_and_legacy_saved_choices_are_distinct(self):
+        fresh = engine.normalize({})
+        self.assertEqual((fresh["schedule_mode"], fresh["min_interval_minutes"], fresh["max_interval_minutes"],
+                          fresh["idle_minutes"], fresh["daily_limit"]), ("random", 60, 180, 40, 4))
+        legacy = engine.normalize({"interval_minutes": 30, "daily_limit": 3})
+        self.assertEqual((legacy["schedule_mode"], legacy["interval_minutes"], legacy["daily_limit"],
+                          legacy["idle_minutes"], legacy["unanswered_decay_percent"], legacy["max_unanswered"]),
+                         ("fixed", 30, 3, 0, 0, 0))
+        self.assertNotIn("proactive_enabled", engine.PRESETS["dsh_reference"])
+        self.assertNotIn("unanswered_decay_percent", engine.PRESETS["dsh_reference"])
+        for body in ({"schedule_mode": "cron"}, {"timezone": "unknown"}, {"trigger_probability": True},
+                     {"trigger_probability": 101}, {"max_unanswered": -1}, {"unanswered_decay_percent": 101},
+                     {"min_interval_minutes": 4}, {"min_interval_minutes": 20, "max_interval_minutes": 10},
+                     {"daily_limit": -1}, {"session_expiry_days": 366}):
+            with self.assertRaises(ValueError): engine.normalize(body, strict=True)
+
+    def test_timezone_quiet_day_budget_and_unanswered_probability_are_explicit(self):
+        options = engine.normalize({"proactive_enabled": True, "schedule_mode": "fixed", "interval_minutes": 5,
+                                    "timezone": "Asia/Shanghai", "trigger_probability": 80,
+                                    "unanswered_decay_percent": 50, "max_unanswered": 4})
+        now = datetime(2026, 11, 3, 17, tzinfo=timezone.utc)
+        state = {"last_received": now.timestamp() - 3600, "day": "2026-11-03", "day_count": 4,
+                 "unanswered_count": 2}
+        result = engine.schedule_state(state, options, now, enabled=True, identity_ready=True, session_known=True)
+        self.assertEqual(result["code"], "quiet_hours")
+        self.assertEqual(result["daily_count"], 0, 'Beijing has already crossed midnight')
+        self.assertEqual(result["effective_probability"], 20)
+        self.assertEqual(engine.schedule_now(options, now).hour, 1)
+        state["unanswered_count"] = 4
+        paused = engine.schedule_state(state, options, now, enabled=True, identity_ready=True, session_known=True)
+        self.assertEqual(paused["code"], "unanswered_pause")
+        self.assertTrue(paused["paused_until_reply"])
+        self.assertIsNone(paused["next_trigger_at"])
+
     def test_schedule_explains_wait_and_next_time_without_revealing_identity(self):
         now = datetime(2026, 11, 3, 22, 30, tzinfo=timezone.utc)
-        options = engine.normalize({"proactive_enabled": True})
+        options = engine.normalize({"proactive_enabled": True, "daily_limit": 3})
         state = {"last_received": now.timestamp(), "day": now.date().isoformat(), "day_count": 0}
         result = engine.schedule_state(state, options, now, enabled=True, identity_ready=True, session_known=True)
         self.assertEqual(result["code"], "waiting_interval")
@@ -218,7 +252,8 @@ class CompanionTests(unittest.IsolatedAsyncioTestCase):
             get_config=lambda **kw: {"plugin_set": ["*"]},
             platform_manager=SimpleNamespace(platform_insts=[SimpleNamespace(meta=lambda: SimpleNamespace(id="qq-test", name="aiocqhttp"))]),
             send_message=AsyncMock(return_value=True))
-        self.config = dict(engine.DEFAULTS, enabled=True, owner_qq=OWNER, bot_qq=BOT, proactive_enabled=True)
+        self.config = dict(engine.DEFAULTS, enabled=True, owner_qq=OWNER, bot_qq=BOT, proactive_enabled=True,
+                           schedule_mode="fixed", idle_minutes=0, unanswered_decay_percent=0, max_unanswered=0, daily_limit=3)
         self.plugin = main.DafeiyuCompanion(self.context, self.config)
         await self.plugin.initialize()
         self.addAsyncCleanup(self.plugin.terminate)
@@ -253,6 +288,83 @@ class CompanionTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(main.os, "replace", side_effect=OSError("isolated write failure")):
             self.assertFalse(await self.plugin._proactive_once(self.now))
         self.provider.text_chat.assert_not_awaited()
+        self.context.send_message.assert_not_awaited()
+
+    async def test_zero_daily_budget_or_zero_probability_never_calls_model(self):
+        await self.prepare_session()
+        self.plugin.config["daily_limit"] = 0
+        self.assertFalse(await self.plugin._proactive_once(self.now))
+        self.assertEqual(self.plugin._runtime["code"], "daily_limit")
+        self.assertIsNone(self.plugin._runtime["next_trigger_at"])
+        self.plugin.config.update(daily_limit=3, trigger_probability=0)
+        self.assertFalse(await self.plugin._proactive_once(self.now))
+        self.assertEqual(self.plugin._runtime["code"], "probability_paused")
+        self.context.get_using_provider_async.assert_not_awaited()
+        self.provider.text_chat.assert_not_awaited()
+        self.context.send_message.assert_not_awaited()
+
+    async def test_probability_skip_persists_next_random_opportunity_without_api_cost(self):
+        await self.prepare_session()
+        self.plugin.config.update(schedule_mode="random", min_interval_minutes=10, max_interval_minutes=20,
+                                  idle_minutes=0, trigger_probability=25)
+        with patch.object(self.plugin, "_random_unit", side_effect=[0.5, 0.9, 0.25]):
+            self.assertFalse(await self.plugin._proactive_once(self.now))
+        self.assertEqual(self.plugin._runtime["last_result"], "probability_skipped")
+        self.assertNotIn("day_count", self.plugin._state)
+        self.provider.text_chat.assert_not_awaited()
+        self.context.send_message.assert_not_awaited()
+        planned = self.now.timestamp() + 12.5 * 60
+        self.assertEqual(self.plugin._state["next_opportunity_at"], planned)
+        other = main.DafeiyuCompanion(self.context, self.plugin.config)
+        await other.initialize()
+        self.addAsyncCleanup(other.terminate)
+        with patch.object(other, "_random_unit", side_effect=AssertionError("must not reroll before opportunity")):
+            self.assertFalse(await other._proactive_once(self.now + timedelta(minutes=1)))
+        self.assertEqual(other._state["next_opportunity_at"], planned)
+        self.assertEqual(other._runtime["next_trigger_at"], planned)
+
+    async def test_unanswered_pause_and_real_owner_reply_restore_self_initiation(self):
+        await self.prepare_session()
+        self.plugin.config.update(interval_minutes=5, max_unanswered=2, unanswered_decay_percent=0)
+        self.assertTrue(await self.plugin._proactive_once(self.now))
+        self.assertTrue(await self.plugin._proactive_once(self.now + timedelta(minutes=6)))
+        self.assertFalse(await self.plugin._proactive_once(self.now + timedelta(minutes=12)))
+        self.assertEqual(self.plugin._runtime["code"], "unanswered_pause")
+        self.assertEqual(self.provider.text_chat.await_count, 2)
+        returned = Event(text="我回来啦")
+        returned.message_obj.message_id = "owner-returned"
+        with patch.object(main.time, "time", return_value=(self.now + timedelta(minutes=12)).timestamp()):
+            await self.plugin.observe_owner(returned)
+        self.assertEqual(self.plugin._state["unanswered_count"], 0)
+        self.assertTrue(await self.plugin._proactive_once(self.now + timedelta(minutes=18)))
+        self.assertEqual(self.plugin._state["initiated_count"], 3)
+        self.assertEqual(self.plugin._state["last_receipt"], "adapter_accepted")
+        public = json.loads((self.data / "runtime.json").read_text("utf-8"))
+        self.assertEqual(public["last_trigger_source"], "background_idle")
+        self.assertEqual(public["last_opportunity_result"], "sent")
+        self.assertEqual(public["unanswered_count"], 1)
+
+    async def test_uncertain_delivery_counts_toward_pause_after_restart(self):
+        await self.prepare_session()
+        self.plugin.config["max_unanswered"] = 1
+        self.context.send_message.side_effect = RuntimeError("acknowledgment unknown")
+        self.assertFalse(await self.plugin._proactive_once(self.now))
+        other = main.DafeiyuCompanion(self.context, self.plugin.config)
+        await other.initialize()
+        self.addAsyncCleanup(other.terminate)
+        self.assertFalse(await other._proactive_once(self.now + timedelta(minutes=121)))
+        self.assertEqual(other._runtime["code"], "unanswered_pause")
+        self.assertEqual(other._state["last_receipt"], "delivery_uncertain")
+        self.assertEqual(self.context.send_message.await_count, 1)
+
+    async def test_budget_changed_to_zero_in_flight_cancels_send(self):
+        await self.prepare_session()
+        async def disable_budget(**kwargs):
+            self.plugin.config["daily_limit"] = 0
+            return SimpleNamespace(completion_text="one topic", tools_call_name=[])
+        self.provider.text_chat.side_effect = disable_budget
+        self.assertFalse(await self.plugin._proactive_once(self.now))
+        self.assertEqual(self.plugin._runtime["last_result"], "cancelled")
         self.context.send_message.assert_not_awaited()
 
     async def test_uncertain_send_keeps_reserved_budget_across_restart(self):
@@ -294,7 +406,7 @@ class CompanionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("这不是主人发来的消息", prompt)
 
     async def test_disabled_initialization_keeps_worker_for_later_explicit_enable(self):
-        config = dict(engine.DEFAULTS, enabled=False, owner_qq=OWNER, bot_qq=BOT)
+        config = dict(engine.DEFAULTS, enabled=False, owner_qq=OWNER, bot_qq=BOT, schedule_mode="fixed", idle_minutes=0)
         other = main.DafeiyuCompanion(self.context, config)
         await other.initialize()
         self.addAsyncCleanup(other.terminate)

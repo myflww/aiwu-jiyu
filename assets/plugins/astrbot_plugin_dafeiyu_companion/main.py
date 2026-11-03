@@ -7,6 +7,7 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
+import random
 import tempfile
 import time
 
@@ -19,14 +20,15 @@ from astrbot.core.star.session_plugin_manager import SessionPluginManager
 
 from .engine import (activity_summary, foreground_activity, mood_after, mood_summary,
                      normalize, quiet_now, text_history, valid_session, WHALE_STYLE_CONTEXT,
-                     PROACTIVE_ANGLES, RUNTIME_MESSAGES, runtime_signature, schedule_state)
+                     PROACTIVE_ANGLES, RUNTIME_MESSAGES, runtime_signature, schedule_state,
+                     opportunity_window, plan_signature, schedule_now, effective_probability)
 from .natural_bubbles import BubbleReplies
 
 PLUGIN_NAME = "astrbot_plugin_dafeiyu_companion"
 QQ_ADAPTERS = {"aiocqhttp", "qq"}
 
 
-@register(PLUGIN_NAME, "myflww", "大肥鱼陪伴：自主搭话、情绪表达与授权活动概况", "1.1.0")
+@register(PLUGIN_NAME, "myflww", "大肥鱼陪伴：自主搭话、情绪表达与授权活动概况", "1.2.0")
 class DafeiyuCompanion(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -123,20 +125,40 @@ class DafeiyuCompanion(Star):
         # Metadata and the last short greeting only: never duplicate chat history.
         return self._write_json(self._state_path, self._state)
 
+    @staticmethod
+    def _random_unit() -> float:
+        return random.random()
+
+    def _ensure_opportunity(self, *, advance: bool = False) -> bool:
+        """One persisted draw per opportunity, never a new draw every minute."""
+        options = self._options()
+        if not self._enabled() or not options["proactive_enabled"] or not self._state.get("last_received"):
+            return True
+        low, high = opportunity_window(self._state, options)
+        planned = float(self._state.get("next_opportunity_at") or 0)
+        signature = plan_signature(options)
+        if not advance and self._state.get("plan_signature") == signature and low <= planned <= high:
+            return True
+        planned = low + (high - low) * self._random_unit()
+        self._state.update(next_opportunity_at=planned, plan_signature=signature)
+        return self._save()
+
     def _schedule(self, now: datetime | None = None) -> dict:
         owner, bot = self._identity()
         known = (bool(owner and bot) and self._state.get("owner") == owner
                  and self._state.get("bot") == bot and valid_session(self._state.get("umo"), owner))
-        return schedule_state(self._state, self._options(), now or datetime.now().astimezone(),
+        return schedule_state(self._state, self._options(), schedule_now(self._options(), now),
                               enabled=self._enabled(), identity_ready=bool(owner and bot), session_known=known)
 
     def _publish(self, code: str | None = None, *, result: str | None = None, now: datetime | None = None):
-        now = now or datetime.now().astimezone()
+        now = schedule_now(self._options(), now)
         current = self._schedule(now)
         if code:
             current.update(code=code, message=RUNTIME_MESSAGES[code])
         if result:
             self._runtime.update(last_result=result, last_result_at=now.timestamp())
+            if self._state.get("last_opportunity_at"):
+                self._state["last_opportunity_result"] = result
             if result == "sent":
                 self._runtime["last_success_at"] = now.timestamp()
             self._state.update({key: self._runtime.get(key) for key in (
@@ -145,7 +167,10 @@ class DafeiyuCompanion(Star):
         self._runtime.update(current)
         public = {key: self._runtime.get(key) for key in (
             "code", "message", "next_trigger_at", "session_known", "daily_count", "daily_limit",
-            "last_result", "last_result_at", "last_success_at")}
+            "last_result", "last_result_at", "last_success_at", "schedule_mode", "timezone",
+            "next_window_start", "next_window_end", "unanswered_count", "effective_probability", "paused_until_reply")}
+        for key in ("last_opportunity_at", "last_opportunity_result", "last_trigger_source", "initiated_count", "last_receipt"):
+            public[key] = self._state.get(key)
         public.update(version=1, signature=runtime_signature(self.config), heartbeat_at=now.timestamp(),
                       worker_running=bool(self._worker and not self._worker.done() and not self._closed))
         self._write_json(self._runtime_path, public)
@@ -182,9 +207,12 @@ class DafeiyuCompanion(Star):
         if self._state.get("owner") != owner or self._state.get("bot") != bot:
             self._state = {}
         self._state.update(owner=owner, bot=bot, umo=event.unified_msg_origin, last_received=time.time())
+        self._state.update(unanswered_count=0)
+        self._state.pop("next_opportunity_at", None)
         if self._options()["emotion_enabled"]:
             self._state["mood"] = mood_after(self._state.get("mood") or {}, event.get_message_str())
         self._save()
+        self._ensure_opportunity()
         self._publish()
 
     async def _sample_activity(self):
@@ -214,7 +242,8 @@ class DafeiyuCompanion(Star):
         if options["proactive_enabled"]:
             parts.append("主动聊天能力事实：本机‘大肥鱼陪伴’插件已开启自主搭话开关，"
                          "由独立后台每分钟检查已确认的主人私聊、间隔、每日上限和免打扰条件，"
-                         "满足条件时自行选话题并调用当前模型发起私聊，无需主人创建 cron 或逐次提醒。"
+                         "在设置的主动机会到来时，先按概率与未回应减扰规则决定是否联系，"
+                         "命中后自行选话题并调用当前模型发起私聊，无需主人创建 cron 或逐次提醒。"
                          "这不代表你有真实自主意识，也不代表此刻已经发送。当前状态：" + schedule["message"] +
                          "不要因为工具列表里只有定时任务就说只能被动等待；也不要承诺准确发送时间、伪称已设定任务或已经发出消息。")
         else:
@@ -289,10 +318,13 @@ class DafeiyuCompanion(Star):
         async with self._send_lock:
             options = self._options()
             supplied_now = now
-            now = now or datetime.now().astimezone()
+            now = schedule_now(options, now)
             stamp = now.timestamp()
             owner, bot = self._identity()
             target = self._state.get("umo", "")
+            if not self._ensure_opportunity():
+                self._publish("storage_error", result="storage_error", now=now)
+                return False
             scheduled = self._schedule(now)
             self._publish(now=now)
             if scheduled["code"] != "ready":
@@ -332,6 +364,18 @@ class DafeiyuCompanion(Star):
                 if not contexts or not system:
                     self._publish("waiting_context", now=now)
                     return False
+                self._state.update(last_opportunity_at=stamp, last_trigger_source="background_idle", last_receipt="not_sent")
+                # Decide without a model call. A skipped opportunity has no API
+                # cost and consumes no daily generation slot, but its next draw
+                # must be durable to prevent repeated rolls after a restart.
+                if self._random_unit() * 100 >= scheduled["effective_probability"]:
+                    self._state["last_opportunity_result"] = "probability_skipped"
+                    if not self._ensure_opportunity(advance=True):
+                        self._publish("storage_error", result="storage_error", now=now)
+                        return False
+                    self._publish(result="probability_skipped", now=now)
+                    return False
+                self._state["last_opportunity_result"] = "eligible"
                 note = await self._note()
                 # Rotate an original conversation angle instead of requesting
                 # the same generic greeting every time. This is a background
@@ -340,7 +384,7 @@ class DafeiyuCompanion(Star):
                 angle = PROACTIVE_ANGLES[sequence % len(PROACTIVE_ANGLES)]
                 self._state.update(last_sent=stamp, day=now.date().isoformat(), day_count=count + 1,
                                    topic_sequence=sequence + 1)
-                if not self._save():
+                if not self._ensure_opportunity(advance=True):
                     self._publish("storage_error", result="storage_error", now=now)
                     return False
                 phase = "generation"
@@ -364,18 +408,29 @@ class DafeiyuCompanion(Star):
                     self._publish(result="generation_failed", now=now)
                     return False
                 live = self._options()
-                fresh_now = datetime.now().astimezone() if supplied_now is None else now
+                fresh_now = schedule_now(live, now if supplied_now is not None else None)
                 if (not self._enabled() or not live["proactive_enabled"] or self._identity() != (owner, bot)
                         or self._state.get("umo") != target or self._state.get("last_received") != received
                         or quiet_now(fresh_now, live["quiet_start"], live["quiet_end"])
+                        or live["daily_limit"] < count + 1 or live["trigger_probability"] == 0
+                        or (live["max_unanswered"] and self._state.get("unanswered_count", 0) >= live["max_unanswered"])
                         or await manager.get_curr_conversation_id(target) != cid
                         or not self._target_available(target) or not await self._session_allows(target)):
                     self._publish(result="cancelled", now=fresh_now)
                     return False
+                # Reserve an unanswered attempt before the adapter call. A
+                # crash or missing acknowledgment must not erase this guard.
+                self._state.update(unanswered_count=int(self._state.get("unanswered_count", 0)) + 1,
+                                   last_receipt="delivery_uncertain")
+                if not self._save():
+                    self._publish("storage_error", result="storage_error", now=fresh_now)
+                    return False
                 phase = "delivery"
                 sent_ok = await self.context.send_message(target, MessageChain().message(text))
                 if sent_ok:
-                    self._state.update(last_greeting=text, last_success_at=fresh_now.timestamp())
+                    self._state.update(last_greeting=text, last_success_at=fresh_now.timestamp(),
+                                       last_receipt="adapter_accepted", initiated_count=int(self._state.get("initiated_count", 0)) + 1,
+                                       last_opportunity_result="sent")
                     self._save()
                     self._publish(result="sent", now=fresh_now)
                     return True

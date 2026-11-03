@@ -90,7 +90,7 @@
       <div class="sidebar-art"><img id="sidebarMascot" src="/assets/ui/dafeiyu-rest.png" alt="抱着小鱼休息的大肥鱼" onerror="this.style.display='none'"></div>
       <p id="sidebarMascotCaption" role="status" aria-live="polite">正在看看小家的状态</p>
     </div>
-    <div class="sidebar-footer"><div class="sidebar-foot"><span class="local-dot"></span> 本机桌面版 <span id="sideVersion">v1.3.1</span></div><button class="sidebar-update" id="sideUpdate"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg><span id="sideUpdateLabel">检查更新</span><span class="update-dot hidden" id="sideUpdateDot"></span></button></div>
+    <div class="sidebar-footer"><div class="sidebar-foot"><span class="local-dot"></span> 本机桌面版 <span id="sideVersion">v1.3.2</span></div><button class="sidebar-update" id="sideUpdate"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg><span id="sideUpdateLabel">检查更新</span><span class="update-dot hidden" id="sideUpdateDot"></span></button></div>
   </aside>
 
   <main class="main">
@@ -150,7 +150,7 @@
   <div class="card" id="settingsFiles"><div class="setting-card-heading"><span class="setting-number pink">04</span><div><h2>工作目录</h2><div class="desc">她生成的文件会放在这个工作目录里。</div></div></div><label class="field"><span>大肥鱼工作目录</span><input type="text" id="setWorkspace" placeholder="例如 D:\AiwuJiyu\workspace"></label><div class="row wrap workspace-settings-actions"><button class="ghost" id="setWorkspaceBrowse">选择文件夹</button><button class="soft" id="setWorkspaceSave">保存目录</button><button class="text-button" data-go="artifacts">去看看作品箱 ↗</button></div><div class="hint" id="setWorkspaceHint">正在读取工作目录…</div><div class="notice blue">作品目录单独保存。是否允许她操作电脑，请在“我的肥鱼”里设置电脑权限。</div></div></div>
       <div class="section card update-settings" id="updateSettings">
         <div class="row between wrap"><div><h2>软件与插件更新</h2><div class="desc">启动时合并检查软件与随附插件，有新版会弹窗提醒。下载和安装都由你决定。</div></div><label class="update-auto-toggle"><input type="checkbox" id="updateAutoCheck" checked><span>自动检查并提醒</span></label></div>
-        <div class="update-version-row"><span>当前版本 <b id="updateCurrentVersion">v1.3.1</b></span><span>最新版本 <b id="updateLatestVersion">暂未确认</b></span><span class="badge gray" id="updateVersionBadge">等待检查</span></div>
+        <div class="update-version-row"><span>当前版本 <b id="updateCurrentVersion">v1.3.2</b></span><span>最新版本 <b id="updateLatestVersion">暂未确认</b></span><span class="badge gray" id="updateVersionBadge">等待检查</span></div>
         <div class="update-status-message" id="updateMessage" role="status" aria-live="polite">正在读取更新设置…</div>
         <div class="update-download-progress hidden" id="updateProgressWrap"><div class="row between"><span>下载进度</span><span id="updatePercent">0%</span></div><div class="update-progress-track" role="progressbar" aria-label="更新下载进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="updateProgressTrack"><span id="updateProgress"></span></div></div>
         <div class="row wrap update-settings-actions"><button class="ghost" id="updateCheck"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg>检查更新</button><button class="primary hidden" id="updateDownload"><svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>下载更新</button><button class="primary hidden" id="updateInstall">安装更新</button><button class="text-button hidden" id="updateIgnore">忽略这个版本</button><a id="updateReleaseLink" href="https://github.com/myflww/aiwu-jiyu/releases" target="_blank" rel="noopener noreferrer">查看发布记录 ↗</a></div>
@@ -238,7 +238,19 @@
 </section>
 
     <section id="view-plugins" class="hidden">
-  <div class="card plugin-dashboard-shortcuts" aria-label="本地后台快捷入口"><div><h2>本地后台</h2><p id="pluginsDashboardHint" role="status">连接本机服务后，可在浏览器打开后台。</p></div><div class="row wrap"><button class="soft" id="pluginsOpenAstrbot" disabled><span class="local-dot asleep" id="pluginsAstrbotDot" aria-hidden="true"></span>AstrBot 后台 <span aria-hidden="true">↗</span></button><button class="soft" id="pluginsOpenNapcat" disabled><span class="local-dot asleep" id="pluginsNapcatDot" aria-hidden="true"></span>NapCat 后台 <span aria-hidden="true">↗</span></button></div></div>
+  <div class="card plugin-dashboard-shortcuts" aria-label="本地后台快捷入口">
+    <div class="dashboard-shortcuts-heading"><h2>本地后台</h2><p id="pluginsDashboardHint" role="status">连接本机服务后，可在浏览器打开后台。</p></div>
+    <div class="dashboard-entry-grid">
+      <div class="dashboard-entry">
+        <div class="dashboard-entry-buttons"><button class="soft" id="pluginsOpenAstrbot" disabled><span class="local-dot asleep" id="pluginsAstrbotDot" aria-hidden="true"></span>AstrBot 后台 <span aria-hidden="true">↗</span></button><button class="text-button dashboard-credentials-toggle" id="pluginsAstrbotCredentialsToggle" type="button" aria-expanded="false" aria-controls="pluginsAstrbotCredentials" disabled>登录信息</button></div>
+        <div class="dashboard-credentials hidden" id="pluginsAstrbotCredentials" role="region" aria-label="AstrBot 登录信息"></div>
+      </div>
+      <div class="dashboard-entry">
+        <div class="dashboard-entry-buttons"><button class="soft" id="pluginsOpenNapcat" disabled><span class="local-dot asleep" id="pluginsNapcatDot" aria-hidden="true"></span>NapCat 后台 <span aria-hidden="true">↗</span></button><button class="text-button dashboard-credentials-toggle" id="pluginsNapcatCredentialsToggle" type="button" aria-expanded="false" aria-controls="pluginsNapcatCredentials" disabled>登录信息</button></div>
+        <div class="dashboard-credentials hidden" id="pluginsNapcatCredentials" role="region" aria-label="NapCat 登录信息"></div>
+      </div>
+    </div>
+  </div>
   <div class="plugin-page-toolbar"><div><span class="hint" id="pluginsDesc">正在读取插件…</span></div><button class="soft hidden" id="pluginsApply">应用更改 · 重启对话</button><button class="ghost" id="pluginsRefresh"><svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg>刷新状态</button></div>
   <div class="plugin-version-summary" id="pluginUpdateSummary" aria-label="随附插件版本"><div class="row between wrap"><div class="row wrap"><b>插件版本</b><span class="badge gray" id="pluginUpdateBadge">等待检查</span></div><button class="text-button" id="pluginUpdateOpen">前往更新 ↗</button></div><p id="pluginUpdateMessage" role="status" aria-live="polite">和软件一起检查随附插件版本；下载和更新都由你决定。</p><details><summary>查看当前与最新版本</summary><div id="pluginUpdateVersions"></div></details></div>
   <div class="plugin-capability-grid" id="pluginsList"></div>

@@ -95,8 +95,12 @@ def status(config: dict | None = None) -> dict:
     return {**load(config), "owner_configured": bool(config.get("owner_qq")),
             "plugin_installed": plugins.plugin_path(PLUGIN_NAME).is_dir(),
             "runtime": _runtime_status(config),
+            "presets": {key: dict(value) for key, value in _policy.PRESETS.items()},
+            "preset_sources": {"dsh_reference": {"label": "Aurabot 参考值",
+                "source": "https://github.com/aureth-labs/dsh-aurabot-qq/blob/b3301f6b014016e141c07d266a716c0fea566aab/src/core/config.js",
+                "note": "来自上游默认配置，不是科学最佳值；仅填入时间范围、日预算和免打扰，保存后才应用。概率、未回复减扰及其他能力保持你的选择。"}},
             "privacy_summary": "只对主人私聊生效。活动感知仅含前台应用名与闲置时长；不记录按键、窗口标题或屏幕。启用后这些概况可用于模型回复。",
-            "proactive_summary": "开启后由后台自主选话题，无需设置 cron。先与她私聊确认会话；使用当前模型，可能产生 API 用量；免打扰时段不发送。",
+            "proactive_summary": "开启后由后台在主动机会到来时自主选话题，无需设置 cron。机会须通过概率、未回应减扰、预算与免打扰判断，不承诺必发；使用当前模型可能产生 API 用量。",
             "style_summary": "可选傲娇甜口与自然中文表达，减少固定欢迎词；保留现有人格和工具，不要求或展示隐藏思维链。"}
 
 
@@ -107,7 +111,12 @@ def _runtime_status(config: dict) -> dict:
     result = {"code": code, "message": _policy.RUNTIME_MESSAGES[code], "worker_running": False,
               "heartbeat_at": None, "next_trigger_at": None, "session_known": False,
               "last_result": None, "last_result_at": None, "last_success_at": None,
-              "daily_count": 0, "daily_limit": options["daily_limit"]}
+              "daily_count": 0, "daily_limit": options["daily_limit"],
+              "schedule_mode": options["schedule_mode"], "timezone": options["timezone"],
+              "next_window_start": None, "next_window_end": None,
+              "unanswered_count": 0, "effective_probability": options["trigger_probability"],
+              "paused_until_reply": False, "last_opportunity_at": None, "last_opportunity_result": None,
+              "last_trigger_source": None, "initiated_count": 0, "last_receipt": None}
     path = ASTRBOT / "data" / "plugin_data" / PLUGIN_NAME / "runtime.json"
     try:
         # Reject redirected/reparse files and directories, not just a final symlink.
@@ -130,7 +139,8 @@ def _runtime_status(config: dict) -> dict:
         heartbeat = candidate.get("heartbeat_at")
         if type(heartbeat) not in (int, float) or not math.isfinite(heartbeat) or not -30 <= time.time() - heartbeat <= 180:
             return result
-        for key in ("heartbeat_at", "next_trigger_at", "last_result_at", "last_success_at"):
+        for key in ("heartbeat_at", "next_trigger_at", "last_result_at", "last_success_at",
+                    "next_window_start", "next_window_end", "last_opportunity_at"):
             value = candidate.get(key)
             if value is not None and (type(value) not in (int, float) or not math.isfinite(value) or not 0 < value < 4102444800):
                 return result
@@ -143,8 +153,25 @@ def _runtime_status(config: dict) -> dict:
         result.update(code=status_code, message=_policy.RUNTIME_MESSAGES[status_code],
                       worker_running=candidate["worker_running"], session_known=candidate["session_known"])
         count = candidate.get("daily_count")
-        if type(count) is int and 0 <= count <= 10:
+        if type(count) is int and 0 <= count <= 20:
             result["daily_count"] = count
+        if status_code == "daily_limit" and not options["daily_limit"]:
+            result["message"] = "每日生成预算设为0，主动生成已停用。"
+        for key in ("unanswered_count", "initiated_count"):
+            value = candidate.get(key)
+            if type(value) is int and 0 <= value <= 1000000000:
+                result[key] = value
+        probability = candidate.get("effective_probability")
+        if type(probability) in (int, float) and math.isfinite(probability) and 0 <= probability <= 100:
+            result["effective_probability"] = probability
+        if type(candidate.get("paused_until_reply")) is bool:
+            result["paused_until_reply"] = candidate["paused_until_reply"]
+        if candidate.get("last_trigger_source") == "background_idle":
+            result["last_trigger_source"] = "background_idle"
+        if candidate.get("last_opportunity_result") in {*_policy.RUNTIME_MESSAGES, "eligible"}:
+            result["last_opportunity_result"] = candidate["last_opportunity_result"]
+        if candidate.get("last_receipt") in {"not_sent", "adapter_accepted", "delivery_uncertain"}:
+            result["last_receipt"] = candidate["last_receipt"]
         last_result = candidate.get("last_result")
         if last_result in _policy.RUNTIME_MESSAGES:
             result["last_result"] = last_result

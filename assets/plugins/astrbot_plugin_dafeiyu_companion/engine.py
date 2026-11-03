@@ -1,7 +1,7 @@
 """Small, local companion state. No transcript, key or screen collection."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone as datetime_timezone
 import ctypes
 from ctypes import wintypes
 import os
@@ -13,11 +13,22 @@ DEFAULTS = {
     "proactive_enabled": False, "emotion_enabled": False, "activity_enabled": False,
     "whale_style_enabled": False,
     "natural_bubbles_enabled": False, "natural_bubbles_frequency": "occasional",
-    "interval_minutes": 120, "daily_limit": 3, "quiet_start": 23, "quiet_end": 8,
+    "interval_minutes": 120, "daily_limit": 4, "quiet_start": 23, "quiet_end": 8,
+    "schedule_mode": "random", "min_interval_minutes": 60, "max_interval_minutes": 180,
+    "idle_minutes": 40, "trigger_probability": 100, "unanswered_decay_percent": 50,
+    "max_unanswered": 4, "session_expiry_days": 7, "timezone": "local",
 }
 BOOL_FIELDS = ("proactive_enabled", "emotion_enabled", "activity_enabled", "whale_style_enabled", "natural_bubbles_enabled")
-RANGES = {"interval_minutes": (30, 1440), "daily_limit": (1, 10),
-          "quiet_start": (0, 23), "quiet_end": (0, 23)}
+RANGES = {"interval_minutes": (5, 1440), "daily_limit": (0, 20),
+          "quiet_start": (0, 23), "quiet_end": (0, 23),
+          "min_interval_minutes": (5, 1440), "max_interval_minutes": (5, 2880),
+          "idle_minutes": (0, 1440), "trigger_probability": (0, 100),
+          "unanswered_decay_percent": (0, 100), "max_unanswered": (0, 20), "session_expiry_days": (0, 365)}
+ENUMS = {"schedule_mode": {"fixed", "random"}, "timezone": {"local", "Asia/Shanghai", "UTC"},
+         "natural_bubbles_frequency": {"occasional", "often"}}
+PRESETS = {"dsh_reference": {"schedule_mode": "random", "min_interval_minutes": 60,
+    "max_interval_minutes": 180, "idle_minutes": 40, "daily_limit": 4,
+    "quiet_start": 23, "quiet_end": 8, "timezone": "local"}}
 
 RUNTIME_MESSAGES = {
     "disabled": "主动聊天未开启；插件总开关和主动聊天开关都需要开启。",
@@ -25,9 +36,12 @@ RUNTIME_MESSAGES = {
     "waiting_session": "等待主人发来一条 QQ 私聊，以确认实际联系会话。",
     "platform_unavailable": "等待已登记的 QQ 连接恢复。",
     "quiet_hours": "当前为免打扰时段，不会主动联系。",
-    "waiting_interval": "已经安排下一次自主搭话，无需设置 cron。",
+    "waiting_interval": "已安排下一次主动机会；到时仍须通过概率与当前状态判断，不承诺必发。",
     "daily_limit": "今天的主动生成名额已用完，明天继续。",
-    "session_stale": "超过七天没有主人私聊，主动联系已暂停；聊一句即可恢复。",
+    "session_stale": "超过设定天数没有主人私聊，主动联系已暂停；聊一句即可恢复。",
+    "unanswered_pause": "连续主动联系尚未获回应，已按设置暂停；主人私聊后恢复。",
+    "probability_paused": "触发概率已设为0，当前不会调用模型或主动发送。",
+    "probability_skipped": "本次主动机会未命中概率，未调用模型，已安排下一次机会。",
     "session_paused": "当前会话、模型服务或陪伴插件在此会话被停用。",
     "model_unavailable": "当前会话没有可用聊天模型，恢复后自动重试。",
     "waiting_context": "等待当前私聊产生聊天记录和可用人格后再自主搭话。",
@@ -61,6 +75,40 @@ def runtime_signature(config: dict) -> str:
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
 
 
+def schedule_now(options: dict, now: datetime | None = None) -> datetime:
+    now = now or datetime.now().astimezone()
+    # Windows builds need no IANA tzdata for these explicit choices.
+    selected = options["timezone"]
+    if selected == "Asia/Shanghai":
+        return now.astimezone(datetime_timezone(timedelta(hours=8)))
+    if selected == "UTC":
+        return now.astimezone(datetime_timezone.utc)
+    return now
+
+
+def interval_bounds(options: dict) -> tuple[int, int]:
+    if options["schedule_mode"] == "fixed":
+        return options["interval_minutes"], options["interval_minutes"]
+    return options["min_interval_minutes"], options["max_interval_minutes"]
+
+
+def effective_probability(state: dict, options: dict) -> float:
+    unanswered = max(0, min(1000000, int(state.get("unanswered_count", 0))))
+    return round(options["trigger_probability"] * (1 - options["unanswered_decay_percent"] / 100) ** unanswered, 6)
+
+
+def plan_signature(options: dict) -> str:
+    keys = ("schedule_mode", "interval_minutes", "min_interval_minutes", "max_interval_minutes", "idle_minutes")
+    return hashlib.sha256(json.dumps({key: options[key] for key in keys}, sort_keys=True).encode()).hexdigest()
+
+
+def opportunity_window(state: dict, options: dict) -> tuple[float, float]:
+    anchor = max(float(state.get(key) or 0) for key in ("last_received", "last_sent", "last_opportunity_at"))
+    low, high = interval_bounds(options)
+    idle_until = float(state.get("last_received") or 0) + options["idle_minutes"] * 60
+    return max(anchor + low * 60, idle_until), max(anchor + high * 60, idle_until)
+
+
 def after_quiet(stamp: float, options: dict, now: datetime) -> float:
     candidate = datetime.fromtimestamp(stamp, tz=now.tzinfo)
     if quiet_now(candidate, options["quiet_start"], options["quiet_end"]):
@@ -73,10 +121,14 @@ def after_quiet(stamp: float, options: dict, now: datetime) -> float:
 def schedule_state(state: dict, options: dict, now: datetime, *, enabled: bool,
                    identity_ready: bool, session_known: bool) -> dict:
     """Pure scheduling policy shared by status and the actual worker."""
+    now = schedule_now(options, now)
     stamp = now.timestamp()
     count = max(0, int(state.get("day_count", 0))) if state.get("day") == now.date().isoformat() else 0
     result = {"session_known": session_known, "daily_count": count,
-              "daily_limit": options["daily_limit"], "next_trigger_at": None}
+              "daily_limit": options["daily_limit"], "next_trigger_at": None,
+              "next_window_start": None, "next_window_end": None, "schedule_mode": options["schedule_mode"],
+              "timezone": options["timezone"], "unanswered_count": max(0, int(state.get("unanswered_count", 0))),
+              "effective_probability": effective_probability(state, options), "paused_until_reply": False}
     code = "ready"
     if not enabled or not options["proactive_enabled"]:
         code = "disabled"
@@ -86,22 +138,36 @@ def schedule_state(state: dict, options: dict, now: datetime, *, enabled: bool,
         code = "waiting_session"
     else:
         received, sent = float(state.get("last_received") or 0), float(state.get("last_sent") or 0)
-        due = max(received, sent) + options["interval_minutes"] * 60
+        low, high = opportunity_window(state, options)
+        planned = float(state.get("next_opportunity_at") or 0)
+        due = planned if state.get("plan_signature") == plan_signature(options) and low <= planned <= high else low
+        result.update(next_window_start=after_quiet(low, options, now), next_window_end=after_quiet(high, options, now))
         if not received:
             code = "waiting_session"
-        elif stamp - received > 7 * 86400:
+        elif options["session_expiry_days"] and stamp - received > options["session_expiry_days"] * 86400:
             code = "session_stale"
+        elif options["max_unanswered"] and result["unanswered_count"] >= options["max_unanswered"]:
+            code = "unanswered_pause"
+            result["paused_until_reply"] = True
+        elif result["effective_probability"] <= 0:
+            code = "probability_paused"
         elif count >= options["daily_limit"]:
             code = "daily_limit"
             tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-            result["next_trigger_at"] = after_quiet(max(due, tomorrow.timestamp()), options, now)
+            if options["daily_limit"]:
+                result["next_trigger_at"] = after_quiet(max(due, tomorrow.timestamp()), options, now)
+                result["next_window_start"] = after_quiet(max(low, tomorrow.timestamp()), options, now)
+                result["next_window_end"] = after_quiet(max(high, tomorrow.timestamp()), options, now)
         else:
             result["next_trigger_at"] = after_quiet(max(due, stamp), options, now)
             if quiet_now(now, options["quiet_start"], options["quiet_end"]):
                 code = "quiet_hours"
             elif stamp < due:
                 code = "waiting_interval"
-    return {**result, "code": code, "message": RUNTIME_MESSAGES[code]}
+    if code in {"session_stale", "unanswered_pause", "probability_paused"} or code == "daily_limit" and not options["daily_limit"]:
+        result.update(next_window_start=None, next_window_end=None)
+    message = "每日生成预算设为0，主动生成已停用。" if code == "daily_limit" and not options["daily_limit"] else RUNTIME_MESSAGES[code]
+    return {**result, "code": code, "message": message}
 
 # Original AstrBot adaptation; research references are recorded in SOURCES.md.
 # It changes visible expression only, never a provider's private reasoning.
@@ -120,6 +186,9 @@ WHALE_STYLE_CONTEXT = (
 
 def normalize(data: dict, *, strict: bool = False) -> dict:
     result = dict(DEFAULTS)
+    legacy = "interval_minutes" in data and "schedule_mode" not in data
+    if legacy:
+        result.update(schedule_mode="fixed", idle_minutes=0, unanswered_decay_percent=0, max_unanswered=0)
     for key in BOOL_FIELDS:
         if key in data:
             if strict and type(data[key]) is not bool:
@@ -132,12 +201,17 @@ def normalize(data: dict, *, strict: bool = False) -> dict:
                 raise ValueError(f"{key} 必须在 {low} 到 {high} 之间")
             value = result[key]
         result[key] = value
-    frequency = data.get("natural_bubbles_frequency", "occasional")
-    if not isinstance(frequency, str) or frequency not in {"occasional", "often"}:
+    for key, choices in ENUMS.items():
+        value = data.get(key, result[key])
+        if not isinstance(value, str) or value not in choices:
+            if strict:
+                raise ValueError(f"{key} 的选项无效")
+            value = result[key]
+        result[key] = value
+    if result["max_interval_minutes"] < result["min_interval_minutes"]:
         if strict:
-            raise ValueError("natural_bubbles_frequency 必须为 occasional 或 often")
-        frequency = "occasional"
-    result["natural_bubbles_frequency"] = frequency
+            raise ValueError("最长主动机会间隔不能小于最短间隔")
+        result["max_interval_minutes"] = result["min_interval_minutes"]
     result["enabled"] = any(result[key] for key in BOOL_FIELDS)
     return result
 

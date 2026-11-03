@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import hashlib
+from functools import lru_cache
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -15,7 +17,18 @@ MAX_FILE_BYTES = 5 * 1024 * 1024
 MAX_COMMUNITY_FILES = 24
 MAX_COMMUNITY_BYTES = 30 * 1024 * 1024
 COMMUNITY_PREFIX = "vendor/nekowhale/pack/"
-PACK_SELECTIONS = ("all", "original", "community")
+PACK_SELECTIONS = ("all", "original", "community", "custom")
+
+
+@lru_cache(maxsize=1)
+def _custom_module():
+    # Also works when the desktop loads catalog.py as a standalone public
+    # resource module, without importing the AstrBot plugin package.
+    path = Path(__file__).with_name("custom_catalog.py")
+    spec = importlib.util.spec_from_file_location("_aiwu_shared_custom_stickers", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _plain_file(path: Path, root: Path) -> Path:
@@ -97,12 +110,20 @@ def load_catalog(root: Path = PACK_DIR, *, include_community: bool = True) -> di
             "count": len(rows), "license": license_info, "attribution": attribution,
             "source_url": extra.get("source_url", ""), "source_commit": extra.get("source_commit", "")})
         entries.extend(rows)
+    contributed = _custom_module().read_contributions(root.parent / "community/submissions") if include_community else []
+    if contributed:
+        entries.extend(contributed)
+        data["packs"].append({"id": "contributed", "name": "社区投稿精选", "count": len(contributed),
+                              "license": "CC-BY-NC-4.0", "attribution": "各图片分别保留投稿者署名",
+                              "source_url": "https://github.com/myflww/aiwu-jiyu"})
     return data
 
 
 def verify_asset(item: dict, root: Path = PACK_DIR) -> Path:
     identifier = item.get("id")
     root = Path(root)
+    if item.get("pack_id") == "contributed":
+        return _custom_module().verify_contributed_asset(item, root.parent / "community/submissions")
     community = item.get("pack_id") == "community"
     if community:
         filename = item.get("file")
@@ -137,10 +158,12 @@ def verify_asset(item: dict, root: Path = PACK_DIR) -> Path:
 
 
 def choose(emotion: str, catalog: dict, *, pack_selection: str = "all", avoid_id: str = "", index: int = 0) -> dict | None:
-    if not isinstance(emotion, str) or len(emotion) > 50 or pack_selection not in PACK_SELECTIONS:
+    if not isinstance(emotion, str) or len(emotion) > 80 or pack_selection not in PACK_SELECTIONS:
         return None
     value = emotion.strip().casefold()
-    items = [item for item in catalog["stickers"] if pack_selection == "all" or item.get("pack_id", "original") == pack_selection]
+    items = [item for item in catalog["stickers"] if pack_selection == "all"
+             or (pack_selection == "community" and item.get("pack_id") in {"community", "contributed"})
+             or item.get("pack_id", "original") == pack_selection]
     exact = next((item for item in items if item["id"] == value and value not in EMOTIONS), None)
     if exact:
         return exact
