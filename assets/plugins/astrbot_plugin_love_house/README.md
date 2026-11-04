@@ -113,3 +113,8 @@ python3.12 extensions/astrbot-love-house/package.py --output dist/LoveHouse-Astr
 ```
 
 打包只允许固定源码清单，不包含配置、消息数据库、队列或 `__pycache__`。自有代码使用 PolyForm Noncommercial 1.0.0，保留作者 myflww 署名。
+
+
+## 0.4.0 大肥鱼主动输出
+
+新增显式 `companion_recall`／`companion_record` 内部插件接口，只接入实际激活、明确登记的主人 QQ 私聊。`record_companion_outputs` 默认开启但仍受本插件总开关、来源启停、UMO登记、当前QQ实例和陪伴权限共同约束；可在 AstrBot 插件高级设置单独关闭。旧 `record_scheduled_outputs` 仍仅管理 Cron，默认关闭不变。独立主动输出不伪装成用户对话，不记录调度指令或隐藏推理；适配器接受不代表主人已读，来源暂存不代表已归档。

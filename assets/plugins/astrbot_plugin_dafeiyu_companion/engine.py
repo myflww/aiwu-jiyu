@@ -31,6 +31,7 @@ PRESETS = {"dsh_reference": {"schedule_mode": "random", "min_interval_minutes": 
     "quiet_start": 23, "quiet_end": 8, "timezone": "local"}}
 
 RUNTIME_MESSAGES = {
+    "host_incompatible": "宿主缺少兼容的会话锁，主动发送已暂停；请使用经过验证的 AstrBot 版本。",
     "disabled": "主动聊天未开启；插件总开关和主动聊天开关都需要开启。",
     "waiting_owner": "请先在桌面端设置主人和大肥鱼 QQ。",
     "waiting_session": "等待主人发来一条 QQ 私聊，以确认实际联系会话。",

@@ -9,6 +9,7 @@ from pathlib import Path
 import stat
 import tempfile
 import time
+from datetime import timedelta
 
 from backend import config_store
 from backend.paths import ASTRBOT, ASSETS
@@ -18,6 +19,39 @@ _spec = importlib.util.spec_from_file_location("_aiwu_companion_policy", ASSETS 
 _policy = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_policy)
 DEFAULTS = dict(_policy.DEFAULTS)
+_preference_spec = importlib.util.spec_from_file_location("_aiwu_companion_preferences", ASSETS / "plugins" / PLUGIN_NAME / "preferences.py")
+_preferences = importlib.util.module_from_spec(_preference_spec)
+_preference_spec.loader.exec_module(_preferences)
+
+
+def temporary_preference(config=None):
+    config = config_store.load() if config is None else config
+    return _preferences.read_preference(ASTRBOT / "data/plugin_data" / PLUGIN_NAME / "preferences.json",
+        str(config.get("owner_qq") or ""), str(config.get("bot_qq") or ""))
+
+
+def set_temporary(body):
+    if not isinstance(body, dict) or set(body) - {"mode", "duration_hours", "until_end_of_day"}:
+        raise ValueError("不支持的临时陪伴设置")
+    if (type(body.get("until_end_of_day", False)) is not bool
+            or "until_end_of_day" in body and "duration_hours" in body):
+        raise ValueError("当天结束和指定小时数不能混用")
+    config = config_store.load()
+    timing = {}
+    if body.get("until_end_of_day") is True:
+        current = _policy.schedule_now(load(config))
+        tomorrow = current.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        timing = {"now": current.timestamp(), "expires_at": min(tomorrow.timestamp(), current.timestamp() + 86400)}
+    _preferences.write_preference(ASTRBOT / "data/plugin_data" / PLUGIN_NAME / "preferences.json",
+        str(config.get("owner_qq") or ""), str(config.get("bot_qq") or ""), body.get("mode"),
+        duration_hours=body.get("duration_hours", 24), **timing)
+    return status(config)
+
+
+def apply_profile(name):
+    if not isinstance(name, str) or name not in _preferences.PROFILES:
+        raise ValueError("请选择安静陪伴、自然朋友或活泼陪伴")
+    return configure(_preferences.PROFILES[name]["values"])
 
 
 def load(config: dict | None = None) -> dict:
@@ -95,6 +129,10 @@ def status(config: dict | None = None) -> dict:
     return {**load(config), "owner_configured": bool(config.get("owner_qq")),
             "plugin_installed": plugins.plugin_path(PLUGIN_NAME).is_dir(),
             "runtime": _runtime_status(config),
+            "profiles": json.loads(json.dumps(_preferences.PROFILES, ensure_ascii=False)),
+            "profile": _preferences.matched_profile(load(config)),
+            "temporary_preference": _preferences.public_preference(temporary_preference(config)),
+            "effective_settings": _preferences.effective_options(load(config), temporary_preference(config)),
             "presets": {key: dict(value) for key, value in _policy.PRESETS.items()},
             "preset_sources": {"dsh_reference": {"label": "Aurabot 参考值",
                 "source": "https://github.com/aureth-labs/dsh-aurabot-qq/blob/b3301f6b014016e141c07d266a716c0fea566aab/src/core/config.js",
@@ -116,7 +154,9 @@ def _runtime_status(config: dict) -> dict:
               "next_window_start": None, "next_window_end": None,
               "unanswered_count": 0, "effective_probability": options["trigger_probability"],
               "paused_until_reply": False, "last_opportunity_at": None, "last_opportunity_result": None,
-              "last_trigger_source": None, "initiated_count": 0, "last_receipt": None}
+              "last_trigger_source": None, "initiated_count": 0, "last_receipt": None,
+              "usage": {"scope": "proactive", "date": _policy.schedule_now(options).date().isoformat(),
+                        "input_tokens": 0, "output_tokens": 0, "reported_calls": 0, "unreported_calls": 0, "available": False}}
     path = ASTRBOT / "data" / "plugin_data" / PLUGIN_NAME / "runtime.json"
     try:
         # Reject redirected/reparse files and directories, not just a final symlink.
@@ -172,6 +212,20 @@ def _runtime_status(config: dict) -> dict:
             result["last_opportunity_result"] = candidate["last_opportunity_result"]
         if candidate.get("last_receipt") in {"not_sent", "adapter_accepted", "delivery_uncertain"}:
             result["last_receipt"] = candidate["last_receipt"]
+        usage = candidate.get("usage")
+        if (isinstance(usage, dict) and usage.get("scope") == "proactive"
+                and usage.get("date") == result["usage"]["date"]
+                and all(type(usage.get(key)) is int and 0 <= usage[key] <= 1_000_000_000_000
+                        for key in ("input_tokens", "output_tokens", "reported_calls", "unreported_calls"))):
+            result["usage"] = {key:usage[key] for key in ("scope", "date", "input_tokens", "output_tokens", "reported_calls", "unreported_calls")}
+            result["usage"]["available"] = True
+        pipeline = candidate.get("reply_pipeline")
+        if isinstance(pipeline, dict):
+            result["reply_pipeline"] = {key: value for key, value in pipeline.items()
+                if key in {"history", "memory", "sticker", "sent_bubbles", "attempted", "accepted", "cancelled"}
+                and (isinstance(value, bool) or type(value) is int and 0 <= value <= 4
+                     or isinstance(value, str) and value in {"saved", "unsupported", "conversation_changed", "unavailable",
+                        "durably_staged", "not_bound", "not_enabled", "not_sent", "none", "adapter_accepted", "receipt_unavailable"})}
         last_result = candidate.get("last_result")
         if last_result in _policy.RUNTIME_MESSAGES:
             result["last_result"] = last_result

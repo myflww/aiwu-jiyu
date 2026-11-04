@@ -595,5 +595,106 @@ class CompanionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(other._state)
         self.context.send_message.assert_not_awaited()
 
+    async def test_zero_adapter_attempt_cancel_keeps_generation_budget_but_not_unanswered(self):
+        await self.prepare_session()
+        async def cancelled(*args, **kwargs):
+            value = {"accepted": False, "attempted": 0, "sent_bubbles": 0, "cancelled": True, "text": "",
+                     "history": "not_sent", "memory": "not_sent", "sticker": "not_sent"}
+            kwargs["on_result"](value)
+            return value
+        self.plugin._reply_pipeline.deliver = AsyncMock(side_effect=cancelled)
+        self.assertFalse(await self.plugin._proactive_once(self.now))
+        self.assertEqual(self.plugin._state["day_count"], 1)
+        self.assertEqual(self.plugin._state["unanswered_count"], 0)
+        self.assertEqual(self.plugin._state["last_receipt"], "not_sent")
+        self.assertEqual(self.plugin._runtime["last_result"], "cancelled")
+        self.context.send_message.assert_not_awaited()
+
+    async def test_actual_profile_file_is_hot_applied_and_heartbeat_matches_without_worker_reload(self):
+        runtime = self.data / "runtime"
+        (runtime / "data").mkdir(parents=True)
+        self.plugin._config_path = runtime / "data/config" / (main.PLUGIN_NAME + "_config.json")
+        initial = {key: self.config[key] for key in engine.DEFAULTS}
+        config = {"owner_qq": OWNER, "bot_qq": BOT, "companion": initial}
+        worker = self.plugin._worker
+        with patch.object(companion, "ASTRBOT", runtime), patch.object(companion.config_store, "load", side_effect=lambda:dict(config)), patch.object(companion.config_store, "save", side_effect=lambda value:config.update(value)):
+            companion.apply_profile("quiet")
+        self.assertEqual(self.plugin._options()["daily_limit"], 2)
+        self.assertEqual(self.plugin._options()["min_interval_minutes"], 180)
+        self.assertIs(self.plugin._worker, worker)
+        self.assertEqual(self.plugin._identity(), (OWNER, BOT))
+        self.plugin._publish()
+        public = json.loads(self.plugin._runtime_path.read_text("utf-8"))
+        expected = {**companion.load(config), "enabled": True, "owner_qq": OWNER, "bot_qq": BOT}
+        self.assertEqual(public["signature"], engine.runtime_signature(expected))
+        self.plugin._config_path.write_text("broken")
+        self.assertFalse(self.plugin._options()["proactive_enabled"])
+        # A disk flag cannot grant a master permission revoked in memory.
+        self.plugin.config["enabled"] = False
+        self.plugin._config_path.write_text(json.dumps({**initial, "enabled": True}))
+        self.assertFalse(self.plugin._enabled())
+
+    async def test_terminate_after_first_bubble_keeps_real_history_and_companion_receipt(self):
+        from contextlib import suppress
+        from importlib import import_module
+        pipeline = import_module(main.__package__ + ".reply_pipeline")
+        original = self.plugin._worker
+        original.cancel()
+        with suppress(asyncio.CancelledError):
+            await original
+        await self.prepare_session()
+        self.plugin.config["natural_bubbles_enabled"] = True
+        text = "今天一起慢慢聊聊吧，把想分享的小事情说给我听，我们可以一点点想清楚。" * 6
+        self.assertLess(len(text), 300)
+        self.provider.text_chat.return_value.completion_text = text
+        async def save_history(*args, **kwargs):
+            self.conversation.history = json.dumps(kwargs["history"])
+        self.manager.update_conversation = AsyncMock(side_effect=save_history)
+        paused = asyncio.Event()
+        async def pause(seconds):
+            paused.set()
+            await asyncio.Event().wait()
+        with patch.object(pipeline.BubbleReplies, "_selected", return_value=True), patch.object(pipeline.asyncio, "sleep", side_effect=pause):
+            task = asyncio.create_task(self.plugin._proactive_once(self.now))
+            self.plugin._worker = task
+            await asyncio.wait_for(paused.wait(), 3)
+            await self.plugin.terminate()
+        self.assertTrue(task.cancelled())
+        self.assertEqual(self.context.send_message.await_count, 1)
+        history = json.loads(self.conversation.history)
+        self.assertEqual(history[-1]["role"], "assistant")
+        self.assertLess(len(history[-1]["content"]), len(text))
+        self.assertEqual(self.plugin._state["last_greeting"], history[-1]["content"])
+        self.assertEqual(self.plugin._state["last_receipt"], "adapter_accepted")
+        self.assertEqual(self.plugin._state["initiated_count"], 1)
+
+    async def test_reported_usage_unknown_failures_duplicate_finish_and_day_rollover(self):
+        await self.prepare_session()
+        self.provider.text_chat.return_value.usage = SimpleNamespace(input_other=120, input_cached=30, output=12)
+        self.assertTrue(await self.plugin._proactive_once(self.now))
+        usage = self.plugin._usage_snapshot(self.now)
+        self.assertEqual((usage["input_tokens"], usage["output_tokens"], usage["reported_calls"], usage["unreported_calls"]), (150, 12, 1, 0))
+        self.plugin._usage_finish(self.plugin._state["usage_event"], self.provider.text_chat.return_value)
+        self.assertEqual(self.plugin._usage_snapshot(self.now), usage)
+        self.provider.text_chat.return_value.usage = None
+        await self.plugin._proactive_once(self.now + timedelta(minutes=121))
+        self.assertEqual(self.plugin._usage_snapshot(self.now)["unreported_calls"], 1)
+        self.provider.text_chat.side_effect = RuntimeError("private provider details")
+        await self.plugin._proactive_once(self.now + timedelta(minutes=242))
+        self.assertEqual(self.plugin._usage_snapshot(self.now)["unreported_calls"], 2)
+        tomorrow = self.now + timedelta(days=1)
+        await self.plugin._proactive_once(tomorrow)
+        usage = self.plugin._usage_snapshot(tomorrow)
+        self.assertEqual((usage["input_tokens"], usage["output_tokens"], usage["reported_calls"], usage["unreported_calls"]), (0, 0, 0, 1))
+        self.assertEqual(usage["scope"], "proactive")
+        self.assertEqual(usage["date"], tomorrow.date().isoformat())
+
+    async def test_usage_reservation_write_failure_does_not_invent_a_model_attempt(self):
+        with patch.object(self.plugin, "_save", return_value=False):
+            self.assertFalse(self.plugin._usage_start("never-called", self.now))
+        self.assertEqual(self.plugin._usage_snapshot(self.now)["unreported_calls"], 0)
+        self.plugin.config["timezone"] = "Asia/Shanghai"
+        self.assertEqual(self.plugin._usage_snapshot(self.now.replace(hour=20))["date"], "2026-11-04")
+
 
 if __name__ == "__main__": unittest.main(verbosity=2)

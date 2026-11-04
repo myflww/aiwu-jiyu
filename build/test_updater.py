@@ -13,6 +13,7 @@ from urllib.error import URLError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 from backend import updater
+from backend import recovery
 
 
 class Response(io.BytesIO):
@@ -36,6 +37,10 @@ class UpdateTests(unittest.TestCase):
             self.release["checksums_url"]: (hashlib.sha256(self.binary).hexdigest() + "  " + self.release["name"] + "\n").encode(),
         }
         self.requests = []
+        # Never create recovery points in a real profile while testing updates.
+        backup = patch.object(recovery, "create_backup", return_value={"backup": {"id": "a" * 32}})
+        self.backup = backup.start()
+        self.addCleanup(backup.stop)
 
     def opener(self, url, timeout=8):
         self.requests.append(url)
@@ -117,6 +122,37 @@ class UpdateTests(unittest.TestCase):
             self.assertIs(keywords["shell"], False)
             self.assertIs(keywords["close_fds"], True)
             self.assertEqual(keywords["env"]["PYINSTALLER_RESET_ENVIRONMENT"], "1")
+            self.backup.assert_called_once_with("before_update", source_version="1.1.0", target_version="1.2.0")
+
+    def test_backup_failure_blocks_explicit_installer_launch(self):
+        service = self.checked()
+        service.download(); service.worker.join(3)
+        self.backup.side_effect = ValueError("backup fixture failed")
+        with patch.object(updater.subprocess, "Popen") as execute:
+            with self.assertRaisesRegex(ValueError, "backup fixture"):
+                service.install()
+            execute.assert_not_called()
+            self.assertFalse(service.snapshot()["installing"])
+
+    def test_explicit_rollback_uses_same_trusted_hashes_and_separate_confirmation(self):
+        service = self.checked("1.3.0")
+        with patch.object(recovery, "rollback_version", return_value="1.2.0"):
+            with self.assertRaises(ValueError): service.download_rollback("a" * 32)
+            service.download_rollback("a" * 32, confirmed=True); service.worker.join(3)
+            state = service.snapshot()
+            self.assertTrue(state["rollback"] and state["download_verified"])
+            self.assertFalse(state["available"])
+            self.assertEqual(service.installer_path.read_bytes(), self.binary)
+            with patch.object(updater.subprocess, "Popen") as execute:
+                service.install()
+                execute.assert_called_once()
+            self.backup.assert_called_once_with("before_rollback", source_version="1.3.0", target_version="1.2.0")
+
+    def test_rollback_cannot_use_same_or_future_version_as_a_downgrade(self):
+        service = self.checked("1.2.0")
+        for version in ("1.2.0", "9.0.0"):
+            with patch.object(recovery, "rollback_version", return_value=version):
+                with self.assertRaises(ValueError): service.download_rollback("a" * 32, confirmed=True)
 
     def test_bad_hash_never_leaves_installable_file(self):
         self.responses[self.release["checksums_url"]] = ("0" * 64 + "  " + self.release["name"]).encode()

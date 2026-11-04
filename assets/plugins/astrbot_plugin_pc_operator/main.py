@@ -32,7 +32,7 @@ from astrbot.core.platform.message_type import MessageType
 from astrbot.core.star.filter.command import GreedyStr
 
 if __package__:
-    from . import desktop_native
+    from . import desktop_native, task_journal
 else:  # Support the repository's standalone plugin permission smoke script.
     import importlib.util
 
@@ -40,6 +40,10 @@ else:  # Support the repository's standalone plugin permission smoke script.
         "dafeiyu_desktop_native", Path(__file__).with_name("desktop_native.py"))
     desktop_native = importlib.util.module_from_spec(_desktop_spec)
     _desktop_spec.loader.exec_module(desktop_native)
+    _task_spec = importlib.util.spec_from_file_location(
+        "dafeiyu_task_journal", Path(__file__).with_name("task_journal.py"))
+    task_journal = importlib.util.module_from_spec(_task_spec)
+    _task_spec.loader.exec_module(task_journal)
 
 PLUGIN_NAME = "astrbot_plugin_pc_operator"
 MAX_WRITE_CHARS = 200_000
@@ -83,7 +87,7 @@ BLOCKED = re.compile(
 )
 
 
-@register(PLUGIN_NAME, "dafeiyu", "大肥鱼电脑操作（工作目录 + 可选桌面控制）", "0.3.0")
+@register(PLUGIN_NAME, "dafeiyu", "大肥鱼电脑操作（工作目录 + 可选桌面控制）", "0.4.0")
 class PcOperator(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -198,6 +202,19 @@ class PcOperator(Star):
 
     # ---------- 基础设施 ----------
 
+    def _task_begin(self, action: str, role: str = "") -> str:
+        try:
+            return task_journal.begin(self._workspace(), action, role)
+        except Exception:
+            # Progress is informational, never a replacement for tool authority.
+            return ""
+
+    def _task_finish(self, identifier: str, success: bool, *, artifact: str = "", exit_code=None):
+        try:
+            task_journal.finish(self._workspace(), identifier, success=success, artifact=artifact, exit_code=exit_code)
+        except Exception:
+            pass
+
     def _workspace(self) -> Path:
         raw = str(self.config.get("workspace") or "").strip()
         if raw:
@@ -261,6 +278,8 @@ class PcOperator(Star):
         except ValueError as exc:
             return str(exc)
         timeout = max(5, min(300, int(self.config.get("timeout_s") or 60)))
+        task = self._task_begin("run", role)
+        success, exit_code = False, None
         try:
             completed = subprocess.run(
                 ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
@@ -274,10 +293,13 @@ class PcOperator(Star):
             )
             output = (completed.stdout or "") + (("\n[stderr]\n" + completed.stderr) if completed.stderr else "")
             result = f"exit={completed.returncode}\n{output.strip()[: int(self.config.get('max_output_chars') or 8000)]}"
+            exit_code = completed.returncode
+            success = completed.returncode == 0
         except subprocess.TimeoutExpired:
             result = f"命令超时（{timeout}s），已终止。"
         except Exception as exc:  # noqa: BLE001
             result = f"执行失败：{type(exc).__name__}: {exc}"
+        self._task_finish(task, success, exit_code=exit_code)
         self._audit(event, "run", {"command": command, "cwd": cwd}, result, role)
         return result
 
@@ -288,15 +310,23 @@ class PcOperator(Star):
         if perm is None:
             return {"ok": False, "error": error}
         async with self._desktop_actions:
+            # A queued request must not keep a permission that was revoked while
+            # another desktop operation was running.
+            perm, error = self._check(event, "desktop")
+            if perm is None:
+                return {"ok": False, "error": error}
+            task = self._task_begin(action, perm.get("role", ""))
             try:
                 native = desktop_native.get_desktop()
                 result = await asyncio.to_thread(getattr(native, method), *args)
                 self._audit(event, action, detail, "已完成", perm.get("role", ""))
+                self._task_finish(task, True)
                 return {"ok": True, **result}
             except Exception as exc:
                 # Do not copy screen contents or typed text into audit logs.
                 result = f"桌面操作失败：{type(exc).__name__}: {exc}"
                 self._audit(event, action, detail, result, perm.get("role", ""))
+                self._task_finish(task, False)
                 return {"ok": False, "error": result}
 
     @filter.llm_tool(name="pc_desktop_status")
@@ -416,7 +446,7 @@ class PcOperator(Star):
             command(string): 要执行的 PowerShell 命令
             cwd(string): 相对于工作目录的执行目录，默认 .
         """
-        return self._run(event, command, cwd)
+        return await asyncio.to_thread(self._run, event, command, cwd)
 
     @filter.llm_tool(name="pc_write_file")
     async def pc_write_file(self, event: AstrMessageEvent, path: str, content: str):
@@ -435,13 +465,16 @@ class PcOperator(Star):
             target = self._resolve(path)
         except ValueError as exc:
             return str(exc)
+        task = self._task_begin("write", perm.get("role", ""))
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
             result = f"已写入 {target.relative_to(self._workspace())}（{len(content)} 字符）。"
             self._audit(event, "write", {"path": str(target)}, result, perm.get("role", ""))
+            self._task_finish(task, True, artifact=target.relative_to(self._workspace()).as_posix())
             return result
         except Exception as exc:  # noqa: BLE001
+            self._task_finish(task, False)
             return f"写入失败：{type(exc).__name__}: {exc}"
 
     @filter.llm_tool(name="pc_read_file")
@@ -462,11 +495,14 @@ class PcOperator(Star):
         if not target.is_file():
             return "文件不存在。"
         limit = max(100, min(MAX_READ_CHARS, int(max_chars or 8000)))
+        task = self._task_begin("read", perm.get("role", ""))
         try:
             text = target.read_text(encoding="utf-8", errors="replace")
             self._audit(event, "read", {"path": str(target)}, f"{min(len(text), limit)} 字符", perm.get("role", ""))
+            self._task_finish(task, True)
             return text[:limit]
         except Exception as exc:  # noqa: BLE001
+            self._task_finish(task, False)
             return f"读取失败：{type(exc).__name__}: {exc}"
 
     @filter.llm_tool(name="pc_list_files")
@@ -485,6 +521,7 @@ class PcOperator(Star):
             return str(exc)
         if not root.is_dir():
             return "目录不存在。"
+        task = self._task_begin("list", perm.get("role", ""))
         lines = []
         for current, dirs, files in os.walk(root):
             dirs[:] = [d for d in dirs if d != ".dafeiyu"][:40]
@@ -498,9 +535,10 @@ class PcOperator(Star):
                 lines.append(f"{relative / name}  {size} bytes")
             if len(lines) >= 120:
                 break
+        self._task_finish(task, True)
         return "\n".join(lines) if lines else "工作目录为空。"
 
     @filter.command("pc")
     async def pc_command(self, event: AstrMessageEvent, command: GreedyStr):
         """直接执行一条 PowerShell 命令（主人或有「执行命令」权限的管理员）。"""
-        yield event.plain_result(self._run(event, str(command)))
+        yield event.plain_result(await asyncio.to_thread(self._run, event, str(command)))

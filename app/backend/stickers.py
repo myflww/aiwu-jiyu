@@ -91,7 +91,7 @@ def _pack() -> dict:
                        "source_url": item.get("source_url") or packs[group].get("source_url", "")})
     return {"pack_name": "大肥鱼表情素材库", "count": len(rows), "plugin_id": PLUGIN_ID,
             "stickers": rows, "packs": data["packs"], "license": "参见各素材包许可与署名",
-            "attribution": "原创素材与社区素材分别保留署名", "version": "1.2.0"}
+            "attribution": "原创素材与社区素材分别保留署名", "version": "1.3.0"}
 
 
 def status(*, settings: dict | None = None, custom_items: list | None = None) -> dict:
@@ -110,6 +110,20 @@ def status(*, settings: dict | None = None, custom_items: list | None = None) ->
     result["count"] += len(rows)
     result["packs"].append({"id": "custom", "name": "我的表情", "count": len(rows),
                            "attribution": "本机个人素材", "license": "由用户管理；未默认授予公开再分发许可"})
+    # Preview calls omit custom_items and must remain completely profile-free.
+    if custom_items is not None:
+        from backend import sticker_materials
+        try:
+            extra = sticker_materials.rows()
+        except (OSError, ValueError):
+            extra = []
+            result["material_warning"] = "社区更新素材暂时无法读取，随附和个人图库仍可使用；可重新检查素材更新。"
+        if extra:
+            merged = {row["id"]: row for row in result["stickers"]}
+            merged.update({row["id"]: row for row in extra})
+            result["stickers"] = list(merged.values())
+            result["count"] = len(merged)
+            result["material_version"] = sticker_materials.current()["version"]
     return result
 
 

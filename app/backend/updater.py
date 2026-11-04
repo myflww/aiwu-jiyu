@@ -40,7 +40,7 @@ def current_version() -> str:
         version_key(value)
         return value.removeprefix("v")
     except (OSError, ValueError):
-        return "1.3.2"
+        return "1.4.0"
 
 
 def _trusted_url(url: str) -> bool:
@@ -118,6 +118,7 @@ class Updater:
         self.release = None
         self.installer_path = None
         self.installer_hash = ""
+        self.rollback_backup_id = ""
         self.started = False
         self.worker = None
         self.settings = {"auto_check": True, "ignored_version": "", "snoozed_until": 0}
@@ -126,6 +127,7 @@ class Updater:
                       "progress": 0, "downloaded": False, "download_verified": False,
                       "checked_at": None, "checked_epoch": 0, "message": "", "error": "",
                       "release_url": REPO_URL + "/releases/latest"}
+        self.state.update(rollback=False, rollback_backup_id="", recovery_backup_id="")
         self._load()
 
     def _load(self) -> None:
@@ -225,6 +227,8 @@ class Updater:
         try:
             release = self._latest()
             with self.lock:
+                self.rollback_backup_id = ""
+                self.state.update(rollback=False, rollback_backup_id="")
                 if not self.release or self.release["version"] != release["version"]:
                     self.installer_path = None
                     self.installer_hash = ""
@@ -250,11 +254,42 @@ class Updater:
                                    and version_key(self.release["version"]) == version_key(self.version))
             if not self.release or not (self.state["available"] or same_version_repair):
                 raise ValueError("请先检查是否有新版本")
+            self.rollback_backup_id = ""
+            self.state.update(rollback=False, rollback_backup_id="")
             self.state.update(downloading=True, downloaded=False, download_verified=False,
                               progress=0, error="", message="正在下载安装包…")
             release = dict(self.release)
             self.worker = threading.Thread(target=self._download_worker, args=(release,), daemon=True,
                                            name="aiwu-update-download")
+            self.worker.start()
+            return self.snapshot()
+
+    def download_rollback(self, backup_id: str, *, confirmed: bool = False) -> dict:
+        """Explicit downgrade through the same trusted release/hash checks.
+
+        This only downloads an installer. It neither restores configuration nor
+        stops services, and never executes code contained in a recovery ZIP.
+        """
+        if confirmed is not True:
+            raise ValueError("请确认下载与恢复点匹配的旧版安装程序")
+        from backend import recovery
+        with self.lock:
+            if self.state["checking"] or self.state["downloading"] or self.state["installing"]:
+                raise ValueError("更新任务正在进行，请稍后再选择旧版")
+            version = recovery.rollback_version(backup_id)
+            if version_key(version) >= version_key(self.version):
+                raise ValueError("所选恢复点不是当前软件的旧版；同版恢复请使用恢复设置")
+            release = _release("v" + version)
+            self.release = release
+            self.rollback_backup_id = backup_id
+            self.installer_path = None
+            self.installer_hash = ""
+            self.state.update(rollback=True, rollback_backup_id=backup_id, downloading=True,
+                              available=False, latest_version=version, release_url=release["release_url"],
+                              downloaded=False, download_verified=False, progress=0, error="",
+                              message="正在下载与恢复点匹配的旧版；校验后仍需自行选择安装。")
+            self.worker = threading.Thread(target=self._download_worker, args=(release,), daemon=True,
+                                           name="aiwu-rollback-download")
             self.worker.start()
             return self.snapshot()
 
@@ -318,12 +353,23 @@ class Updater:
             if not expected_path.is_file() or _file_hash(expected_path) != self.installer_hash:
                 self.state.update(downloaded=False, download_verified=False)
                 raise ValueError("安装包已改变，请重新下载")
+            # The user already chose Install. Make a verifiable, nonsecret
+            # recovery point before handing off to the independent installer.
+            # A failed backup must never launch a partially protected upgrade.
+            from backend import recovery
+            if self.rollback_backup_id:
+                version = recovery.rollback_version(self.rollback_backup_id)
+                if version != self.release["version"]:
+                    raise ValueError("旧版安装包与所选恢复点版本不匹配")
+            backup = recovery.create_backup("before_rollback" if self.rollback_backup_id else "before_update",
+                                            source_version=self.version, target_version=self.release["version"])
+            self.state["recovery_backup_id"] = backup["backup"]["id"]
             # Setup may launch our new one-file executable at the same path.
             # Give that independent bootloader a fresh extraction environment.
             environment = os.environ.copy()
             environment["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
             subprocess.Popen([str(expected_path)], shell=False, close_fds=True, env=environment)
-            self.state.update(installing=True, message="安装程序已打开；后台机器人服务会继续运行。")
+            self.state.update(installing=True, message="恢复点已制作，安装程序已打开；后台机器人服务会继续运行。")
             return self.snapshot()
 
 

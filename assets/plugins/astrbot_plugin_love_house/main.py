@@ -23,7 +23,7 @@ from .bridge import AdapterError, Bridge, Router
 from .source_client import SourceClient
 
 
-@register("love_house", "myflww", "爱之屋 Agent 经历记忆（实验适配）", "0.3.0")
+@register("love_house", "myflww", "爱之屋 Agent 经历记忆（实验适配）", "0.4.0")
 class LoveHousePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -173,6 +173,49 @@ class LoveHousePlugin(Star):
                 await self._worker
             except asyncio.CancelledError:
                 pass
+
+    def _companion_bridge(self, umo):
+        """Explicit proactive source, not a manufactured incoming QQ event."""
+        if self.config.get("enabled", False) is not True:
+            return None
+        bridge = self.router.for_umo(umo)
+        if bridge is None:
+            return None
+        matches = [p for p in self.context.platform_manager.platform_insts
+                   if p.meta().id == umo.split(":", 1)[0]
+                   and p.meta().name in {"qq", "aiocqhttp"}]
+        if len(matches) != 1 or bridge.platform != "qq":
+            return None
+        source = bridge.client.status()
+        if (source.get("enabled") is not True or source.get("revoked") is not False
+                or source.get("runtime_agent_id") != bridge.runtime_agent_id
+                or source.get("source_id") != bridge.source_id or source.get("adapter") != "astrbot"
+                or "qq" not in source.get("platforms", []) and "*" not in source.get("platforms", [])):
+            return None
+        return bridge
+
+    async def companion_recall(self, umo, message_id, query):
+        if self.config.get("record_companion_outputs", True) is not True:
+            return ""
+        bridge = self._companion_bridge(umo)
+        if bridge is None:
+            return ""
+        return await asyncio.to_thread(bridge.read_material, umo, message_id, query)
+
+    async def companion_record(self, umo, message_id, text, *, receipt):
+        if self.config.get("record_companion_outputs", True) is not True:
+            return False
+        bridge = self._companion_bridge(umo)
+        if bridge is None or receipt != "adapter_accepted":
+            return False
+        # An actual assistant-only output is valid source evidence. Never pair
+        # scheduler metadata with a fabricated user utterance or mark it read.
+        actual = next(p.meta().name for p in self.context.platform_manager.platform_insts
+                      if p.meta().id == umo.split(":", 1)[0])
+        await asyncio.to_thread(bridge.stage_final, umo, message_id, text,
+            execution_origin="scheduled", actual_platform=actual)
+        await asyncio.to_thread(bridge.note_host_send_stage, umo, message_id)
+        return True
 
     @staticmethod
     def _origin(event):

@@ -19,6 +19,7 @@ from backend import autostart, config_store, installer, lovehouse, napcat_api, p
 from backend import astrbot_api
 from backend import metrics, pc_access, updater, log_retention, companion, stickers, plugin_updates
 from backend import dashboard_credentials, custom_stickers, sticker_contributions
+from backend import health, tasks, recovery, companion_memory, sticker_library, sticker_materials
 from backend.paths import APP_HOME, ASSETS, LOGS, RUN_DIR, UI_DIR, ensure_dirs
 
 _lock = threading.Lock()
@@ -225,9 +226,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def _body(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
-        limit = 12 * 1024 * 1024 if self.path == "/api/stickers/custom/import" else 1024 * 1024
+        limit = {"/api/stickers/custom/import": 12 * 1024 * 1024,
+                 "/api/stickers/custom/batch": 36 * 1024 * 1024,
+                 "/api/stickers/custom/zip": 28 * 1024 * 1024}.get(self.path, 1024 * 1024)
         if length < 0 or length > limit:
-            raise _BodyTooLarge("请求内容过大；单张表情包最多 8 MiB。")
+            raise _BodyTooLarge("请求内容过大；单张最多8 MiB，批量原图共24 MiB，ZIP最多20 MiB。")
         if length <= 0:
             return {}
         raw = self.rfile.read(length)
@@ -270,6 +273,11 @@ class Handler(BaseHTTPRequestHandler):
         }
         pc = {"enabled": False, "workspace": "", "members": {}, "audit": []}
         fixtures = {
+            "/api/health": {"ok": True, "preview": True, "overall": "unknown", "checks": [], "summary": "界面预览不读取实际运行状态。", "readonly": True},
+            "/api/tasks": {"ok": True, "preview": True, "active": [], "recent": [], "source": "preview"},
+            "/api/recovery": {"ok": True, "preview": True, "backups": [], "current_version": updater.current_version()},
+            "/api/stickers/library": {"ok": True, "preview": True, "stickers": [], "count": 0, "total_count": 0},
+            "/api/stickers/materials": {"ok": True, "preview_mode": True, "installed_version": "", "message": "预览不连接社区素材更新服务。"},
             "/api/stickers": {"ok": True, **stickers.status()},
             "/api/companion": {"ok": True, **companion.DEFAULTS, "owner_configured": False,
                                 "plugin_installed": False},
@@ -341,6 +349,23 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, _updates_snapshot(self.server))
             elif path == "/api/state":
                 self._json(200, state())
+            elif path == "/api/health":
+                self._json(200, health.snapshot(query.get("reason", ["all"])[0]))
+            elif path == "/api/tasks":
+                self._json(200, tasks.snapshot())
+            elif path == "/api/recovery":
+                self._json(200, {**recovery.list_backups(), "current_version": updater.current_version()})
+            elif path == "/api/stickers/library":
+                self._json(200, sticker_library.browse({"query": query.get("query", [""])[0], "favorites_only": query.get("favorites_only", ["false"])[0] == "true", "sort": query.get("sort", ["default"])[0]}))
+            elif path == "/api/stickers/materials":
+                self._json(200, sticker_materials.status())
+            elif path.startswith("/api/stickers/materials/image/"):
+                asset, mime = sticker_materials.asset(path.rsplit("/", 1)[-1])
+                with asset.open("rb") as stream:
+                    content = stream.read(8 * 1024 * 1024 + 1)
+                if len(content) > 8 * 1024 * 1024:
+                    raise ValueError("图片超过大小上限。")
+                self._send(200, content, mime)
             elif path == "/api/metrics":
                 self._json(200, {"ok": True, **metrics.snapshot()})
             elif path == "/api/setup/status":
@@ -439,10 +464,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {"ok": True, "whitelist": config.get("whitelist", {}), "owner_qq": config.get("owner_qq", "")})
             elif path.startswith("/static/"):
                 self._static(path[len("/static/"):])
+            elif path.startswith("/api/"):
+                self._json(404, {"ok": False, "message": "接口不存在。"})
             elif path == "/" or path == "":
                 self._static("index.html")
             else:
                 self._static(path)
+        except ValueError as exc:
+            self._json(400, {"ok": False, "message": str(exc)})
         except Exception as exc:  # noqa: BLE001
             self._json(500, {"ok": False, "message": str(exc)})
 
@@ -453,7 +482,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(403, {"ok": False, "message": "这是界面预览，请在正式应用中设置"})
             return
         try:
-            if path == "/api/dashboard/credentials" or path.startswith(("/api/stickers/custom/", "/api/stickers/contributions/")):
+            if path == "/api/dashboard/credentials" or path.startswith(("/api/stickers/custom/", "/api/stickers/contributions/", "/api/stickers/library/", "/api/stickers/materials/", "/api/memories/", "/api/recovery/", "/api/companion/")):
                 expected = f"http://127.0.0.1:{self.server.server_address[1]}"
                 if self.headers.get("Origin") != expected or self.headers.get("Host") != expected.removeprefix("http://"):
                     self._json(403, {"ok": False, "message": "请在爱屋及鱼窗口中操作。"})
@@ -465,11 +494,56 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(403, {"ok": False, "message": "请从爱屋及鱼应用窗口操作"})
                     return
             body = self._body()
+            if path in {"/api/companion/profile", "/api/companion/temporary"}:
+                payload = companion.apply_profile(body.get("profile")) if path.endswith("/profile") else companion.set_temporary(body)
+                self._json(200, {"ok": True, **payload})
+                return
+            if path.startswith("/api/memories/"):
+                action = path.rsplit("/", 1)[-1]
+                functions = {"catalog": companion_memory.catalog, "read": companion_memory.read, "add": companion_memory.add, "mutate": companion_memory.mutate}
+                if action not in functions or path != "/api/memories/" + action:
+                    self._json(404, {"ok": False, "message": "记忆接口不存在。"})
+                else:
+                    self._json(200, {"ok": True, **functions[action](body)})
+                return
+            if path.startswith("/api/recovery/"):
+                if path == "/api/recovery/backup":
+                    payload = recovery.create_backup()
+                elif path == "/api/recovery/restore":
+                    payload = recovery.restore(body)
+                elif path == "/api/recovery/rollback":
+                    if body.get("confirmed") is not True:
+                        raise ValueError("请明确确认下载匹配的旧版安装程序。")
+                    payload = updater.get_updater().download_rollback(body.get("backup_id"), confirmed=True)
+                else:
+                    self._json(404, {"ok": False, "message": "备份接口不存在。"})
+                    return
+                self._json(200, payload)
+                return
             if path == "/api/dashboard/credentials":
                 self._json(200, {"ok": True, **dashboard_credentials.reveal(body.get("target"))})
                 return
             if path == "/api/stickers/custom/import":
                 self._json(200, {"ok": True, "item": custom_stickers.import_item(body)})
+                return
+            if path in {"/api/stickers/custom/batch", "/api/stickers/custom/zip"}:
+                self._json(200, custom_stickers.import_zip(body) if path.endswith("/zip") else custom_stickers.import_batch(body))
+                return
+            if path.startswith("/api/stickers/library/"):
+                action = path.rsplit("/", 1)[-1]
+                functions = {"favorite": sticker_library.set_favorite, "preview": sticker_library.preview, "feedback": sticker_library.feedback}
+                if action not in functions or path != "/api/stickers/library/" + action:
+                    self._json(404, {"ok": False, "message": "图库接口不存在。"})
+                else:
+                    self._json(200, functions[action](body))
+                return
+            if path.startswith("/api/stickers/materials/"):
+                if path == "/api/stickers/materials/check":
+                    self._json(200, sticker_materials.check())
+                elif path == "/api/stickers/materials/apply":
+                    self._json(200, sticker_materials.apply(body))
+                else:
+                    self._json(404, {"ok": False, "message": "素材更新接口不存在。"})
                 return
             if path in {"/api/stickers/custom/update", "/api/stickers/custom/delete"}:
                 identifier = body.get("id")

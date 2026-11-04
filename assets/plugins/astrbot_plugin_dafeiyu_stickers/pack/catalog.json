@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "pack_name": "大肥鱼心情贴纸",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "license": "PolyForm-Noncommercial-1.0.0",
   "attribution": "myflww · 爱屋及鱼",
   "stickers": [
@@ -14,16 +14,32 @@
         "开心",
         "happy",
         "hello",
-        "你好"
+        "你好",
+        "白衬衫大肥鱼",
+        "职场大肥鱼",
+        "铅笔裙小鱼",
+        "抱电脑",
+        "完成啦"
       ],
       "width": 1165,
       "height": 1350,
-      "size": 1736093,
-      "sha256": "e4d56e412e0ef103e297b4e0ea2dd32832e3c222094ceedbdcd0a8d563bb4238",
+      "size": 1524890,
+      "sha256": "13a64c9cd29ccba29ec1d6a3ebab7ea27caeb451f7948e4a2a96c95e447cf2de",
       "emotion": "happy",
       "file": "happy.png",
       "format": "PNG",
-      "alpha": true
+      "alpha": true,
+      "description": "白衬衫、深蓝铅笔裙与黑色连裤袜；抱着合上的小电脑，开心握拳。",
+      "use_when": "轻松打招呼、分享喜悦，或确实完成事情后一起庆祝。",
+      "avoid_when": "用户正在讲述失落或坏消息；任务未完成时不要用它暗示已经成功。",
+      "tags": [
+        "白衬衫",
+        "铅笔裙",
+        "黑色连裤袜",
+        "职场穿搭",
+        "抱小电脑",
+        "开心握拳"
+      ]
     },
     {
       "id": "sad",
@@ -33,16 +49,31 @@
         "伤心",
         "哭哭",
         "安慰",
-        "sad"
+        "sad",
+        "黑裙大肥鱼",
+        "针织裙小鱼",
+        "抱枕小鱼",
+        "委屈抱抱"
       ],
-      "width": 1194,
-      "height": 1317,
-      "size": 1880662,
-      "sha256": "2c24482c5b7417cdbc8253de1fb5b3e47c2c95f76a64bb6c496664935bead6c5",
+      "width": 1199,
+      "height": 1312,
+      "size": 1948225,
+      "sha256": "af82014da1ce059f71c3812406f687055f7a78cdca8ce7639b3db715390ff8cb",
       "emotion": "sad",
       "file": "sad.png",
       "format": "PNG",
-      "alpha": true
+      "alpha": true,
+      "description": "黑色针织连衣裙与黑色连裤袜；坐在蓝色靠垫上抱着紫色小枕头，轻轻委屈。",
+      "use_when": "表达一点失落、轻声求安慰，或在合适的轻松语境中撒娇。",
+      "avoid_when": "不要用于嘲笑别人的难过；严重痛苦或紧急求助时应认真回应。",
+      "tags": [
+        "黑色针织裙",
+        "黑色连裤袜",
+        "紫色抱枕",
+        "蓝色坐垫",
+        "委屈",
+        "轻微失落"
+      ]
     },
     {
       "id": "angry",
@@ -51,16 +82,31 @@
         "气鼓鼓",
         "哼",
         "不开心",
-        "angry"
+        "angry",
+        "夹克大肥鱼",
+        "格纹裙小鱼",
+        "抱臂哼哼",
+        "鼓腮小鱼"
       ],
-      "width": 1190,
-      "height": 1322,
-      "size": 1854611,
-      "sha256": "1a7b2333ebb171cace1405431b810baf3bd839a3a89847e64e60cfd2fe7d73ea",
+      "width": 1165,
+      "height": 1350,
+      "size": 1649530,
+      "sha256": "4a4447e26c40e9217ed947122daa65e2425218d122facc5bac348be1ca91dd94",
       "emotion": "angry",
       "file": "angry.png",
       "format": "PNG",
-      "alpha": true
+      "alpha": true,
+      "description": "黑色短夹克、灰蓝格纹裙与黑色连裤袜；抱臂鼓腮，带一点可爱的闹别扭。",
+      "use_when": "朋友间无恶意地打趣、轻微不满或可爱的嘴硬。",
+      "avoid_when": "认真争执、表达敌意、用户生气需要倾听时，不要用它火上浇油。",
+      "tags": [
+        "黑色夹克",
+        "灰蓝格纹裙",
+        "黑色连裤袜",
+        "抱臂",
+        "鼓腮",
+        "轻微闹别扭"
+      ]
     },
     {
       "id": "shy",
@@ -69,16 +115,31 @@
         "不好意思",
         "脸红",
         "羞涩",
-        "shy"
+        "shy",
+        "碎花裙大肥鱼",
+        "粉裙小鱼",
+        "开衫小鱼",
+        "害羞贴脸"
       ],
-      "width": 1197,
-      "height": 1315,
-      "size": 1820321,
-      "sha256": "2638093e14c7a47eb522b4f078dbfe820fe54f457001af7cc70b9c436965c25c",
+      "width": 1165,
+      "height": 1350,
+      "size": 1593062,
+      "sha256": "9ee489d099fdb5f74955295a72c47b834eebaf31ad46716c2c6fa118253378c0",
       "emotion": "shy",
       "file": "shy.png",
       "format": "PNG",
-      "alpha": true
+      "alpha": true,
+      "description": "粉色碎花连衣裙配奶白短开衫；双手轻贴脸颊，脸红地露出小小笑意。",
+      "use_when": "被夸奖后害羞、表达不好意思，或轻松温柔地回应赞美。",
+      "avoid_when": "正式道歉、严肃讨论或对方拒绝亲昵表达时，不要用害羞代替清楚回答。",
+      "tags": [
+        "粉色碎花裙",
+        "奶白短开衫",
+        "浅色连裤袜",
+        "双手贴脸",
+        "脸红",
+        "害羞微笑"
+      ]
     },
     {
       "id": "sleepy",
@@ -88,16 +149,31 @@
         "困困",
         "休息",
         "sleepy",
-        "goodnight"
+        "goodnight",
+        "开衫晚安小鱼",
+        "捧热饮小鱼",
+        "安静陪伴",
+        "半睁眼困困"
       ],
-      "width": 1536,
-      "height": 1024,
-      "size": 2207435,
-      "sha256": "f4d78bc9857598b82f6516aeb32efb4518cc59d0ccd920684be3fa9393facd86",
+      "width": 1210,
+      "height": 1300,
+      "size": 1981348,
+      "sha256": "bf188b9e80cf7251c1dd496f5a25521a55dd36a2f63cbb98756bf0de98b58ce9",
       "emotion": "sleepy",
       "file": "sleepy.png",
       "format": "PNG",
-      "alpha": true
+      "alpha": true,
+      "description": "燕麦色长针织开衫、奶油色裙子和膝毯；半睁着眼捧热饮，安静地陪在旁边。",
+      "use_when": "临睡前道晚安、温柔提醒休息，或表达不打扰的安静陪伴。",
+      "avoid_when": "图中仍然半睁眼，不要说它已经熟睡；紧急事项也不适合发困倦表情。",
+      "tags": [
+        "燕麦针织开衫",
+        "奶油色裙子",
+        "象牙白膝毯",
+        "热饮",
+        "半睁眼",
+        "安静陪伴"
+      ]
     },
     {
       "id": "love",
@@ -108,16 +184,31 @@
         "比心",
         "谢谢",
         "love",
-        "thanks"
+        "thanks",
+        "旗袍大肥鱼",
+        "记忆书小鱼",
+        "像素爱心书签",
+        "珍惜回忆"
       ],
-      "width": 1201,
-      "height": 1309,
-      "size": 1985717,
-      "sha256": "47f34e7b9279d38ef14fef6d2f71f17513bc6d0d09288e78651d6186e1b37e9c",
+      "width": 1254,
+      "height": 1254,
+      "size": 1299101,
+      "sha256": "4c8a9e6fdb924e37f909fece25f6ed068e3fc52e35346ebf68d620c5158c8b74",
       "emotion": "love",
       "file": "love.png",
       "format": "PNG",
-      "alpha": true
+      "alpha": true,
+      "description": "蓝绿色旗袍配浅蓝连裤袜；捧着打开的记忆书，红色像素爱心书签垂在书前。",
+      "use_when": "温柔感谢、珍惜共同回忆，或在对方接受的语境里表达喜欢。",
+      "avoid_when": "不要把友好回应当作恋爱承诺；正式通知、拒绝或严肃冲突时避免滥用爱心。",
+      "tags": [
+        "蓝绿色旗袍",
+        "浅蓝连裤袜",
+        "记忆书",
+        "像素爱心书签",
+        "温柔微笑",
+        "珍惜回忆"
+      ]
     }
   ]
 }

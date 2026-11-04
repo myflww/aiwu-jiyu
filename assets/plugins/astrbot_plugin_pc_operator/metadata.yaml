@@ -1,6 +1,6 @@
 name: astrbot_plugin_pc_operator
 display_name: 大肥鱼电脑操作（工作目录 + 可选桌面控制）
 desc: 文件读写、命令与真实 Windows 桌面操作。桌面查看、控件读取、截图、鼠标键盘和应用启动独立授权且默认关闭，仅已授权私聊可用。
-version: v0.3.0
+version: v0.4.0
 author: dafeiyu
 astrbot_version: '>=4.29.3'

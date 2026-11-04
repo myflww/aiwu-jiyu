@@ -26,6 +26,7 @@ const ART_STYLES = { daily: "dafeiyu-daily.webp", sailor: "dafeiyu-sailor.webp",
 let qrModalWatch = null;
 let qrFlowGeneration = 0;
 let modalReturnFocus = null;
+let modalGeneration = 0;
 let localConnected = false;
 let updateState = null;
 let updateRequestPending = false;
@@ -398,7 +399,8 @@ function renderUpdates() {
   const pluginsAvailable = u.plugin_updates?.state === "checked" && !u.plugin_updates?.error
     && pluginUpdateRows(u).some(row => ["update_available", "available"].includes(row.status));
   const canRepairPlugins = pluginsAvailable && u.plugin_updates?.can_repair === true;
-  const packageAvailable = available || canRepairPlugins;
+  const rollback = u.rollback === true;
+  const packageAvailable = available || canRepairPlugins || rollback;
   const verified = !!(u.downloaded && u.download_verified);
   const downloading = !!u.downloading;
   const checking = pendingUpdateChecks(u);
@@ -417,11 +419,11 @@ function renderUpdates() {
   $("sideUpdateDot").classList.toggle("hidden", !fresh);
   $("sideUpdate").classList.toggle("has-update", fresh);
   setText("sideUpdateLabel", downloading ? `更新下载中 ${progress}%` : verified ? "更新已备好 · 查看" : fresh ? pluginFresh && !appFresh ? "插件有更新 · 查看" : "发现新版本 · 查看" : checking ? "正在检查更新" : "检查更新");
-  setText("updateLatestVersion", u.latest_version && !u.error ? latest : "暂未确认");
+  setText("updateLatestVersion", u.latest_version && !u.error ? (rollback ? `${latest}（匹配旧版）` : latest) : "暂未确认");
   let message = u.message || "自动检查只会提醒，更新与否由你决定。";
   if (u.error) message = `更新暂未完成：${u.error}`;
   else if (downloading) message = `正在下载 ${latest}（${progress}%），你可以继续使用软件。`;
-  else if (verified) message = "更新包已通过校验。安装时本窗口会关闭，完成后加载新版软件与随附插件。";
+  else if (verified) message = rollback ? "匹配旧版的安装包已通过校验。选择安装后本窗口会关闭；安装匹配版本后再恢复对应备份。" : "更新包已通过校验。安装前会备份允许恢复的设置与随包插件；本窗口随后关闭。";
   else if (checking) message = "正在检查更新…";
   else if (available) message = `${latest} 已发布。你可以现在更新，也可以继续使用当前版本。`;
   else if (canRepairPlugins) message = "软件已是当前发行版本，但本机插件有更新。下载安装同版更新包即可修复插件，下载和安装仍由你决定。";
@@ -429,7 +431,7 @@ function renderUpdates() {
   else if (u.checked_at && u.latest_version) message = "没有发现比当前版本更新的正式版本。";
   setText("updateMessage", message);
   $("updateMessage").classList.toggle("has-error", !!u.error);
-  setText("updateVersionBadge", checking ? "检查中" : downloading ? "正在下载" : u.error ? "请稍后重试" : verified ? "更新已备好" : available ? `可更新至 ${latest}` : pluginsAvailable ? "插件可更新" : u.checked_at && u.latest_version ? "暂无软件新版" : "等待确认");
+  setText("updateVersionBadge", checking ? "检查中" : downloading ? "正在下载" : u.error ? "请稍后重试" : verified ? rollback ? "旧版安装包已备好" : "更新已备好" : rollback ? "准备匹配旧版" : available ? `可更新至 ${latest}` : pluginsAvailable ? "插件可更新" : u.checked_at && u.latest_version ? "暂无软件新版" : "等待确认");
   $("updateVersionBadge").className = "badge " + (u.error ? "red" : verified ? "green" : packageAvailable || checking ? "amber" : "gray");
   $("updateCheck").disabled = busy || !localConnected;
   setText("updateCheck", checking ? "正在检查…" : "检查更新");
@@ -438,7 +440,7 @@ function renderUpdates() {
   setText("updateDownload", downloading ? `正在下载 ${progress}%` : u.error ? "重试下载" : pluginsAvailable && !available ? "下载插件更新安装包" : "下载更新");
   $("updateInstall").classList.toggle("hidden", !verified || !packageAvailable);
   $("updateInstall").disabled = !verified || !packageAvailable || busy || !updateReachable || !localConnected;
-  setText("updateInstall", canRepairPlugins && !available ? "安装并修复插件" : "安装更新");
+  setText("updateInstall", rollback ? "安装匹配旧版" : canRepairPlugins && !available ? "安装并修复插件" : "安装更新");
   $("updateIgnore").classList.toggle("hidden", !available || verified || downloading);
   $("updateIgnore").disabled = busy;
   $("updateInstallNote").classList.toggle("hidden", !verified);
@@ -478,7 +480,7 @@ async function loadUpdateStatus() {
 async function runUpdateAction(action) {
   if (updateRequestPending) return;
   if (action === "check") updatePromptManual = true;
-  if (["download", "install"].includes(action) && !updateState?.available && updateState?.plugin_updates?.can_repair !== true) {
+  if (["download", "install"].includes(action) && !updateState?.available && updateState?.plugin_updates?.can_repair !== true && updateState?.rollback !== true) {
     toast("当前没有通过确认的软件更新或同版插件修复包，请先重新检查。");
     return;
   }
@@ -489,7 +491,9 @@ async function runUpdateAction(action) {
   updateRequestPending = true;
   renderUpdates();
   try {
-    updateState = await api(`/api/updates/${action}`, { method: "POST", body: JSON.stringify({}) });
+    updateState = action === "download" && updateState?.rollback
+      ? await api("/api/recovery/rollback", {method:"POST",body:JSON.stringify({backup_id:updateState.rollback_backup_id,confirmed:true})})
+      : await api(`/api/updates/${action}`, { method: "POST", body: JSON.stringify({}) });
     updateReachable = true;
     if (action === "install") toast("正在启动更新安装，软件窗口即将关闭。完成后加载新版软件与插件。");
   } catch (err) {
@@ -597,6 +601,7 @@ function showView(name) {
   $("pageTitle").textContent = title;
   $("pageSub").textContent = sub;
   document.title = `${title} · 爱屋及鱼`;
+  globalThis.scrollTo?.(0, 0);
   clearInterval(logTimer);
   logTimer = null;
   if (name === "overview") { renderOverview(); refreshMetrics(); }
@@ -606,6 +611,7 @@ function showView(name) {
   if (name === "lovehouse") loadLoveHouse();
   if (name === "artifacts") loadArtifacts();
   if (name === "plugins") loadPlugins();
+  globalThis.AiwuExperience?.loadView(name).catch(() => {});
 }
 
 function showApp() {
@@ -942,6 +948,7 @@ function renderCompanionState() {
   setMascotImage("sidebarMascot", mascotPose, !serviceAwake && !needsSetup ? "休息中的大肥鱼" : "醒着的大肥鱼");
   setMascotImage("heroMascot", artStyle === "classic" && !serviceAwake ? "dafeiyu-rest.png" : ART_STYLES[artStyle] || ART_STYLES.daily);
   setText("sidebarMascotCaption", stopping ? "正在停止服务" : starting ? "正在启动服务" : needsSetup ? "等待首次设置" : online ? "QQ 在线" : serviceAwake ? "等待连接" : "服务已停止");
+  globalThis.AiwuExperience?.paintState();
 }
 
 function renderOverview() {
@@ -1402,6 +1409,7 @@ async function refreshLovehouseDetails() {
   $("lhSources").innerHTML = "";
   setText("lhSourceDesc", "正在读取所选记忆库的会话连接…");
   await Promise.all([loadLovehouseSources(), loadOrganizer()]);
+  globalThis.AiwuExperience?.loadMemories().catch(() => {});
 }
 
 async function loadLovehouseSources() {
@@ -1606,6 +1614,10 @@ function renderCompanionRuntime(data) {
   setText("companionInitiatedCount", `${Number(runtime.initiated_count) || 0} 次（适配器接受）`);
   const receipts = {adapter_accepted:"适配器已接受，不代表主人已读",delivery_uncertain:"送达未确认，已保留名额避免重发",not_sent:"本次尚未发送"};
   setText("companionLastReceipt", receipts[runtime.last_receipt] || "尚无发送回执");
+  const usage=runtime.usage;
+  setText("companionModelUsage", usage && usage.available !== false
+    ? `主动调用报告：输入 ${Number(usage.input_tokens)||0} / 输出 ${Number(usage.output_tokens)||0} Token；${Number(usage.reported_calls)||0} 次有用量报告，${Number(usage.unreported_calls)||0} 次未报告。仅此项主动调用，不代表全部聊天或账单金额。`
+    : "尚未取得有效用量报告；不估算账单金额。这里只统计主动调用。" );
   setText("companionSessionState", runtime.session_known ? "已确认主人私聊" : "等待主人在 QQ 发一条消息");
 }
 
@@ -1685,12 +1697,13 @@ async function openCompanionModal() {
     const choice = (key, title, description) => `<label class="perm-row"><input type="checkbox" id="companion-${key}" ${data[key] ? "checked" : ""}><div><b>${title}</b><span class="small">${description}</span></div></label>`;
     openModal("大肥鱼的陪伴方式", `<div class="companion-settings-sheet">
       ${active ? "" : '<div class="notice blue">插件尚未启用。可以先保存偏好，再回到列表开启“主动陪伴与情绪”。</div>'}
-      <section class="companion-runtime-panel" aria-label="主动聊天运行状态">
+      <div class="companion-profile-choices"><h4>先选一种舒服的节奏</h4><div class="exp-profiles" id="companionProfileChoices">${globalThis.AiwuExperience?.profilesMarkup(data,"data-companion-profile")||""}</div><p class="exp-parameter-note" id="companionProfileNote">档位只填入节奏参数，保存后才生效；能力开关继续由你决定。具体数字是可调整的产品预设，不是经实验验证的最佳值。</p></div>
+      <details class="companion-runtime-panel" aria-label="主动聊天运行状态"><summary>查看实际运行、预算与发送记录</summary>
         <div class="row between"><h4>主动聊天状态</h4><button class="text-button" type="button" id="companionRefreshRuntime">刷新状态</button></div>
         <p id="companionRuntimeMessage" role="status"></p>
         <dl><dt>聊天连接</dt><dd id="companionSessionState"></dd><dt>机会安排</dt><dd id="companionScheduleState"></dd><dt>下一次机会预估</dt><dd id="companionNextTrigger"></dd><dt>机会区间</dt><dd id="companionChanceWindow"></dd><dt>当前有效概率</dt><dd id="companionEffectiveProbability"></dd><dt>连续未回应</dt><dd id="companionUnanswered"></dd><dt>今日生成预算</dt><dd id="companionDailyCount"></dd></dl>
-        <details class="companion-runtime-details"><summary>查看自主机会与发送记录</summary><dl><dt>最近机会</dt><dd id="companionLastOpportunity"></dd><dt>触发来源</dt><dd id="companionTriggerSource"></dd><dt>最近一次结果</dt><dd id="companionLastResult"></dd><dt>上次适配器接受</dt><dd id="companionLastSuccess"></dd><dt>累计主动发起</dt><dd id="companionInitiatedCount"></dd><dt>最近发送回执</dt><dd id="companionLastReceipt"></dd></dl></details>
-      </section>
+        <details class="companion-runtime-details"><summary>查看自主机会与发送记录</summary><dl><dt>最近机会</dt><dd id="companionLastOpportunity"></dd><dt>触发来源</dt><dd id="companionTriggerSource"></dd><dt>最近一次结果</dt><dd id="companionLastResult"></dd><dt>上次适配器接受</dt><dd id="companionLastSuccess"></dd><dt>累计主动发起</dt><dd id="companionInitiatedCount"></dd><dt>最近发送回执</dt><dd id="companionLastReceipt"></dd><dt>主动模型用量</dt><dd id="companionModelUsage"></dd></dl></details>
+      </details>
       <div class="stack companion-options">
         ${choice("whale_style_enabled", "鲸鱼娘口吻增强", "傲娇嘴硬但温柔，用自然中文接话；保留当前人格和实际工具能力，不套模板结尾。")}
         ${choice("proactive_enabled", "让她主动来找你", "她会自己寻找话题，无需另设定时任务。保存后先在 QQ 聊一句；机会到来仍须通过概率、未回应和预算判断。")}
@@ -1701,7 +1714,7 @@ async function openCompanionModal() {
       <div class="companion-form-grid">
         <label class="field"><span>分段发送频率</span><select id="companion-bubbles-frequency"><option value="occasional">偶尔 · 自然聊天节奏</option><option value="often">经常 · 更偏短消息</option></select></label>
       </div>
-      <div class="companion-schedule-head"><h4>主动机会安排</h4><button class="soft" type="button" id="companionReferencePreset">填入 Aurabot 参考值</button></div>
+      <details class="companion-manual-settings"><summary>手动调整陪伴节奏与高级参数</summary><div class="companion-schedule-head"><h4>主动机会安排</h4><button class="soft" type="button" id="companionReferencePreset">填入 Aurabot 参考值</button></div>
       <p class="companion-reference-note" id="companionPresetNote">参考 <a href="https://github.com/aureth-labs/dsh-aurabot-qq/blob/b3301f6b014016e141c07d266a716c0fea566aab/src/core/config.js" target="_blank" rel="noopener noreferrer">Aurabot 的公开配置 ↗</a>，不是实验验证的最佳频率。填入后需点击“保存设置”才生效。</p>
       <div class="companion-form-grid">
         <label class="field companion-wide"><span>安排方式</span><select id="companion-mode"><option value="fixed">固定机会间隔</option><option value="random">随机机会区间</option></select></label>
@@ -1719,7 +1732,7 @@ async function openCompanionModal() {
         <label class="field"><span>连续未回应后暂停（次）</span><input type="number" id="companion-unanswered" min="0" max="20" step="1" value="${esc(data.max_unanswered ?? 4)}"><small>0 不限制；主人聊一句即可恢复。</small></label>
         <label class="field companion-wide"><span>无主人私聊后暂停（天）</span><input type="number" id="companion-expiry" min="0" max="365" step="1" value="${esc(data.session_expiry_days ?? 7)}"><small>0 不限制。不会通过群聊或陌生人重建联系目标。</small></label>
       </div><p class="companion-reference-note">未回复暂停参考 <a href="https://github.com/Pancakes-Labs/astrbot_plugin_proactive_chat/blob/95f459ef33208aa2c123c733ba1b5d2188dd0977/core/features/gating_feature.py" target="_blank" rel="noopener noreferrer">AstrBot 主动消息 ↗</a>；概率随互动调整参考 <a href="https://github.com/Him666233/astrbot_plugin_group_chat_plus/blob/aa97e0e35a18733e73db753238dd2a3021446e42/utils/proactive_chat_manager.py" target="_blank" rel="noopener noreferrer">chat_plus ↗</a>。百分比衰减是本适配的独立选项，不是 Aurabot 的既有规则或科学结论。</p></details>
-      <p class="hint">${esc(data.proactive_summary || "主动聊天使用当前模型，可能产生 API 用量。先与她私聊一次，再等待主动问候。")}</p>
+      </details><p class="hint">${esc(data.proactive_summary || "主动聊天使用当前模型，可能产生 API 用量。先与她私聊一次，再等待主动问候。")}</p>
       <div class="hint">屏幕截图与鼠标键盘操作在“电脑操作 → 操作权限”单独授权。保存后，已启用的陪伴插件会重新加载。</div>
     </div>`, async () => {
       const body = readCompanionPreferences(data);
@@ -1731,6 +1744,13 @@ async function openCompanionModal() {
     $("companion-timezone").value = ["local", "Asia/Shanghai", "UTC"].includes(data.timezone) ? data.timezone : "local";
     $("companion-mode").addEventListener("change", updateCompanionScheduleFields);
     $("companionReferencePreset").addEventListener("click", () => fillCompanionReference(data));
+    if (data.profiles) $("companionProfileChoices").querySelectorAll("[data-companion-profile]").forEach(button => button.addEventListener("click", () => {
+      const preset=data.profiles[button.dataset.companionProfile];if(!preset?.values)return;
+      const fields={schedule_mode:"mode",interval_minutes:"interval",min_interval_minutes:"min-interval",max_interval_minutes:"max-interval",idle_minutes:"idle",daily_limit:"limit",quiet_start:"quiet-start",quiet_end:"quiet-end",timezone:"timezone",trigger_probability:"probability",unanswered_decay_percent:"decay",max_unanswered:"unanswered",session_expiry_days:"expiry"};
+      Object.entries(fields).forEach(([key,suffix])=>{if(preset.values[key]!==undefined)$("companion-"+suffix).value=String(preset.values[key]);});
+      $("companionProfileChoices").querySelectorAll("button").forEach(item=>item.setAttribute("aria-pressed",String(item===button)));
+      updateCompanionScheduleFields();setText("companionProfileNote",`已填入“${preset.label}”，尚未保存。${preset.description||""}`);
+    }));
     updateCompanionScheduleFields();
     $("companion-bubbles-frequency").value = data.natural_bubbles_frequency === "often" ? "often" : "occasional";
     const updateBubbleFrequency = () => { $("companion-bubbles-frequency").disabled = !$("companion-natural_bubbles_enabled").checked; };
@@ -1780,9 +1800,9 @@ async function openStickerLibrary() {
       <label class="perm-row"><input type="checkbox" id="sticker-auto" ${prefs.auto_match_enabled !== false ? "checked" : ""}><div><b>按聊天气氛自动配图</b><span class="small">模型可以选择不发图；严肃求助、低落倾诉和技术任务优先好好说话，明确点图不受自动概率影响。</span></div></label>
       <div class="companion-form-grid"><label class="field"><span>使用素材</span><select id="sticker-pack"><option value="all">全部可用素材</option><option value="original">爱屋及鱼原创</option><option value="community">社区授权与已收录投稿</option><option value="custom">只用我的表情包</option></select></label><label class="field"><span>自动配图间隔（秒）</span><input type="number" id="sticker-cooldown" min="10" max="300" value="${esc(prefs.cooldown_seconds ?? 30)}"></label></div>
       <details class="sticker-advanced"><summary>高级设置 · 什么时候发图</summary><div class="companion-form-grid"><label class="field"><span>每轮自动配图机会（%）</span><input type="number" id="sticker-probability" min="0" max="100" value="${esc(prefs.auto_probability ?? 35)}"></label><label class="field"><span>聊天场景策略</span><select id="sticker-scenario"><option value="balanced">适度陪伴 · 优先匹配语境</option><option value="playful">轻松活泼 · 仍避开严肃场景</option><option value="manual">只在明确点图时发送</option></select></label></div><label class="perm-row"><input type="checkbox" id="sticker-custom-enabled" ${prefs.custom_enabled !== false ? "checked" : ""}><div><b>允许选用我的表情包</b><span class="small">还会检查每张素材自己的启用状态、适用和避用场景。100% 也不强制每轮发图。</span></div></label></details>
-      <p class="hint">随附 ${bundled.length} 张素材。你可以自然地说想看哪种表情，也能接着她刚提出的邀请说“可以呀”。</p>
+      <div id="stickerExperienceMount"></div><details class="sticker-advanced"><summary>随附素材原始预览</summary><p class="hint">随附 ${bundled.length} 张素材。你可以自然地说想看哪种表情，也能接着她刚提出的邀请说“可以呀”。</p>
       <div class="sticker-library-grid" tabindex="0" aria-label="随附表情素材列表，可滚动浏览">${bundled.map(item=>`<figure><img src="${esc(item.url || item.path)}" alt="${esc(item.label || item.id)}" loading="lazy"><figcaption>${esc(item.label || item.id)}<small>${item.pack_id === "original" ? "原创贴纸" : item.pack_id === "contributed" ? "已收录用户投稿" : "社区授权动图"}</small>${item.pack_id === "contributed" ? `<small>作者：${esc(typeof item.attribution === "string" ? item.attribution : "见素材许可")}</small>` : ""}</figcaption></figure>`).join("")}</div>
-      <details class="sticker-advanced" id="stickerPersonalDetails"><summary>高级设置 · 我的表情包与社区投稿</summary>
+      </details><details class="sticker-advanced" id="stickerPersonalDetails"><summary>高级设置 · 我的表情包与社区投稿</summary>
         <p class="hint">导入、编辑和停用会立即保存到这台电脑；自动配图选项需点底部保存。支持 PNG、JPEG、WebP、GIF，每张不超过 8 MiB。图片的使用场景写得越清楚，她越容易选对。</p>
         <div class="row between wrap"><b id="stickerPersonalCount"></b><button class="soft" type="button" id="stickerAddCustom">导入自己的表情包</button></div>
         <p class="hint" id="stickerGlobalContributionStatus" role="status"></p><div class="custom-sticker-grid" id="stickerPersonalList"></div>
@@ -1936,6 +1956,7 @@ async function openStickerLibrary() {
       setText("stickerShareStatus","投稿包已生成。可在 GitHub 的新建 Issue 或 PR 中上传，由维护者审核。");
     }).finally(shareButtons));
     renderPersonal();shareButtons();
+    globalThis.AiwuStickerExperience?.mount({api,esc,toast,getModalGeneration:()=>modalGeneration,onCatalogChange:async()=>{await refreshPersonal();if(isCurrent())invalidateShare();}});
     api("/api/stickers/contributions/auth").then(value=>{if(isCurrent()){github=value;shareButtons();}}).catch(()=>{});
     pollContribution().then(()=>{if(isCurrent() && contributionRunning && !stickerContributionTimer)stickerContributionTimer=setInterval(()=>pollContribution().catch(err=>{if(isCurrent())setText("stickerShareStatus",err.message);}),2000);}).catch(()=>{});
   } catch(err){toast(err.message || String(err));}
@@ -2168,6 +2189,7 @@ async function copyLogs() {
 }
 
 function openModal(title, body, onOk) {
+  const generation = ++modalGeneration;
   clearStickerTransient();
   if (!$("modalBack").classList.contains("show")) modalReturnFocus = document.activeElement;
   $("modalTitle").textContent = title;
@@ -2177,12 +2199,23 @@ function openModal(title, body, onOk) {
   $("modalCancel").classList.remove("hidden");
   $("modalCancel").textContent = "取消";
   $("modalOk").textContent = "保存设置";
-  $("modalOk").onclick = () => withBusy($("modalOk"), "正在保存…", async () => { if (onOk) await onOk(); closeModal(); });
+  $("modalOk").disabled = false;
+  $("modalOk").classList.remove("danger");
+  delete $("modalOk").dataset.busy;
+  $("modalOk").onclick = async () => {
+    const button=$("modalOk");
+    if(generation!==modalGeneration || button.dataset.busy==="true")return;
+    const label=button.textContent;button.dataset.busy="true";button.disabled=true;button.textContent="正在处理…";
+    try { if(onOk)await onOk();if(generation===modalGeneration)closeModal(); }
+    catch(error) { if(generation===modalGeneration)toast(error.message||String(error)); }
+    finally { if(generation===modalGeneration){delete button.dataset.busy;button.disabled=false;button.textContent=label;} }
+  };
   const first = $("modalBody").querySelector("input,select,textarea,button");
   (first || $("modalCancel")).focus();
 }
 
 function closeModal() {
+  modalGeneration += 1;
   clearStickerTransient();
   if ($("modalQr")) {
     clearInterval(qrModalWatch);
@@ -2439,6 +2472,7 @@ function bindEvents() {
 
 async function init() {
   bindEvents();
+  globalThis.AiwuExperience?.init({api,esc,toast,openModal,closeModal,showView,openCompanion:openCompanionModal,openStickers:openStickerLibrary,openComputer:openPcModal,getState:()=>state,isConnected:()=>localConnected,getLibrary:()=>lovehouseSelected,getModalGeneration:()=>modalGeneration,getLibraries:()=>lovehouseState?.libraries||[],selectLibrary:async id=>{if(!(lovehouseState?.libraries||[]).some(row=>row.id===id&&!row.is_demo))throw new Error("请选择当前可用的记忆库。");lovehouseSelected=id;renderLoveHouse(lovehouseState);renderLovehouseLibraries();await refreshLovehouseDetails();}});
   applyArtStyle(artStyle);
   let connected = false;
   try {
@@ -2456,6 +2490,7 @@ async function init() {
   loadUpdateStatus();
   setInterval(() => { if (!document.hidden) { refreshState(true); loadUpdateStatus(); } }, 4000);
   setInterval(refreshMetrics, 2000);
+  setInterval(() => { if (!document.hidden) globalThis.AiwuExperience?.tick(); }, 15000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshMetrics(); });
   if (!connected) return;
   const params = new URLSearchParams(location.search);

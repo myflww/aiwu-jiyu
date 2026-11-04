@@ -1,55 +1,85 @@
 {
+  "schema_version": 1,
   "generator": "Built-in image_gen",
+  "version": "1.4.0",
+  "pack_version": "1.1.0",
   "character": "大肥鱼",
-  "reference": "assets/ui/dafeiyu-welcome.png",
+  "reference": "../../ui/dafeiyu-chibi-sailor.webp",
+  "reference_role": "角色身份与插画风格参考；六张分别更换服装，不以水手装锁定造型。",
+  "constraints": "保留蓝色卷发、蓝眼、鳍耳、呆毛和鲸尾；单个完整人物、透明背景、无文字与水印。",
+  "pixel_edits": "none; reviewed original generated PNGs copied without image processing",
   "assets": [
     {
+      "id": "happy",
       "file": "pack/happy.png",
       "width": 1165,
       "height": 1350,
+      "size": 1524890,
+      "sha256": "13a64c9cd29ccba29ec1d6a3ebab7ea27caeb451f7948e4a2a96c95e447cf2de",
       "alpha": true,
-      "source": "assets/ui/dafeiyu-welcome.png",
-      "operation": "Unmodified copy of existing generated project art; original prompt in assets/ui/artwork-manifest.json"
+      "wardrobe": "白色翻领衬衫、蓝绿小领结、深蓝铅笔裙、黑色不透明连裤袜、深色低跟鞋。",
+      "prompt": "Use case: stylized-concept\nAsset type: production transparent PNG reaction sticker for the cute Chinese desktop companion DaFeiYu.\nReference role: the attached local image is IDENTITY AND ILLUSTRATION STYLE REFERENCE ONLY; do not copy her sailor outfit.\nCreate ONE full-body single-character sticker of the SAME recognizable adult fantasy whale-woman mascot, depicted in cute chibi proportions: flowing navy-blue to bright cyan curled hair, large sparkling blue eyes, fin-shaped ears, prominent curled ahoge, blue whale tail with white underside. Preserve her face and blue bow identity, with clean dark-blue linework and polished soft cel shading.\nNEW outfit, clearly a different everyday grown-up fashion: a neat white long-sleeve collared office blouse with a tiny teal neck ribbon, a dark navy knee-length fitted pencil skirt, opaque black tights, and simple dark low-heeled office shoes. Fully clothed, tasteful ordinary workplace outfit, non-seductive and no emphasis on curves.\nPose and emotion: she is standing proudly, hugging a SMALL closed silver laptop in front of her chest, smiling with gleeful relaxed eyes and a tiny celebratory raised fist beside the laptop. Her compact whale tail curls visibly beside her; two tiny blue sparkle accents express 'all done'. Clear readable friendly happy sticker silhouette, front three-quarter view.\nComposition: complete head, curled ahoge, two feet and entire tail inside the frame, centered, generous transparent empty margin around all edges, no cropping. Similar cute detailed anime sticker rendering to reference, not a realistic adult portrait.\nBackground: genuinely transparent alpha. No white rectangle, no scenery, no ground plane, no text, no letters, no numbers, no captions, no logos, no watermark. Exactly one character, anatomically coherent two arms/two hands/two legs.",
+      "generated_source": "exec-792b7cb0-20da-490a-9e4a-7238c59382a9.png"
     },
     {
+      "id": "sad",
       "file": "pack/sad.png",
-      "width": 1194,
-      "height": 1317,
+      "width": 1199,
+      "height": 1312,
+      "size": 1948225,
+      "sha256": "af82014da1ce059f71c3812406f687055f7a78cdca8ce7639b3db715390ff8cb",
       "alpha": true,
-      "prompt": "Use case: illustration-story. Asset type: one transparent chat sticker for 大肥鱼 in the desktop companion app 爱屋及鱼. Edit the referenced character illustration into a new emotional reaction, preserving the EXACT same polished anime chibi identity and navy-to-sky-blue curly long hair, bright blue eyes, curled ahoge, white maid headband and blue ribbon, modest navy long-sleeve maid dress with white frilled apron, blue oval brooch, white tights, navy shoes and rounded blue whale tail. Wholesome 2.5-head-tall chibi girl, full body in a compact seated pose, centered, clear silhouette at small chat sticker size, detailed clean navy outlines and luminous soft highlights matching reference. No rice bowl. No other characters. No written words, letters, captions, watermark or surrounding square. Genuine transparent alpha outside the precise character and small reaction accents. Fully clothed, no exposed chest, no adult proportions. Emotion: gently sad and seeking comfort; big blue eyes welling with small round tears, downturned little mouth and tender eyebrows, both hands hold a tiny white tissue against her chest. Her whale tail droops softly. One small blue tear accent. Cute touching sadness, not frightening, no injuries.",
-      "generated_source": "exec-f8ec8989-8755-4a0a-8d97-439025801328.png"
+      "wardrobe": "黑色长袖罗纹针织连衣裙、黑色不透明连裤袜、深色平底鞋。",
+      "prompt": "Use case: stylized-concept\nAsset type: production transparent PNG emotion sticker for the cute Chinese desktop companion DaFeiYu.\nReference role: the local image is CHARACTER IDENTITY AND RENDERING STYLE REFERENCE ONLY; replace the sailor uniform entirely.\nCreate ONE single-character full-body illustration of the same recognizable ADULT fantasy whale-woman mascot in cute chibi proportions. Preserve flowing navy-blue to bright cyan curls, large expressive blue eyes, fin-shaped ears, prominent curled ahoge, blue whale tail with a white underside, little blue hair bow, clean blue linework and polished soft anime cel shading.\nNEW outfit: tasteful black knitted long-sleeve knee-length fitted sweater dress with a modest round neckline, subtle soft ribbed texture, opaque black tights and little dark flat shoes. Ordinary cozy adult fashion, fully clothed; no suggestive pose, no emphasis on anatomy. This is NOT a sailor blouse/skirt and not lingerie.\nEmotion and pose: mild cute disappointment, a tiny pout and gently downturned brows, still calm and approachable; no crying streams, terror, injury or distress. She sits with feet tucked neatly forward on a small soft dusty-blue round floor cushion and hugs a small square lavender cushion at her chest. Her whale tail curls to her side, full tail visible. Large expressive head with compact soft sticker proportions, relaxed shoulders. This should read 'a little sad, wants comfort' at small sticker size.\nComposition: entire head, ahoge, shoes, cushion, and tail within the frame; centered composition with generous transparent margin, no cropping; exactly one character, coherent two hands/two legs. Keep the identity recognizably DaFeiYu from the reference but visibly change the outfit and seated pose.\nBackground: genuinely transparent alpha, no white rectangle, no scenery, no text or numbers, no captions, no logos, no watermark.",
+      "generated_source": "exec-d367df75-7bcf-4a83-97f0-c8e503058d2e.png"
     },
     {
+      "id": "angry",
       "file": "pack/angry.png",
-      "width": 1190,
-      "height": 1322,
+      "width": 1165,
+      "height": 1350,
+      "size": 1649530,
+      "sha256": "4a4447e26c40e9217ed947122daa65e2425218d122facc5bac348be1ca91dd94",
       "alpha": true,
-      "prompt": "Use case: illustration-story. Asset type: one transparent chat sticker for 大肥鱼 in the desktop companion app 爱屋及鱼. Edit the referenced character illustration into a new emotional reaction, preserving the EXACT same polished anime chibi identity and navy-to-sky-blue curly long hair, bright blue eyes, curled ahoge, white maid headband and blue ribbon, modest navy long-sleeve maid dress with white frilled apron, blue oval brooch, white tights, navy shoes and rounded blue whale tail. Wholesome 2.5-head-tall chibi girl, full body in a compact seated pose, centered, clear silhouette at small chat sticker size, detailed clean navy outlines and luminous soft highlights matching reference. No rice bowl. No other characters. No written words, letters, captions, watermark or surrounding square. Genuine transparent alpha outside the precise character and small reaction accents. Fully clothed, no exposed chest, no adult proportions. Emotion: adorable playful pout, mildly annoyed tsundere whale girl; puffed rosy cheeks, small closed pouting mouth, angled determined eyebrows but clear round blue eyes, arms crossed neatly in front of apron. Tiny harmless comic steam puff beside her head, whale tail flicking. Funny and endearing, no aggression, no weapons.",
-      "generated_source": "exec-f8bce336-4e14-4fef-adce-5aed3e45a03c.png"
+      "wardrobe": "黑色休闲短夹克、奶白上衣、灰蓝格纹及膝修身裙、黑色不透明连裤袜、黑色短鞋。",
+      "prompt": "Use case: stylized-concept.\nAsset type: A single production QQ chat sticker PNG for the cute desktop app 爱屋及鱼. Generate one isolated character, not a sticker sheet.\nInput image role: The attached image is an identity and polished 2D anime art reference ONLY. Keep the same recognizable adult whale-woman mascot Dafeiyu: large luminous sapphire-blue eyes, long navy-to-cyan curled hair, two blue-and-white whale-fin ears, distinctive curled ahoge, a blue ribbon, and a blue whale tail with a pale underside. The reference sailor uniform must be replaced completely.\nPrimary request: Create a fashion-varied “mildly annoyed / angry but adorable” sticker of this adult chibi whale woman. She wears a short black casual jacket over a simple ivory blouse, a neat fitted knee-length gray-blue plaid skirt, opaque matte black tights and simple black ankle shoes. Ordinary fully clothed everyday fashion, tasteful and nonsexual. Clothing details must remain clearly readable at small sticker size.\nPose and expression: Full body standing, both arms crossed naturally at chest height, puffed cheeks, gently furrowed brows and comically petulant little pout; she is expressing harmless affectionate annoyance, not distress or aggression. One tiny soft blue steam puff can float beside her head. Keep her eyes open and expressive. No hostile gestures, no weapons.\nComposition: One centered chibi character around 3 heads tall, strong cute rounded silhouette, all hair/fin ears/ahoge/feet/tail included, generous clear margin of at least 7% on every edge. Tail curls comfortably to one side. Refined clean navy linework, soft painterly cel shading, delicate highlights, crisp edges, visually match the reference quality.\nBackground: Actual transparent alpha background, no scenery, no solid or checkerboard backdrop, no opaque rectangle, no floor shadow.\nAvoid: Words, text, speech bubbles, watermark, logo, duplicate characters, extra arms, missing fingers, cropped body, school uniform, sailor collar, pleated sailor skirt, low neckline, sheer stockings, sexualized anatomy or camera angle, focus on body parts.",
+      "generated_source": "exec-13487805-353b-482e-93c6-30611953b59e.png"
     },
     {
+      "id": "shy",
       "file": "pack/shy.png",
-      "width": 1197,
-      "height": 1315,
+      "width": 1165,
+      "height": 1350,
+      "size": 1593062,
+      "sha256": "9ee489d099fdb5f74955295a72c47b834eebaf31ad46716c2c6fa118253378c0",
       "alpha": true,
-      "prompt": "Use case: illustration-story. Asset type: one transparent chat sticker for 大肥鱼 in the desktop companion app 爱屋及鱼. Edit the referenced character illustration into a new emotional reaction, preserving the EXACT same polished anime chibi identity and navy-to-sky-blue curly long hair, bright blue eyes, curled ahoge, white maid headband and blue ribbon, modest navy long-sleeve maid dress with white frilled apron, blue oval brooch, white tights, navy shoes and rounded blue whale tail. Wholesome 2.5-head-tall chibi girl, full body in a compact seated pose, centered, clear silhouette at small chat sticker size, detailed clean navy outlines and luminous soft highlights matching reference. No rice bowl. No other characters. No written words, letters, captions, watermark or surrounding square. Genuine transparent alpha outside the precise character and small reaction accents. Fully clothed, no exposed chest, no adult proportions. Emotion: sweet bashful embarrassment; rosy pink cheeks, soft bright blue eyes looking slightly aside, tiny pleased closed smile. Both hands touch her cheeks gently, shoulders tucked in, knees together with modest skirt, whale tail curled around her side. Two tiny pastel pink heart sparkles. Warm affectionate and very cute, not flirtatious or sexual.",
-      "generated_source": "exec-1bb91bef-f3d9-47a2-b2e1-68c635e470cd.png"
+      "wardrobe": "浅粉碎花及膝连衣裙、奶白短开衫、不透明象牙白连裤袜、浅色平底鞋。",
+      "prompt": "Use case: stylized-concept.\nAsset type: One production QQ chat sticker PNG for the cute desktop app 爱屋及鱼. Generate one isolated full-body character, never a sticker sheet.\nInput image role: The attached image is an identity and polished 2D anime art reference ONLY. Preserve the same recognizable adult whale-woman mascot Dafeiyu: large luminous sapphire-blue eyes, long navy-to-cyan curled hair, two blue-and-white whale-fin ears, distinctive curled ahoge, little blue ribbon, and a blue whale tail with pale underside. Replace the sailor uniform completely.\nPrimary request: Make a new “shy and pleased” sticker in a distinctive spring outfit. She wears a pale blush-pink knee-length dress with delicate tiny soft pink and sage floral motifs, a short warm-ivory cardigan with pearl-like buttons, opaque ivory tights and gentle neutral flats. Tasteful, ordinary adult daily fashion, fully clothed and nonsexual. The floral dress/cardigan should read clearly and differ from her original navy sailor suit.\nPose and expression: Full body standing with feet gently together. Both hands lightly touch her cheeks, rosy soft blush, blue eyes glance slightly aside, modest small delighted smile, shoulders relaxed. Sweet emotional shyness, not a seductive pose or a scared face. Two tiny pastel blush-pink hearts near her head are enough, no other decorations.\nComposition: Centered three-head-tall rounded chibi silhouette, all hair/fin ears/ahoge/shoes/tail included. Leave a clearly visible generous transparent margin of at least 7% on every edge, do not let hair touch the canvas edge. Refined clean navy linework, luminous soft painterly cel shading and delicate highlights, crisp sticker edges, quality consistent with the reference.\nBackground: Actual transparent alpha background. No scene, no floor, no opaque drop shadow, no solid or checkerboard rectangle.\nAvoid: Any text, characters, words, speech bubbles, watermark, logo, school uniform, sailor collar, uniform pleats, extra people, duplicate limbs, bad hands, cropped feet, exposed cleavage, body-part focus, translucent clothes, sexualized anatomy or perspective.",
+      "generated_source": "exec-8fdcf33c-4c32-4b2a-988e-7299812b64f1.png"
     },
     {
+      "id": "sleepy",
       "file": "pack/sleepy.png",
-      "width": 1536,
-      "height": 1024,
+      "width": 1210,
+      "height": 1300,
+      "size": 1981348,
+      "sha256": "bf188b9e80cf7251c1dd496f5a25521a55dd36a2f63cbb98756bf0de98b58ce9",
       "alpha": true,
-      "source": "assets/ui/dafeiyu-rest.png",
-      "operation": "Unmodified copy of existing generated project art; original prompt in assets/ui/artwork-manifest.json"
+      "wardrobe": "燕麦色长麻花针织开衫、奶油色及膝裙、不透明浅色连裤袜、软拖鞋、象牙白膝毯。",
+      "prompt": "Use case: stylized-concept.\nAsset type: A single production QQ sticker and quiet-companionship desktop mascot PNG for 爱屋及鱼. One isolated character, not a sticker sheet.\nInput image role: The attached image is an identity and finished 2D anime art reference ONLY. Preserve recognizable adult whale-woman Dafeiyu: luminous sapphire-blue eyes, long navy-to-cyan curled hair, two blue-and-white whale-fin ears, curled ahoge, small blue ribbon, blue whale tail with pale underside. Replace all sailor uniform clothing.\nPrimary request: A warm gentle “sleepy but quietly awake beside you” sticker. Give her a long oatmeal-colored cable-knit cardigan, a simple cream knee-length dress, opaque pale tights and cozy small slippers. She sits upright on a small muted blue seashell cushion, with an ivory lap blanket covering her knees and both hands wrapped naturally around a tiny warm ivory mug with a simple blue wave motif. The long cardigan, cream dress and lap blanket have distinct readable layers. Ordinary tasteful adult cozy daily fashion, fully clothed, nonsexual.\nExpression: Both blue eyes visibly half-open, soft relaxed smile and tiny blush, drowsy and calm, attentive enough to offer silent company. Head upright with a very slight tilt, not lying down, not fully asleep, no sleeping symbol or letter. A faint single curl of steam rises from mug.\nComposition: Centered compact seated chibi with full hair, fin ears, ahoge, hands, slippers, cushion and whale tail visible. Tail gently curled beside cushion. Generous genuinely empty transparent margin at least 7% on every edge, silhouette contained without cropping. Refined crisp navy outlines, luminous soft painterly cel shading and subtle highlights, closely match reference art quality. Shape and gentle expression legible at small chat-sticker size.\nBackground: Actual transparent alpha; no scenery, no room, no ground, no opaque shadow, no solid or checkerboard background rectangle.\nAvoid: Words, letters, speech bubbles, text, watermarks, logos, sailor collar, school uniform, duplicate characters, extra hands or fingers, cropped tail, falling asleep flat, all eyes closed, seductive pose, body-part focus, revealing or sheer clothing, sexualized anatomy.",
+      "generated_source": "exec-6dc2789c-ac5f-435c-a1a6-c28c41b449d7.png"
     },
     {
+      "id": "love",
       "file": "pack/love.png",
-      "width": 1201,
-      "height": 1309,
+      "width": 1254,
+      "height": 1254,
+      "size": 1299101,
+      "sha256": "4c8a9e6fdb924e37f909fece25f6ed068e3fc52e35346ebf68d620c5158c8b74",
       "alpha": true,
-      "source": "assets/ui/dafeiyu-lovehouse.png",
-      "operation": "Unmodified copy of existing generated project art; original prompt in assets/ui/artwork-manifest.json"
+      "wardrobe": "蓝绿色低开衩及膝旗袍、金色滚边与盘扣、不透明浅蓝连裤袜、蓝绿平底鞋。",
+      "prompt": "Use case: stylized-concept\nAsset type: production transparent PNG affectionate reaction sticker for the cute Chinese desktop companion DaFeiYu, also usable in its memory-library UI.\nReference role: the provided local image is CHARACTER IDENTITY AND PAINTERLY ANIME STYLE REFERENCE ONLY, not a costume constraint. Replace the sailor outfit entirely.\nOne single full-body ADULT fantasy whale-woman mascot in cute chibi proportions. Maintain recognizable flowing navy-to-cyan curled hair, sparkling blue eyes, fin-shaped ears, curled ahoge, blue whale tail with white underside, and a small blue hair bow. Match clean navy linework, detailed shiny soft anime cel shading and lively facial proportions of the reference.\nNEW costume: elegant blue-green/teal knee-length qipao, modest high mandarin collar, short cap sleeves, subtle little wave/floral embroidery, pale-gold piping and frog closures, a LOW small slit near the hem only, opaque pale blue tights and flat teal shoes. Fully clothed tasteful adult everyday dress, relaxed non-seductive pose, no focus on curves or legs; clearly different from a navy sailor uniform or black dress.\nEmotion and activity: gentle warm loving smile, slight rosy cheeks, relaxed friendly eyebrows. Standing calmly, holding an open small cream-and-teal memory book against her chest in BOTH hands. A vivid RED PIXEL HEART made from clean square pixels is embroidered on a short bookmark hanging from the book; the heart must be a symmetrical clearly readable pixel heart shape, no writing. One tiny floating pink heart accent near the shoulder. Her blue whale tail curls visibly to the side. This reads 'I cherish our memories'.\nComposition: one complete character and book, full head and entire ahoge, both shoes and complete tail all fully visible with at least 8 percent truly empty transparent padding on EVERY side. Centered in a square canvas, compact sticker silhouette. No crop, no background scene, no white rectangle, no floor shadow. No text, no numbers, no logos or watermark. Genuine transparent alpha background.",
+      "generated_source": "exec-3a8441d8-9923-4145-9dde-ea9cb9d205a6.png"
     }
   ]
 }
