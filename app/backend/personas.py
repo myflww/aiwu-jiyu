@@ -110,13 +110,60 @@ def backups():
     return rows
 
 
-def _current(token):
-    rows = astrbot_api.list_personas(token)
-    row = next((r for r in rows if r.get("persona_id") == config_store.PERSONA_ID), None)
+def _find_persona(rows, persona_id):
+    if not isinstance(rows, list) or not all(isinstance(item, dict) for item in rows):
+        raise ValueError("运行人格目录格式不受支持，请在 AstrBot 后台检查。")
+    row = next((r for r in rows if r.get("persona_id") == persona_id), None)
     if row is not None and (not isinstance(row.get("system_prompt"), str)
                             or len(row["system_prompt"].encode("utf-8")) > 64 * 1024):
         raise ValueError("当前人格较大或格式不受支持，请在 AstrBot 后台管理。")
     return row
+
+
+def _current(token):
+    return _find_persona(astrbot_api.list_personas(token), config_store.PERSONA_ID)
+
+
+def _current_and_baseline(token):
+    # Read one native snapshot, never SQL or the fallback personality template.
+    rows = astrbot_api.list_personas(token)
+    current = _find_persona(rows, config_store.PERSONA_ID)
+    return current, _find_persona(rows, "default") if current is None else None
+
+
+def _creation_fields(baseline):
+    if baseline is None:
+        return {"begin_dialogs": [], "tools": [], "skills": [], "custom_error_message": ""}
+    fields = {}
+    for name in ("tools", "skills"):
+        value = baseline.get(name)
+        if value is not None and (not isinstance(value, list) or not all(isinstance(item, str) for item in value)):
+            raise ValueError("默认人格工具或技能格式异常，未创建可能丢失权限的新人格。")
+        # None is the native all-active mode; [] is explicitly no grants.
+        fields[name] = value
+    dialogs = baseline.get("begin_dialogs")
+    if dialogs is not None and (not isinstance(dialogs, list) or len(dialogs) % 2):
+        raise ValueError("默认人格开场格式异常，请先在 AstrBot 后台检查。")
+    fields["begin_dialogs"] = dialogs or []
+    message = baseline.get("custom_error_message")
+    if message is not None and not isinstance(message, str):
+        raise ValueError("默认人格报错回复格式异常，未修改人格。")
+    # This matches the native PersonaService normalization on creation.
+    fields["custom_error_message"] = message.strip() or None if message is not None else None
+    try:
+        encoded = json.dumps(fields, ensure_ascii=False, allow_nan=False)
+        if len(encoded.encode("utf-8")) > _LIMIT:
+            raise ValueError()
+        return json.loads(encoded)  # Detached lists; never mutate the baseline.
+    except (TypeError, ValueError, UnicodeError):
+        raise ValueError("默认人格配置超过可管理范围或格式异常，未修改人格。") from None
+
+
+def _baseline_revision(baseline):
+    if baseline is None:
+        return None
+    fields = {"system_prompt": baseline["system_prompt"], **_creation_fields(baseline)}
+    return _revision(json.dumps(fields, ensure_ascii=False, sort_keys=True, allow_nan=False))
 
 
 def _card_for(text):
@@ -161,10 +208,12 @@ def _backup(row, before):
     directory = _directory()
     directory.mkdir(parents=True, exist_ok=True)
     existing = [p for p in directory.glob("*.json") if _BACKUP.fullmatch(p.name)]
+    source_id = row.get("persona_id", config_store.PERSONA_ID)
     for candidate in existing[:20]:
         try:
             previous = json.loads(_read(candidate))
             if (previous.get("persona_id") == config_store.PERSONA_ID
+                    and previous.get("source_persona_id", config_store.PERSONA_ID) == source_id
                     and previous.get("system_prompt") == row["system_prompt"]
                     and previous.get("sha256") == _revision(row["system_prompt"])):
                 return candidate.name
@@ -176,6 +225,8 @@ def _backup(row, before):
     record = {"persona_id": config_store.PERSONA_ID, "system_prompt": row["system_prompt"],
               "created_at": time.time(), "card_before": before or "custom",
               "sha256": _revision(row["system_prompt"])}
+    if source_id == "default":
+        record["source_persona_id"] = "default"
     payload = (json.dumps(record, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     with tempfile.NamedTemporaryFile(dir=directory, prefix=".persona-", delete=False) as stream:
         temporary = Path(stream.name)
@@ -191,30 +242,37 @@ def _replace(text, expected, card_id):
     if not _runtime_online():
         raise ValueError("请先启动对话服务，再应用人格。")
     token = astrbot_api.dashboard_token()
-    row = _current(token)
+    row, baseline = _current_and_baseline(token)
     revision = _revision(row["system_prompt"]) if row else None
     if expected != revision:
         raise ValueError("运行人格已变化，请刷新后重新预览。")
     if row and row["system_prompt"] == text:
         return {"ok": True, "changed": False, "active_card_id": card_id, "revision": revision}
-    backup_id = _backup(row, _card_for(row["system_prompt"])) if row else None
+    inherited = _creation_fields(baseline) if row is None else None
+    baseline_revision = _baseline_revision(baseline)
+    original = row if row is not None else baseline
+    backup_id = _backup(original, _card_for(original["system_prompt"])) if original else None
     # Recheck just before the native write. The native API has no transactional
     # ETag; an external dashboard write at exactly the same time remains last-win.
-    latest = _current(token)
+    latest, latest_baseline = _current_and_baseline(token)
     if (_revision(latest["system_prompt"]) if latest else None) != revision:
         raise ValueError("人格在备份期间被其他窗口修改，已停止应用。")
+    if row is None and _baseline_revision(latest_baseline) != baseline_revision:
+        raise ValueError("默认人格在备份期间被其他窗口修改，已停止创建；请刷新后重试。")
     if row:
         result = astrbot_api._request("/api/v1/personas/by-id",
             {"persona_id": config_store.PERSONA_ID, "system_prompt": text}, token, method="PUT")
     else:
         result = astrbot_api._request("/api/v1/personas", {
             "persona_id": config_store.PERSONA_ID, "system_prompt": text,
-            "begin_dialogs": [], "tools": [], "skills": [], "custom_error_message": ""}, token)
+            **inherited}, token)
     if result.get("status") != "ok":
         raise ValueError("AstrBot 未确认人格修改，请刷新检查。")
     confirmed = _current(token)
     if not confirmed or confirmed["system_prompt"] != text:
         raise ValueError("人格修改结果尚未确认；原人格备份已保留，请刷新检查。")
+    if row is None and baseline is not None and _creation_fields(confirmed) != inherited:
+        raise ValueError("新人格的工具或技能继承尚未确认；原提示词备份已保留，请在后台检查。")
     config = config_store.load()
     config["persona"] = {"card_id": card_id, "prompt_revision": _revision(text)}
     config_store.save(config)

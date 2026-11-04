@@ -171,6 +171,92 @@ class PersonaTests(unittest.TestCase):
         self.assertEqual(self.native.rows[0], unrelated)
         self.assertIsNone(result["backup_id"])
 
+    def test_missing_fixed_persona_inherits_native_default_all_active_and_restores_original_prompt(self):
+        baseline = {"persona_id": "default", "system_prompt": "这是运行中的原始默认提示词。",
+            "tools": None, "skills": None, "begin_dialogs": ["原始用户开场", "原始助手开场"],
+            "custom_error_message": "原始错误回复"}
+        self.native.rows = [deepcopy(baseline)]
+        result = personas.apply({"card_id": "natural", "expected_revision": None})
+        created = next(row for row in self.native.rows if row["persona_id"] == personas.config_store.PERSONA_ID)
+        self.assertEqual(self.native.rows[0], baseline)
+        self.assertIsNone(created["tools"])
+        self.assertIsNone(created["skills"])
+        self.assertEqual(created["begin_dialogs"], baseline["begin_dialogs"])
+        self.assertEqual(created["custom_error_message"], baseline["custom_error_message"])
+        self.assertEqual(created["system_prompt"], personas.prompt("natural"))
+        backup = json.loads((self.directory / "persona-backups" / result["backup_id"]).read_text("utf-8"))
+        self.assertEqual(backup["persona_id"], personas.config_store.PERSONA_ID)
+        self.assertEqual(backup["source_persona_id"], "default")
+        self.assertEqual(backup["system_prompt"], baseline["system_prompt"])
+        self.assertNotIn("tools", backup)
+        restored = personas.restore({"backup_id": result["backup_id"],
+            "expected_revision": personas._revision(created["system_prompt"]), "confirmed": True})
+        self.assertTrue(restored["changed"])
+        self.assertEqual(created["system_prompt"], baseline["system_prompt"])
+        self.assertIsNone(created["tools"])
+        self.assertEqual(self.native.rows[0], baseline)
+        self.assertTrue(all(payload["persona_id"] == personas.config_store.PERSONA_ID for _, payload, _ in self.native.calls))
+
+    def test_missing_fixed_persona_inherits_selected_permissions_without_adding_or_removing_names(self):
+        baseline = {"persona_id": "default", "system_prompt": "已有默认提示词。",
+            "tools": ["original_pc_tool", "user_chosen_custom_tool"], "skills": ["original_skill"],
+            "begin_dialogs": ["用户开场", "助手开场"], "custom_error_message": None}
+        self.native.rows = [deepcopy(baseline)]
+        personas.apply({"card_id": "gentle", "expected_revision": None})
+        created = next(row for row in self.native.rows if row["persona_id"] == personas.config_store.PERSONA_ID)
+        self.assertEqual(self.native.rows[0], baseline)
+        for key in ("tools", "skills", "begin_dialogs", "custom_error_message"):
+            self.assertEqual(created[key], baseline[key])
+        self.assertEqual(set(self.native.calls[0][1]), {"persona_id", "system_prompt", "tools", "skills", "begin_dialogs", "custom_error_message"})
+
+    def test_default_changed_during_backup_blocks_creation_for_every_inherited_field(self):
+        baseline = {"persona_id": "default", "system_prompt": "原始默认提示词。", "tools": None,
+            "skills": None, "begin_dialogs": [], "custom_error_message": None}
+        for field, changed in (("system_prompt", "另一窗口修改的提示词"), ("tools", ["newly_selected_tool"]),
+                               ("skills", ["new_skill"]), ("begin_dialogs", ["新开场", "新回应"]),
+                               ("custom_error_message", "新的错误回复")):
+            with self.subTest(field=field):
+                self.native.rows = [deepcopy(baseline)]
+                self.native.reads = 0
+                self.native.calls.clear()
+                def external_edit(number, name=field, value=changed):
+                    if number == 2: self.native.rows[0][name] = value
+                self.native.before_read = external_edit
+                with self.assertRaisesRegex(ValueError, "默认人格.*其他窗口修改"):
+                    personas.apply({"card_id": "natural", "expected_revision": None})
+                self.assertFalse(self.native.calls)
+                self.assertFalse(any(row["persona_id"] == personas.config_store.PERSONA_ID for row in self.native.rows))
+
+    def test_baseline_creation_deletion_or_fixed_persona_appearance_cannot_race_create(self):
+        baseline = {"persona_id": "default", "system_prompt": "原始默认提示词。", "tools": None,
+            "skills": None, "begin_dialogs": [], "custom_error_message": None}
+        for action in ("default_appears", "default_disappears", "fixed_appears"):
+            with self.subTest(action=action):
+                self.native.rows = [] if action == "default_appears" else [deepcopy(baseline)]
+                self.native.reads = 0
+                self.native.calls.clear()
+                def external_edit(number):
+                    if number != 2: return
+                    if action == "default_appears": self.native.rows.append(deepcopy(baseline))
+                    elif action == "default_disappears": self.native.rows.clear()
+                    else: self.native.rows.append({"persona_id": personas.config_store.PERSONA_ID, "system_prompt": "刚创建的另一版本"})
+                self.native.before_read = external_edit
+                with self.assertRaisesRegex(ValueError, "其他窗口修改"):
+                    personas.apply({"card_id": "natural", "expected_revision": None})
+                self.assertFalse(self.native.calls)
+
+    def test_malformed_default_fields_refuse_creation_without_silently_dropping_permissions(self):
+        baseline = {"persona_id": "default", "system_prompt": "原始默认提示词。", "tools": None,
+            "skills": None, "begin_dialogs": [], "custom_error_message": None}
+        for key, value in (("tools", {}), ("tools", [5]), ("skills", "all"),
+                           ("begin_dialogs", "unpaired"), ("begin_dialogs", ["odd"]),
+                           ("custom_error_message", {})):
+            with self.subTest(key=key, value=value):
+                self.native.rows = [{**baseline, key: value}]
+                with self.assertRaises(ValueError):
+                    personas.apply({"card_id": "natural", "expected_revision": None})
+                self.assertFalse(self.native.calls)
+
     def test_tool_grants_preserve_none_merge_only_supported_names_and_never_change_prompt(self):
         original = self.native.rows[0]["system_prompt"]
         self.native.rows[0]["tools"] = None
