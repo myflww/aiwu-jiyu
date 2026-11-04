@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
+from urllib.error import HTTPError, URLError
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +34,48 @@ def zipped(entries):
     with zipfile.ZipFile(content, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for name, raw in entries:archive.writestr(name, raw)
     return content.getvalue()
+
+
+class MaterialDownloadTests(unittest.TestCase):
+    def test_network_errors_are_actionable_without_rewriting_validation_failures(self):
+        url = sticker_materials.RELEASES
+        failures = [
+            (HTTPError(url, 403, "private raw HTTP detail", {"X-RateLimit-Remaining": "0"}, None), "GitHub公共接口暂时限流，请稍后再检查"),
+            (HTTPError(url, 429, "private raw HTTP detail", {"Retry-After": "60"}, None), "GitHub公共接口暂时限流，请稍后再检查"),
+            (HTTPError(url, 403, "private raw HTTP detail", {"X-RateLimit-Remaining": "1"}, None), "暂时无法读取官方素材，请稍后重试"),
+            (HTTPError(url, 503, "private raw HTTP detail", {"Retry-After": "60"}, None), "暂时无法读取官方素材，请稍后重试"),
+            (URLError("private raw network detail"), "暂时无法连接官方素材服务，请检查网络后稍后重试"),
+            (OSError("private raw network detail"), "暂时无法连接官方素材服务，请检查网络后稍后重试"),
+        ]
+        for failure, expected in failures:
+            with self.subTest(failure=type(failure).__name__, code=getattr(failure, "code", None)):
+                with patch.object(sticker_materials, "urlopen", side_effect=failure) as transport:
+                    with self.assertRaises(ValueError) as result:
+                        sticker_materials._download(url, 100)
+                    self.assertEqual(str(result.exception), expected)
+                    self.assertTrue(result.exception.__suppress_context__)
+                    transport.assert_called_once()
+        response = unittest.mock.MagicMock()
+        response.__enter__.return_value = response
+        response.url = url
+        response.read.side_effect = OSError("private interrupted download detail")
+        with patch.object(sticker_materials, "urlopen", return_value=response):
+            with self.assertRaisesRegex(ValueError, "暂时无法连接官方素材服务"):
+                sticker_materials._download(url, 100)
+        response.read.side_effect = None
+        response.url = "https://untrusted.example/materials"
+        with patch.object(sticker_materials, "urlopen", return_value=response):
+            with self.assertRaisesRegex(ValueError, "素材下载跳转地址无效"):
+                sticker_materials._download(url, 100)
+        response.url = url
+        response.read.return_value = b"too large"
+        with patch.object(sticker_materials, "urlopen", return_value=response):
+            with self.assertRaisesRegex(ValueError, "素材下载容量超限"):
+                sticker_materials._download(url, 1)
+        with patch.object(sticker_materials, "urlopen") as transport:
+            with self.assertRaisesRegex(ValueError, "素材下载地址不属于官方GitHub发布"):
+                sticker_materials._download("https://untrusted.example/materials", 100)
+            transport.assert_not_called()
 
 
 class LibraryFixture:

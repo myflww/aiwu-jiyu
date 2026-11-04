@@ -18,7 +18,7 @@ import stat
 import tempfile
 import threading
 import uuid
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 import zipfile
@@ -48,11 +48,19 @@ def _download(url, maximum):
     allowed = {"api.github.com", "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"}
     if parsed.scheme != "https" or parsed.hostname not in allowed or parsed.username or parsed.password:
         raise ValueError("素材下载地址不属于官方GitHub发布")
-    with urlopen(Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "AiwuJiyu-Community-Materials"}), timeout=45) as response:
-        final = urlsplit(response.url)
-        if final.scheme != "https" or final.hostname not in allowed:
-            raise ValueError("素材下载跳转地址无效")
-        content = response.read(maximum + 1)
+    try:
+        with urlopen(Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "AiwuJiyu-Community-Materials"}), timeout=45) as response:
+            final = urlsplit(response.url)
+            if final.scheme != "https" or final.hostname not in allowed:
+                raise ValueError("素材下载跳转地址无效")
+            content = response.read(maximum + 1)
+    except HTTPError as error:
+        headers = error.headers or {}
+        if error.code in {403, 429} and (headers.get("X-RateLimit-Remaining") == "0" or headers.get("Retry-After") is not None):
+            raise ValueError("GitHub公共接口暂时限流，请稍后再检查") from None
+        raise ValueError("暂时无法读取官方素材，请稍后重试") from None
+    except (URLError, OSError):
+        raise ValueError("暂时无法连接官方素材服务，请检查网络后稍后重试") from None
     if len(content) > maximum:
         raise ValueError("素材下载容量超限")
     return content
