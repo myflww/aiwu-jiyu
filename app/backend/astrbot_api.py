@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import secrets
+import stat
 import tempfile
 import threading
 import time
 import urllib.request
+from urllib.error import HTTPError
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +22,52 @@ from backend.config_store import PERSONA_ID
 
 BASE = f"http://127.0.0.1:{ASTRBOT_PORT}"
 _desktop_lock = threading.Lock()
+_session_token_lock = threading.RLock()
+_SESSION_TOKEN_TTL = 30.0
+_session_token_cache: dict[str, Any] = {}
+
+
+def _clear_session_token(token: str | None = None) -> None:
+    """Forget only this request's cached credential; never retry its action."""
+    with _session_token_lock:
+        if token is None or _session_token_cache.get("token") == token:
+            _session_token_cache.clear()
+
+
+def _session_process_identity() -> tuple | None:
+    """A managed PID marker changes on restart, even if a PID is recycled.
+
+    An absent, redirected or changing marker cannot prove process continuity,
+    so callers authenticate normally without reusing a cached token.
+    """
+    path = RUN_DIR / "astrbot.pid"
+    try:
+        for candidate in (RUN_DIR, path):
+            info = candidate.lstat()
+            if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+                return None
+        before = path.stat()
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or not 1 <= before.st_size <= 32:
+            return None
+        with path.open("rb") as handle:
+            opened = os.fstat(handle.fileno())
+            raw = handle.read(33)
+        after = path.stat()
+        def signature(info):
+            return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns
+        # Windows Python can expose different ctime semantics through fstat
+        # and path.stat. Compare file identity/mtime across handles, and compare
+        # ctime only between the two path reads. Keep that path value in the
+        # cache binding so replacement/restart signals still invalidate it.
+        if (signature(before) != signature(opened) or signature(opened) != signature(after)
+                or before.st_ctime_ns != after.st_ctime_ns):
+            return None
+        value = raw.strip()
+        if not re.fullmatch(rb"[1-9][0-9]{0,9}", value):
+            return None
+        return (str(RUN_DIR.resolve()), int(value), *signature(after), after.st_ctime_ns)
+    except (OSError, ValueError):
+        return None
 
 
 def _request(path: str, payload: dict | None = None, token: str | None = None,
@@ -33,8 +82,13 @@ def _request(path: str, payload: dict | None = None, token: str | None = None,
     request = urllib.request.Request(
         BASE + path, data=data, method=method, headers=headers
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as error:
+        if error.code == 401 and token:
+            _clear_session_token(token)
+        raise
 
 
 def _desktop_secret(*, create: bool = False) -> str:
@@ -65,26 +119,56 @@ def _desktop_secret(*, create: bool = False) -> str:
 
 
 def desktop_environment() -> dict[str, str]:
+    # This helper is called immediately before a managed launch. Invalidate
+    # before the new PID marker exists; the encrypted desktop secret may stay
+    # the same while AstrBot's dashboard JWT signing key changes on restart.
+    _clear_session_token()
     return {"ASTRBOT_DESKTOP_MANAGED": "1",
             "ASTRBOT_DESKTOP_SESSION_SECRET": _desktop_secret(create=True)}
 
 
 def dashboard_token() -> str:
-    """Use AstrBot's official loopback desktop session, with legacy fallback."""
-    secret = _desktop_secret()
-    if secret:
-        try:
-            result = _request("/api/v1/auth/desktop-session", payload={},
-                              extra_headers={"X-AstrBot-Desktop-Session": secret})
-            token = (result.get("data") or {}).get("token")
-            if token:
-                return token
-        except Exception:
-            pass
-    password = read_initial_password()
-    if password:
-        return login(password)
-    raise RuntimeError("当前服务尚未建立桌面会话")
+    """Reuse a short in-memory session for the same managed service only.
+
+    Serialized acquisition avoids hitting AstrBot's authentication burst limit
+    when status, persona application and tool grants arrive together. The
+    bearer token is never persisted, logged or used to retry a failed action.
+    """
+    with _session_token_lock:
+        secret = _desktop_secret()
+        process = _session_process_identity()
+        binding = (hashlib.sha256(secret.encode("utf-8")).digest(), process)
+        now = time.monotonic()
+        if (process is not None and _session_token_cache.get("binding") == binding
+                and now < _session_token_cache.get("expires_at", 0)):
+            return _session_token_cache["token"]
+        _session_token_cache.clear()
+        token = None
+        if secret:
+            try:
+                result = _request("/api/v1/auth/desktop-session", payload={},
+                                  extra_headers={"X-AstrBot-Desktop-Session": secret})
+                candidate = (result.get("data") or {}).get("token")
+                if isinstance(candidate, str) and candidate:
+                    token = candidate
+            except Exception:
+                pass
+        if token is None:
+            password = read_initial_password()
+            if password:
+                token = login(password)
+        if not isinstance(token, str) or not token:
+            raise RuntimeError("当前服务尚未建立桌面会话")
+        # A launch or secret rotation during authentication must not hand an
+        # old service's bearer to a subsequent mutation. There is no action
+        # retry here; a later caller can establish a fresh session.
+        current_process = _session_process_identity()
+        if _desktop_secret() != secret or process is not None and current_process != process:
+            raise RuntimeError("服务会话已变化，请重新检查后再操作")
+        if process is not None:
+            _session_token_cache.update(token=token, binding=binding,
+                                        expires_at=time.monotonic() + _SESSION_TOKEN_TTL)
+        return token
 
 
 def wait_ready(timeout: float = 45.0) -> bool:
