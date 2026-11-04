@@ -42,7 +42,7 @@ def load_plugin():
     modules["astrbot.api"].ToolSet = ToolSet
     modules["astrbot.api.event"].AstrMessageEvent = object
     modules["astrbot.api.event"].filter = SimpleNamespace(llm_tool=identity, command=identity,
-        on_llm_request=identity, on_llm_tool_respond=identity, on_decorating_result=identity, after_message_sent=identity)
+        on_llm_request=identity, on_llm_response=identity, on_llm_tool_respond=identity, on_decorating_result=identity, after_message_sent=identity)
     modules["astrbot.core.db.po"].Conversation = type("Conversation", (SimpleNamespace,), {})
     modules["astrbot.core.cron.events"].CronMessageEvent = type("CronMessageEvent", (), {})
     modules["astrbot.core.message.components"].Plain = Plain
@@ -596,6 +596,7 @@ class ContextualStickerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_failed_final_send_never_commits_offer_or_shortens_auto_uncertainty(self):
         self.plugin.config = {"auto_match_enabled": True, "auto_probability": 100}
+        self.plugin.context = None  # Local fake adapter; no SDK session manager.
         failed = FakeEvent(message="开心", failure=True)
         failed.result = Result([Plain("要不要再来一张害羞的表情？[sticker:happy]")])
         with patch.object(self.plugin, "_now", return_value=100):

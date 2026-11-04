@@ -173,15 +173,8 @@ def list_personas(token: str) -> list[dict]:
 
 
 def persona_body() -> str:
-    path = ASSETS / "persona" / "大肥鱼-人格.md"
-    text = path.read_text(encoding="utf-8")
-    lines = text.splitlines()
-    start = 0
-    for index, line in enumerate(lines):
-        if line.startswith("你是「大肥鱼」"):
-            start = index
-            break
-    return "\n".join(lines[start:]).strip()
+    from backend import personas
+    return personas.prompt("natural")
 
 
 def ensure_persona(token: str) -> bool:

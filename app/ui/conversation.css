@@ -1,0 +1,24 @@
+.conversation-panel{margin:22px 0;grid-column:1/-1}
+.persona-card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:14px;margin-top:15px}
+.persona-card{display:flex;flex-direction:column;align-items:flex-start;gap:12px;padding:18px;border:1px solid #d7e5ee;border-radius:18px;background:#fcfeff;min-width:0}
+.persona-card.selected{border-color:#82b6c7;background:#f0f9fa;box-shadow:inset 0 0 0 1px #acd4db}
+.persona-card>img{width:100%;height:145px;object-fit:contain}
+.persona-card h3{margin:0 0 6px;color:#294e69;font-size:17px}
+.persona-card p{margin:0 0 8px;line-height:1.7;font-size:12px;color:#638295}
+.persona-card small{display:block;font-size:10px;margin-top:10px;color:#81939e}
+.persona-card>button{margin-top:auto;width:100%}
+.persona-tags{display:flex;flex-wrap:wrap;gap:5px}
+.persona-tags>span{font-size:10px;background:#edf5f8;border-radius:7px;padding:3px 6px;color:#587e91}
+.conversation-advanced{margin:15px 0;border-top:1px solid #e4edf2;padding-top:13px}
+.conversation-advanced summary{cursor:pointer;font-size:13px;color:#446b82;margin-bottom:13px;line-height:1.7}
+.persona-preview textarea{width:100%;min-height:300px;font-family:inherit;font-size:12px;line-height:1.9;resize:vertical}
+.modal:has(.persona-preview),.modal:has(#lifeSettingsSheet){width:min(780px,94vw);display:flex;flex-direction:column;overflow:hidden}
+.modal:has(.persona-preview) #modalBody,.modal:has(#lifeSettingsSheet) #modalBody{overflow:auto;min-height:0;overscroll-behavior:contain;padding-right:8px}
+.modal:has(.persona-preview)>h3,.modal:has(.persona-preview)>.row,.modal:has(#lifeSettingsSheet)>h3,.modal:has(#lifeSettingsSheet)>.row{flex-shrink:0}
+.life-search-results article{border:1px solid #dce8ef;border-radius:12px;padding:12px;margin-top:10px;overflow-wrap:anywhere}
+.life-search-results p{font-size:12px;line-height:1.7;margin-bottom:0}
+.life-review pre{white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid #e0e9ef;background:#f7fafc;padding:12px;border-radius:11px;max-height:240px;overflow:auto;font:inherit;line-height:1.8}
+.life-avatar-preview{display:block;margin:12px auto;max-width:180px;height:190px;object-fit:contain}
+#personaBackupList .row{padding:9px 0;border-top:1px solid #edf3f6;font-size:12px}
+@media(max-width:900px){.persona-card-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.persona-card{padding:14px}}
+@media(max-width:540px){.persona-card-grid{grid-template-columns:1fr}.persona-card>img{height:150px}}

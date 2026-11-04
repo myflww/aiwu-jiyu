@@ -19,6 +19,7 @@ from backend import plugins, updater
 PLUGIN_IDS = (
     "astrbot_plugin_face_convert", "astrbot_plugin_love_house", "astrbot_plugin_pc_operator",
     "astrbot_plugin_dafeiyu_companion", "astrbot_plugin_dafeiyu_stickers",
+    "astrbot_plugin_dafeiyu_life",
 )
 CACHE_SECONDS = 6 * 60 * 60
 FAILURE_BACKOFF = 60

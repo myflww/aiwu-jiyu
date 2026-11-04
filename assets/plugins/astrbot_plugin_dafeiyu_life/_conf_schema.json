@@ -1,0 +1,10 @@
+{
+  "enabled": {"type": "bool", "description": "生活能力总开关", "default": false},
+  "owner_qq": {"type": "string", "description": "主人QQ（桌面端同步）", "default": ""},
+  "bot_qq": {"type": "string", "description": "机器人小号QQ（桌面端同步，只修改此账号）", "default": ""},
+  "search_enabled": {"type": "bool", "description": "主人私聊网页搜索", "default": false, "hint": "仅外发明确的公开搜索关键词，不上传完整对话。Bing RSS 无需密钥；5秒间隔、每天60次（UTC），失败不编造结果。"},
+  "search_provider": {"type": "string", "description": "搜索来源", "default": "bing_rss", "options": ["bing_rss", "searxng"]},
+  "searxng_url": {"type": "string", "description": "可选SearXNG公开HTTPS地址", "default": "", "hint": "需启用JSON输出，例如 https://search.example.org/search；不支持内网地址、明文HTTP或地址中的账号密码。"},
+  "profile_enabled": {"type": "bool", "description": "机器人小号资料与在线状态准备、主人确认", "default": false, "hint": "昵称、签名、随附大肥鱼头像、自定义在线状态（会设为在线，不是兴趣标签）。只创建预览，主人下一条真实私聊确认才执行，不改变主人QQ资料。"},
+  "qzone_enabled": {"type": "bool", "description": "机器人小号QQ空间说说准备与主人确认", "default": false, "hint": "需NapCat真实支持；仅纯文字，默认仅自己可见。不是微信朋友圈，也不授予手机系统权限。"}
+}

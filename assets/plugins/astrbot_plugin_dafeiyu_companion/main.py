@@ -27,12 +27,15 @@ from .engine import (activity_summary, foreground_activity, mood_after, mood_sum
 from .natural_bubbles import BubbleReplies
 from .preferences import read_preference, write_preference, effective_options, feedback_mode, public_preference
 from .reply_pipeline import ReplyPipeline, session_guard
+from .turn_taking import (Turns, MessageCollector, GroupAdmission, identity as turn_identity,
+                          is_group, command_event, addressed_elsewhere, no_reply_requested, retain_user_input,
+                          GROUP_KEY, TURN_KEY, NO_REPLY_KEY)
 
 PLUGIN_NAME = "astrbot_plugin_dafeiyu_companion"
 QQ_ADAPTERS = {"aiocqhttp", "qq"}
 
 
-@register(PLUGIN_NAME, "myflww", "大肥鱼陪伴：自主搭话、情绪表达与授权活动概况", "1.3.0")
+@register(PLUGIN_NAME, "myflww", "大肥鱼陪伴：消息收集、群聊节制与可选自主搭话", "1.4.0")
 class DafeiyuCompanion(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -46,6 +49,7 @@ class DafeiyuCompanion(Star):
         self._hot_stamp = None
         self._hot_options = None
         self._hot_master_enabled = None
+        self._hot_valid = True
         self._state = {}
         self._runtime = {}
         self._activity = {}
@@ -55,6 +59,9 @@ class DafeiyuCompanion(Star):
         self._send_lock = asyncio.Lock()
         self._last_message_key = None
         self._bubbles = BubbleReplies()
+        self._turns = Turns()
+        self._collector = MessageCollector(self._plain)
+        self._groups = GroupAdmission()
         self._reply_pipeline = ReplyPipeline(context, MessageChain, self._plugin_allowed)
 
     def _options(self) -> dict:
@@ -77,7 +84,7 @@ class DafeiyuCompanion(Star):
             if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 128 * 1024:
                 raise ValueError("Unsupported plugin configuration")
             stamp = (info.st_mtime_ns, info.st_size, info.st_ino)
-            if stamp != self._hot_stamp:
+            if stamp != self._hot_stamp or not self._hot_valid:
                 with path.open("rb") as stream:
                     opened = os.fstat(stream.fileno())
                     if opened.st_nlink != 1 or (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino):
@@ -92,14 +99,66 @@ class DafeiyuCompanion(Star):
                 if (str(value.get("owner_qq", self._owner())) != self._owner()
                         or str(value.get("bot_qq", self._identity()[1])) != self._identity()[1]):
                     raise ValueError("Identity change requires a proper plugin reload")
-                self._hot_master_enabled = value.get("enabled", True)
+                self._hot_master_enabled = value.get("enabled")
                 self._hot_options = normalize({**base, **{key:value[key] for key in DEFAULTS if key in value}}, strict=True)
                 self._hot_stamp = stamp
+            self._hot_valid = True
             return dict(self._hot_options or base)
         except (OSError, ValueError, TypeError, UnicodeError):
             # A broken/deleted config must not silently revive an earlier
             # autonomous permission. Ordinary explicitly invoked chat survives.
+            self._hot_valid = False
             return normalize({**(self._hot_options or base), "proactive_enabled": False})
+
+    @staticmethod
+    def _plain(text):
+        from astrbot.core.message.components import Plain
+        return Plain(text)
+
+    def _master_enabled(self):
+        """The fixed validated file represents an explicit desktop setting.
+
+        Identity never hot-migrates. A corrupt/missing native config fails
+        closed for collection, active greetings and activity sampling alike.
+        Native star disable/termination remains a separate lifecycle gate.
+        """
+        self._base_options()
+        if self._closed or self._config_path is not None and not self._hot_valid:
+            return False
+        getter = getattr(self.context, "get_registered_star", None)
+        if callable(getter):
+            try:
+                metadata = getter(PLUGIN_NAME)
+                if metadata is None or getattr(metadata, "activated", False) is not True:
+                    return False
+            except Exception:
+                return False
+        if self._config_path is not None and type(self._hot_master_enabled) is bool:
+            return self._hot_master_enabled
+        return self.config.get("enabled") is True
+
+    def _transport_enabled(self):
+        # Collection is independent from optional roleplay/proactive features.
+        return self._master_enabled()
+
+    async def _transport_allows(self, event):
+        if not self._transport_enabled() or turn_identity(event) is None:
+            return False
+        allowed = await self._session_allows(event.unified_msg_origin)
+        return bool(allowed and self._transport_enabled())
+
+    async def _reply_allows(self, event):
+        if not await self._transport_allows(event) or not self._turns.current_event(event):
+            return False
+        admission = event.get_extra(GROUP_KEY)
+        if admission == "silent":
+            return False
+        if admission == "light":
+            options = self._options()
+            if (options["group_reply_mode"] != "light" or not options["group_hourly_limit"]
+                    or not options["group_participation_probability"]):
+                return False
+        return True
 
     def _temporary(self):
         owner, bot = self._identity()
@@ -107,8 +166,7 @@ class DafeiyuCompanion(Star):
 
     def _enabled(self) -> bool:
         options = self._options()
-        return (not self._closed and self.config.get("enabled") is True
-                and self._hot_master_enabled is not False and options["enabled"])
+        return self._master_enabled() and options["enabled"]
 
     def _owner(self) -> str:
         owner = str(self.config.get("owner_qq") or "").strip()
@@ -122,6 +180,9 @@ class DafeiyuCompanion(Star):
             return
         if self._closed:
             self._bubbles = BubbleReplies()
+            self._turns = Turns()
+            self._collector = MessageCollector(self._plain)
+            self._groups = GroupAdmission()
         self._closed = False
         # Keep a lightweight worker alive even when capabilities are off.
         # AstrBot may update the config object after plugin initialization.
@@ -150,6 +211,8 @@ class DafeiyuCompanion(Star):
     async def terminate(self):
         self._closed = True
         self._bubbles.close()
+        self._collector.close()
+        self._turns.close()
         if self._worker:
             self._worker.cancel()
             with suppress(asyncio.CancelledError):
@@ -281,7 +344,12 @@ class DafeiyuCompanion(Star):
         public["reply_pipeline"] = self._state.get("reply_pipeline", {})
         public["usage"] = self._usage_snapshot(now)
         owner, bot = self._identity()
-        signature = runtime_signature({**self._base_options(), "enabled": self.config.get("enabled") is True,
+        base = self._base_options()
+        master = (self._hot_master_enabled if self._config_path is not None and self._hot_valid
+                  and type(self._hot_master_enabled) is bool else self.config.get("enabled"))
+        # Signature uses the desktop's optional-feature aggregate, independent
+        # from a transport-only master and the stopped worker lifecycle.
+        signature = runtime_signature({**base, "enabled": master is True and base["enabled"],
                                        "owner_qq": owner, "bot_qq": bot})
         public.update(version=1, signature=signature, heartbeat_at=now.timestamp(),
                       worker_running=bool(self._worker and not self._worker.done() and not self._closed))
@@ -301,6 +369,63 @@ class DafeiyuCompanion(Star):
                     and valid_session(umo, owner) and umo.split(":", 1)[0] == event.get_platform_id())
         except Exception:
             return False
+
+    @filter.event_message_type(filter.EventMessageType.ALL, priority=1000)
+    async def collect_messages(self, event: AstrMessageEvent):
+        if turn_identity(event) is None:
+            return
+        if not self._transport_enabled():
+            self._collector.cancel_event(event)
+            return
+        # Observe before waiting so new real input can interrupt an older
+        # outgoing reply immediately, even while this new turn is collecting.
+        if self._turns.observe(event) is None:
+            event.stop_event()
+            return
+        self._bubbles.observe(event)
+        if not await self._transport_allows(event):
+            self._collector.cancel_event(event)
+            event.stop_event()
+            return
+        # Proactive generation must see the arrival immediately, rather than
+        # continue sending for the ten seconds while the owner is collecting.
+        await self.observe_owner(event)
+        options = self._options()
+        host = self.context.get_config(umo=event.unified_msg_origin)
+        continuation = (is_group(event) and self._collector.has_pending(event)
+                        and not command_event(event) and not addressed_elsewhere(event))
+        inherited = self._collector.pending_admission(event)
+        admission = ("light" if inherited == "light" else "continuation") if continuation else self._groups.admit(event, options, host)
+        event.set_extra(GROUP_KEY, admission)
+        if admission == "silent":
+            # Leave unrelated plugin commands/listeners available while hard
+            # gating the implicit LLM path. A later LLM hook checks this again.
+            event.is_at_or_wake_command = False
+            event.call_llm = True
+            return
+        if admission in {"addressed", "light", "continuation"}:
+            event.is_at_or_wake_command = True
+        elif admission == "command":
+            event.call_llm = True
+        # Preserve plugin commands and emergency requests as immediate input.
+        async def still_collecting():
+            return (self._options()["message_collection_enabled"] and await self._reply_allows(event))
+        accepted = await self._collector.collect(event, options, still_collecting)
+        if not accepted:
+            event.stop_event()
+        elif no_reply_requested(event):
+            event.set_extra(NO_REPLY_KEY, True)
+            event.is_at_or_wake_command = False
+            event.call_llm = True
+            receipt = await retain_user_input(self.context, event, lambda: self._transport_allows(event))
+            event.set_extra("dafeiyu_no_reply_history", receipt)
+
+    @filter.on_waiting_llm_request(priority=1000)
+    async def guard_collected_turn(self, event: AstrMessageEvent):
+        if turn_identity(event) is None or not self._transport_enabled():
+            return
+        if event.get_extra(NO_REPLY_KEY) or not await self._reply_allows(event):
+            event.stop_event()
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def observe_owner(self, event: AstrMessageEvent):
@@ -399,14 +524,16 @@ class DafeiyuCompanion(Star):
         if self._owner_event(event):
             self._bubbles.mark_tool(event)
 
-    @filter.on_decorating_result()
+    @filter.on_decorating_result(priority=-1000)
     async def natural_chat_bubbles(self, event: AstrMessageEvent):
-        if not self._owner_event(event) or not self._options()["natural_bubbles_enabled"]:
+        if event.get_extra(TURN_KEY) is not None and not await self._reply_allows(event):
+            event.stop_event()
+            return
+        if not await self._transport_allows(event):
             return
 
         async def still_authorized():
-            return (self._owner_event(event) and self._options()["natural_bubbles_enabled"]
-                    and await self._session_allows(event.unified_msg_origin))
+            return await self._reply_allows(event)
 
         await self._bubbles.prepare(event, self._options(), still_authorized,
                                     self.context.get_config(umo=event.unified_msg_origin))

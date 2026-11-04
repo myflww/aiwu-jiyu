@@ -20,6 +20,7 @@ from backend import astrbot_api
 from backend import metrics, pc_access, updater, log_retention, companion, stickers, plugin_updates
 from backend import dashboard_credentials, custom_stickers, sticker_contributions
 from backend import health, tasks, recovery, companion_memory, sticker_library, sticker_materials
+from backend import personas, life
 from backend.paths import APP_HOME, ASSETS, LOGS, RUN_DIR, UI_DIR, ensure_dirs
 
 _lock = threading.Lock()
@@ -143,6 +144,7 @@ def _apply_config(config: dict) -> dict:
     config_store.sync_astrbot_config(config)
     companion.sync_config(config)
     stickers.sync_config(config)
+    life.sync_config(config)
     try:
         pc_access.ensure_plugin_current()
         pc_access.sync_owner()
@@ -276,6 +278,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/health": {"ok": True, "preview": True, "overall": "unknown", "checks": [], "summary": "界面预览不读取实际运行状态。", "readonly": True},
             "/api/tasks": {"ok": True, "preview": True, "active": [], "recent": [], "source": "preview"},
             "/api/recovery": {"ok": True, "preview": True, "backups": [], "current_version": updater.current_version()},
+            "/api/personas": {"ok": True, "preview": True, "cards": personas.catalog()["cards"], "default": "natural", "active_name": "界面预览", "runtime_online": False, "can_apply": False, "revision": None, "backups": [], "notice": "预览不读取运行人格。"},
+            "/api/life": {"ok": True, "preview": True, "settings": {"search_enabled": False, "profile_enabled": False, "qzone_enabled": False, "search_provider": "bing_rss", "searxng_url": ""}, "owner_configured": False, "bot_configured": False, "plugin_enabled": False, "capabilities": {}, "avatars": []},
             "/api/stickers/library": {"ok": True, "preview": True, "stickers": [], "count": 0, "total_count": 0},
             "/api/stickers/materials": {"ok": True, "preview_mode": True, "installed_version": "", "message": "预览不连接社区素材更新服务。"},
             "/api/stickers": {"ok": True, **stickers.status()},
@@ -355,6 +359,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, tasks.snapshot())
             elif path == "/api/recovery":
                 self._json(200, {**recovery.list_backups(), "current_version": updater.current_version()})
+            elif path == "/api/personas":
+                self._json(200, personas.status())
+            elif path == "/api/life":
+                self._json(200, life.status())
             elif path == "/api/stickers/library":
                 self._json(200, sticker_library.browse({"query": query.get("query", [""])[0], "favorites_only": query.get("favorites_only", ["false"])[0] == "true", "sort": query.get("sort", ["default"])[0]}))
             elif path == "/api/stickers/materials":
@@ -482,7 +490,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(403, {"ok": False, "message": "这是界面预览，请在正式应用中设置"})
             return
         try:
-            if path == "/api/dashboard/credentials" or path.startswith(("/api/stickers/custom/", "/api/stickers/contributions/", "/api/stickers/library/", "/api/stickers/materials/", "/api/memories/", "/api/recovery/", "/api/companion/")):
+            if path == "/api/dashboard/credentials" or path.startswith(("/api/stickers/custom/", "/api/stickers/contributions/", "/api/stickers/library/", "/api/stickers/materials/", "/api/memories/", "/api/recovery/", "/api/companion/", "/api/personas/", "/api/life/")):
                 expected = f"http://127.0.0.1:{self.server.server_address[1]}"
                 if self.headers.get("Origin") != expected or self.headers.get("Host") != expected.removeprefix("http://"):
                     self._json(403, {"ok": False, "message": "请在爱屋及鱼窗口中操作。"})
@@ -494,6 +502,37 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(403, {"ok": False, "message": "请从爱屋及鱼应用窗口操作"})
                     return
             body = self._body()
+            if path.startswith("/api/personas/"):
+                functions = {"preview": personas.preview, "apply": personas.apply, "restore": personas.restore}
+                action = path.removeprefix("/api/personas/")
+                if action not in functions:
+                    self._json(404, {"ok": False, "message": "人格接口不存在。"})
+                    return
+                self._json(200, functions[action](body))
+                return
+            if path.startswith("/api/life/"):
+                action = path.removeprefix("/api/life/")
+                functions = {"search": life.search, "prepare": life.prepare, "confirm": life.confirm, "cancel": life.cancel}
+                if action == "settings":
+                    life.configure(body)
+                    options = life.load()
+                    enabled = bool(life.authorized_tools(options))
+                    current = next((r for r in plugins.list_plugins() if r["id"] == life.PLUGIN_ID), None)
+                    if current and bool(current.get("enabled")) != enabled:
+                        plugins.set_enabled(life.PLUGIN_ID, enabled)
+                    grant = personas.grant_bundled_tools(life.authorized_tools(options))
+                    payload = {**life.status(), "persona_tools": grant}
+                elif action == "profile":
+                    if body:
+                        raise ValueError("读取机器人资料不接收其他账号参数。")
+                    payload = life.profile()
+                elif action in functions:
+                    payload = functions[action](body)
+                else:
+                    self._json(404, {"ok": False, "message": "生活能力接口不存在。"})
+                    return
+                self._json(200, payload)
+                return
             if path in {"/api/companion/profile", "/api/companion/temporary"}:
                 payload = companion.apply_profile(body.get("profile")) if path.endswith("/profile") else companion.set_temporary(body)
                 self._json(200, {"ok": True, **payload})
@@ -735,10 +774,6 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {"ok": True, **result})
             elif path == "/api/companion":
                 result = companion.configure(body)
-                current = next((item for item in plugins.list_plugins()
-                                if item["id"] == companion.PLUGIN_NAME), None)
-                if current and current.get("enabled") and processes.port_up(6185):
-                    _apply_config(config_store.load())
                 self._json(200, {"ok": True, **result})
             elif path == "/api/stickers/settings":
                 result = stickers.configure(body)
@@ -929,6 +964,7 @@ def start_server(*, preview: bool = False, auto_start: bool = True, auto_update:
             bundle = plugins.install_bundled()
             companion.sync_config(config)
             stickers.sync_config(config)
+            life.sync_config(config)
             changed = set(bundle.get("updated", [])) | set(bundle.get("installed", []))
             reload_bundled = (auto_start and bool(changed)
                               and any(item["id"] in changed and item.get("runtime_enabled", item.get("enabled"))

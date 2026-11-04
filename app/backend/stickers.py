@@ -74,6 +74,15 @@ def _catalog_module():
 
 
 @lru_cache(maxsize=1)
+def _library_module():
+    path = ASSETS / "plugins" / PLUGIN_ID / "library_state.py"
+    spec = importlib.util.spec_from_file_location("_aiwu_sticker_diagnostics", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@lru_cache(maxsize=1)
 def _pack() -> dict:
     data = _catalog_module().load_catalog(PACK_DIR)
     packs = {pack["id"]: pack for pack in data["packs"]}
@@ -112,6 +121,11 @@ def status(*, settings: dict | None = None, custom_items: list | None = None) ->
                            "attribution": "本机个人素材", "license": "由用户管理；未默认授予公开再分发许可"})
     # Preview calls omit custom_items and must remain completely profile-free.
     if custom_items is not None:
+        try:
+            result["runtime_diagnostics"] = _library_module().LibraryState(ASTRBOT / "data/plugin_data" / PLUGIN_ID).diagnostics()
+        except Exception:
+            result["runtime_diagnostics"] = {"available": False, "last_at": None, "last_reason": None,
+                "last_message": "配图诊断记录暂不可读", "counts": {}, "note": "不影响现有图库浏览。"}
         from backend import sticker_materials
         try:
             extra = sticker_materials.rows()

@@ -13,6 +13,11 @@ DEFAULTS = {
     "proactive_enabled": False, "emotion_enabled": False, "activity_enabled": False,
     "whale_style_enabled": False,
     "natural_bubbles_enabled": False, "natural_bubbles_frequency": "occasional",
+    "message_collection_enabled": True, "collection_seconds": 10,
+    "collection_max_wait_seconds": 30, "collection_max_messages": 12, "collection_max_chars": 6000,
+    "group_reply_mode": "addressed", "group_cooldown_seconds": 90,
+    "group_hourly_limit": 6, "group_participation_probability": 3,
+    "group_wake_words": "大肥鱼,小鱼",
     "interval_minutes": 120, "daily_limit": 4, "quiet_start": 23, "quiet_end": 8,
     "schedule_mode": "random", "min_interval_minutes": 60, "max_interval_minutes": 180,
     "idle_minutes": 40, "trigger_probability": 100, "unanswered_decay_percent": 50,
@@ -20,11 +25,16 @@ DEFAULTS = {
 }
 BOOL_FIELDS = ("proactive_enabled", "emotion_enabled", "activity_enabled", "whale_style_enabled", "natural_bubbles_enabled")
 RANGES = {"interval_minutes": (5, 1440), "daily_limit": (0, 20),
+          "collection_seconds": (1, 30), "collection_max_wait_seconds": (5, 120),
+          "collection_max_messages": (2, 30), "collection_max_chars": (500, 20000),
+          "group_cooldown_seconds": (0, 3600), "group_hourly_limit": (0, 60),
+          "group_participation_probability": (0, 20),
           "quiet_start": (0, 23), "quiet_end": (0, 23),
           "min_interval_minutes": (5, 1440), "max_interval_minutes": (5, 2880),
           "idle_minutes": (0, 1440), "trigger_probability": (0, 100),
           "unanswered_decay_percent": (0, 100), "max_unanswered": (0, 20), "session_expiry_days": (0, 365)}
 ENUMS = {"schedule_mode": {"fixed", "random"}, "timezone": {"local", "Asia/Shanghai", "UTC"},
+         "group_reply_mode": {"addressed", "light"},
          "natural_bubbles_frequency": {"occasional", "often"}}
 PRESETS = {"dsh_reference": {"schedule_mode": "random", "min_interval_minutes": 60,
     "max_interval_minutes": 180, "idle_minutes": 40, "daily_limit": 4,
@@ -173,8 +183,9 @@ def schedule_state(state: dict, options: dict, now: datetime, *, enabled: bool,
 # Original AstrBot adaptation; research references are recorded in SOURCES.md.
 # It changes visible expression only, never a provider's private reasoning.
 WHALE_STYLE_CONTEXT = (
-    "可选的大肥鱼口吻：用亲近、口语化的中文交流，带一点傲娇和嘴硬心软的甜意，"
-    "可自然提到米饭或小尾巴，但不必每次自报身份、堆语气词或重复同一句口头禅。"
+    "可选的大肥鱼口吻：以当前选定的人格卡和用户最近明确的语气偏好为准，用亲近、口语化的中文交流。"
+    "只有当前人格本就适合时才轻轻傲娇；用户不喜欢就收起，不把嘴硬当成不能改变的身份规则。"
+    "米饭或小尾巴可以偶尔自然提到，不每轮固定加鱼emoji、自报身份、堆语气词或重复同一句口头禅。"
     "承接这次对话的具体内容，不要套用固定欢迎词、机械分点或客服式收尾；"
     "不要无故说‘还有什么可以帮助你的吗’，也不把‘避免模板回复’误解为发送告别台词。"
     "遇到认真问题仍给准确、有用的答案，不用卖萌代替解决问题。"
@@ -190,7 +201,7 @@ def normalize(data: dict, *, strict: bool = False) -> dict:
     legacy = "interval_minutes" in data and "schedule_mode" not in data
     if legacy:
         result.update(schedule_mode="fixed", idle_minutes=0, unanswered_decay_percent=0, max_unanswered=0)
-    for key in BOOL_FIELDS:
+    for key in (*BOOL_FIELDS, "message_collection_enabled"):
         if key in data:
             if strict and type(data[key]) is not bool:
                 raise ValueError(f"{key} 必须是开关值")
@@ -213,6 +224,18 @@ def normalize(data: dict, *, strict: bool = False) -> dict:
         if strict:
             raise ValueError("最长主动机会间隔不能小于最短间隔")
         result["max_interval_minutes"] = result["min_interval_minutes"]
+    if result["collection_max_wait_seconds"] < result["collection_seconds"]:
+        if strict:
+            raise ValueError("消息最长等待不能小于尾沿等待时间")
+        result["collection_max_wait_seconds"] = result["collection_seconds"]
+    words = data.get("group_wake_words", result["group_wake_words"])
+    if (not isinstance(words, str) or len(words) > 200
+            or len([part for part in words.replace("，", ",").replace("\n", ",").split(",") if part.strip()]) > 12
+            or any(ord(char) < 32 and char != "\n" for char in words)):
+        if strict:
+            raise ValueError("群聊唤醒词须为200字以内、最多12个逗号分隔的词")
+        words = result["group_wake_words"]
+    result["group_wake_words"] = words
     result["enabled"] = any(result[key] for key in BOOL_FIELDS)
     return result
 

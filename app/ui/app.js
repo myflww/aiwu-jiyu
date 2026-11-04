@@ -612,6 +612,7 @@ function showView(name) {
   if (name === "artifacts") loadArtifacts();
   if (name === "plugins") loadPlugins();
   globalThis.AiwuExperience?.loadView(name).catch(() => {});
+  globalThis.AiwuConversation?.loadView(name).catch(() => {});
 }
 
 function showApp() {
@@ -1527,8 +1528,9 @@ function renderPlugins() {
     astrbot_plugin_face_convert: { title: "QQ 原生表情", desc: "将 [流泪]、[doge] 等文字标签转换成 QQ 自带的小表情。", icon: "spark", theme: "blue" },
     astrbot_plugin_pc_operator: { title: "电脑操作", desc: "读写工作目录、执行命令；最高权限可查看屏幕、点击输入与操作桌面应用。", icon: "folder", theme: "blue", action: "pc", actionLabel: "操作权限" },
     astrbot_plugin_love_house: { title: "长期记忆", desc: "将已登记 QQ 会话交给爱之屋保存、整理与召回。", icon: "book", theme: "pink", action: "memory", actionLabel: "会话与记忆库" },
-    astrbot_plugin_dafeiyu_companion: { title: "主动陪伴与情绪", desc: "鲸鱼娘自然口吻、主动问候、聊天情绪与电脑活动概况，各项可单独选择。", icon: "chat", theme: "pink", action: "companion", actionLabel: "陪伴设置" },
+    astrbot_plugin_dafeiyu_companion: { title: "对话节奏与陪伴", desc: "等连续消息说完、群聊按需回应；主动问候、情绪和电脑活动概况可单独选择。", icon: "chat", theme: "pink", action: "companion", actionLabel: "陪伴设置" },
     astrbot_plugin_dafeiyu_stickers: { title: "大肥鱼表情包", desc: "按聊天语气自动搭配表情，原创贴纸与社区动图离线附带，与 QQ 小表情分开管理。", icon: "spark", theme: "pink", action: "stickers", actionLabel: "配图与素材" },
+    astrbot_plugin_dafeiyu_life: { title: "QQ 生活与联网搜索", desc: "查资料、接新梗；为机器人小号准备头像、昵称、签名与空间动态，各项单独开启。", icon: "spark", theme: "blue", action: "life", actionLabel: "生活与搜索设置" },
   };
   const included = pluginList.filter(item => item.bundled || cards[item.id]);
   const extras = pluginList.filter(item => !included.includes(item));
@@ -1550,6 +1552,7 @@ function renderPlugins() {
     if (action === "pc") openPcModal();
     else if (action === "companion") openCompanionModal();
     else if (action === "stickers") openStickerLibrary();
+    else if (action === "life") globalThis.AiwuConversation?.openLife().catch(err=>toast(err.message));
     else showView("lovehouse");
   }));
   $$("[data-plugin-toggle]").forEach(btn => btn.addEventListener("click", () => togglePlugin(btn.dataset.pluginToggle)));
@@ -1569,7 +1572,7 @@ async function togglePlugin(id) {
     else await loadPlugins();
     if (id === "astrbot_plugin_dafeiyu_companion" && !item.enabled) {
       companionStatus = await api("/api/companion").catch(() => null);
-      companionSetupNeeded = !!companionStatus && !companionStatus.enabled;
+      companionSetupNeeded = !!companionStatus && !companionStatus.plugin_enabled;
     }
     toast(result.message || (result.restart_required ? "已保存，重启对话服务后生效" : "插件状态已更新"));
   } catch (err) { toast(err.message || String(err)); }
@@ -1733,7 +1736,7 @@ async function openCompanionModal() {
         <label class="field companion-wide"><span>无主人私聊后暂停（天）</span><input type="number" id="companion-expiry" min="0" max="365" step="1" value="${esc(data.session_expiry_days ?? 7)}"><small>0 不限制。不会通过群聊或陌生人重建联系目标。</small></label>
       </div><p class="companion-reference-note">未回复暂停参考 <a href="https://github.com/Pancakes-Labs/astrbot_plugin_proactive_chat/blob/95f459ef33208aa2c123c733ba1b5d2188dd0977/core/features/gating_feature.py" target="_blank" rel="noopener noreferrer">AstrBot 主动消息 ↗</a>；概率随互动调整参考 <a href="https://github.com/Him666233/astrbot_plugin_group_chat_plus/blob/aa97e0e35a18733e73db753238dd2a3021446e42/utils/proactive_chat_manager.py" target="_blank" rel="noopener noreferrer">chat_plus ↗</a>。百分比衰减是本适配的独立选项，不是 Aurabot 的既有规则或科学结论。</p></details>
       </details><p class="hint">${esc(data.proactive_summary || "主动聊天使用当前模型，可能产生 API 用量。先与她私聊一次，再等待主动问候。")}</p>
-      <div class="hint">屏幕截图与鼠标键盘操作在“电脑操作 → 操作权限”单独授权。保存后，已启用的陪伴插件会重新加载。</div>
+      <div class="hint">屏幕截图与鼠标键盘操作在“电脑操作 → 操作权限”单独授权。已启用的陪伴插件会热读取新设置。</div>
     </div>`, async () => {
       const body = readCompanionPreferences(data);
       await api("/api/companion", {method:"POST",body:JSON.stringify(body)});
@@ -1783,6 +1786,8 @@ async function openStickerLibrary() {
     const data = await api("/api/stickers");
     if (openingGeneration !== stickerLibraryGeneration) return;
     const prefs = data.settings || {};
+    const stickerReasons={probability_skipped:"这轮没有抽中自动配图机会",scene_suppressed:"当前更适合认真用文字回应",model_declined:"模型明确选择这轮不配图",marker_missing_no_match:"没有模型选图标记，也没有可靠的本地匹配",selected_model:"模型已选中候选图片",selected_fallback:"轻松场景已选中本地候选",cooldown:"图片发送间隔还没到",asset_invalid:"素材校验未通过",packet_not_sent:"图片没有进入实际发送",adapter_accepted:"图片发送调用已完成，不代表对方已读",delivery_unknown:"送达结果未知，程序不会自动重发"};
+    const stickerDiagnostic=data.runtime_diagnostics||{};
     const active = pluginList.find(item => item.id === "astrbot_plugin_dafeiyu_stickers")?.enabled;
     const bundled = (data.stickers || []).filter(item => item.pack_id !== "custom");
     let personal = (data.stickers || []).filter(item => item.pack_id === "custom");
@@ -1800,6 +1805,7 @@ async function openStickerLibrary() {
       <label class="perm-row"><input type="checkbox" id="sticker-auto" ${prefs.auto_match_enabled !== false ? "checked" : ""}><div><b>按聊天气氛自动配图</b><span class="small">模型可以选择不发图；严肃求助、低落倾诉和技术任务优先好好说话，明确点图不受自动概率影响。</span></div></label>
       <div class="companion-form-grid"><label class="field"><span>使用素材</span><select id="sticker-pack"><option value="all">全部可用素材</option><option value="original">爱屋及鱼原创</option><option value="community">社区授权与已收录投稿</option><option value="custom">只用我的表情包</option></select></label><label class="field"><span>自动配图间隔（秒）</span><input type="number" id="sticker-cooldown" min="10" max="300" value="${esc(prefs.cooldown_seconds ?? 30)}"></label></div>
       <details class="sticker-advanced"><summary>高级设置 · 什么时候发图</summary><div class="companion-form-grid"><label class="field"><span>每轮自动配图机会（%）</span><input type="number" id="sticker-probability" min="0" max="100" value="${esc(prefs.auto_probability ?? 35)}"></label><label class="field"><span>聊天场景策略</span><select id="sticker-scenario"><option value="balanced">适度陪伴 · 优先匹配语境</option><option value="playful">轻松活泼 · 仍避开严肃场景</option><option value="manual">只在明确点图时发送</option></select></label></div><label class="perm-row"><input type="checkbox" id="sticker-custom-enabled" ${prefs.custom_enabled !== false ? "checked" : ""}><div><b>允许选用我的表情包</b><span class="small">还会检查每张素材自己的启用状态、适用和避用场景。100% 也不强制每轮发图。</span></div></label></details>
+      <details class="sticker-advanced"><summary>最近为什么没有发图片？</summary><p class="hint">${esc(stickerDiagnostic.last_message||stickerReasons[stickerDiagnostic.last_reason]||stickerDiagnostic.note||"还没有实际配图记录。这里不会为检查而发送 QQ 消息。")}</p>${Object.keys(stickerDiagnostic.counts||{}).length?`<ul>${Object.entries(stickerDiagnostic.counts).map(([key,count])=>`<li>${esc(stickerReasons[key]||"其他已记录状态")}：${esc(count)}</li>`).join("")}</ul>`:""}</details>
       <div id="stickerExperienceMount"></div><details class="sticker-advanced"><summary>随附素材原始预览</summary><p class="hint">随附 ${bundled.length} 张素材。你可以自然地说想看哪种表情，也能接着她刚提出的邀请说“可以呀”。</p>
       <div class="sticker-library-grid" tabindex="0" aria-label="随附表情素材列表，可滚动浏览">${bundled.map(item=>`<figure><img src="${esc(item.url || item.path)}" alt="${esc(item.label || item.id)}" loading="lazy"><figcaption>${esc(item.label || item.id)}<small>${item.pack_id === "original" ? "原创贴纸" : item.pack_id === "contributed" ? "已收录用户投稿" : "社区授权动图"}</small>${item.pack_id === "contributed" ? `<small>作者：${esc(typeof item.attribution === "string" ? item.attribution : "见素材许可")}</small>` : ""}</figcaption></figure>`).join("")}</div>
       </details><details class="sticker-advanced" id="stickerPersonalDetails"><summary>高级设置 · 我的表情包与社区投稿</summary>
@@ -2472,6 +2478,7 @@ function bindEvents() {
 
 async function init() {
   bindEvents();
+  globalThis.AiwuConversation?.init({api,esc,toast,openModal,closeModal,showView,getModalGeneration:()=>modalGeneration,getState:()=>state,refreshPlugins:loadPlugins});
   globalThis.AiwuExperience?.init({api,esc,toast,openModal,closeModal,showView,openCompanion:openCompanionModal,openStickers:openStickerLibrary,openComputer:openPcModal,getState:()=>state,isConnected:()=>localConnected,getLibrary:()=>lovehouseSelected,getModalGeneration:()=>modalGeneration,getLibraries:()=>lovehouseState?.libraries||[],selectLibrary:async id=>{if(!(lovehouseState?.libraries||[]).some(row=>row.id===id&&!row.is_demo))throw new Error("请选择当前可用的记忆库。");lovehouseSelected=id;renderLoveHouse(lovehouseState);renderLovehouseLibraries();await refreshLovehouseDetails();}});
   applyArtStyle(artStyle);
   let connected = false;

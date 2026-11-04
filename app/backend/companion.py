@@ -7,6 +7,7 @@ import math
 import os
 from pathlib import Path
 import stat
+import sqlite3
 import tempfile
 import time
 from datetime import timedelta
@@ -97,7 +98,13 @@ def sync_config(config: dict | None = None) -> None:
                 existing = candidate
         except (OSError, ValueError):
             pass
+    native_master_disabled = existing.get("enabled") is False
     existing.update(load(config))
+    # Incoming collection/group restraint are independently useful even when
+    # all five optional companionship features are off. An explicit native
+    # plugin master-off remains respected until the user saves its settings.
+    if isinstance(config.get("companion"), dict) or not native_master_disabled:
+        existing["enabled"] = True
     existing.update(owner_qq=str(config.get("owner_qq") or ""), bot_qq=str(config.get("bot_qq") or ""), persona_id="大肥鱼")
     with tempfile.NamedTemporaryFile(dir=directory, prefix=".companion-", suffix=".tmp", delete=False) as stream:
         temporary = Path(stream.name)
@@ -123,11 +130,38 @@ def configure(body: dict) -> dict:
     return status(config)
 
 
+def _plugin_enabled():
+    """Local native activation only; never log in or claim runtime readiness."""
+    from backend import plugins
+    try:
+        directory = plugins.plugin_path(PLUGIN_NAME)
+        if (not directory.is_dir() or directory.name.endswith(".disabled")
+                or not plugins._safe_plugin_directory(directory, PLUGIN_NAME)
+                or any(name == "data.plugins." + PLUGIN_NAME or name.startswith("data.plugins." + PLUGIN_NAME + ".")
+                       for name in plugins._inactive_modules())
+                or plugins._pending_switches().get(PLUGIN_NAME) is False):
+            return False
+        path = ASTRBOT / "data/config" / (PLUGIN_NAME + "_config.json")
+        if path.exists():
+            if (path.is_symlink() or path.stat().st_size > 128 * 1024
+                    or getattr(path.stat(), "st_file_attributes", 0) & 0x400):
+                return False
+            with path.open("rb") as stream:
+                raw = stream.read(128 * 1024 + 1)
+            data = json.loads(raw) if len(raw) <= 128 * 1024 else None
+            if not isinstance(data, dict) or data.get("enabled") is False:
+                return False
+        return True
+    except (OSError, ValueError, TypeError, RuntimeError, sqlite3.Error):
+        return False
+
+
 def status(config: dict | None = None) -> dict:
     from backend import plugins
     config = config_store.load() if config is None else config
     return {**load(config), "owner_configured": bool(config.get("owner_qq")),
             "plugin_installed": plugins.plugin_path(PLUGIN_NAME).is_dir(),
+            "plugin_enabled": _plugin_enabled(),
             "runtime": _runtime_status(config),
             "profiles": json.loads(json.dumps(_preferences.PROFILES, ensure_ascii=False)),
             "profile": _preferences.matched_profile(load(config)),

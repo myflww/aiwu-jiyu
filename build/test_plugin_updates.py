@@ -69,14 +69,14 @@ class PluginUpdateTests(unittest.TestCase):
         with patch.object(plugin_updates, "_open", side_effect=AssertionError("network forbidden")), \
              patch.object(plugins, "_inactive_modules", side_effect=AssertionError("native DB forbidden")):
             result = plugin_updates.inventory()
-        self.assertEqual(len(result["plugins"]), 5)
+        self.assertEqual(len(result["plugins"]), 6)
         self.assertTrue(all(row["is_installed"] for row in result["plugins"]))
         self.assertTrue(all(row["installed"] == row["bundled"] == "1.0.0" for row in result["plugins"]))
         self.assertTrue(all(row["latest"] is None for row in result["plugins"]))
         self.assertEqual(result["state"], "unchecked")
         self.assertEqual(self.requests, [])
         result["plugins"].clear()
-        self.assertEqual(len(plugin_updates.inventory()["plugins"]), 5)
+        self.assertEqual(len(plugin_updates.inventory()["plugins"]), 6)
 
     def test_stable_tag_manifest_compares_installed_and_bundled_versions(self):
         remote = json.loads(self.remote)

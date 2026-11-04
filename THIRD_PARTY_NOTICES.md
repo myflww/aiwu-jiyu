@@ -52,3 +52,9 @@ AstrBot 插件在宿主进程内加载；若组合发行构成 AGPL 所覆盖的
 其他依赖以其各自发行包中的许可为准。若另行分发包含第三方组件的
 运行时或二进制包，应随包履行各组件的署名、许可及对应源码等义务。
 原有来源记录同时保留于 `assets/NOTICE.md`。
+
+人格预设的社区参考资料包括 Kaalia0912/dsh-whale-musume-persona、
+linsport/dsh-whale-persona、xin-1712/dafeiyu-persona。对应原文的 MIT
+许可与补充说明见 `assets/persona/references/`；改写来源、Git blob 和
+各卡许可见 `assets/persona/cards.json`。未用本项目的非商业条款撤销
+上游 MIT 材料本身授予的权利；人物视觉来源继续适用前述独立说明。

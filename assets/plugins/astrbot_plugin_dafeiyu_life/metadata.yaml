@@ -1,0 +1,9 @@
+name: astrbot_plugin_dafeiyu_life
+display_name: 大肥鱼生活能力
+desc: 主人私聊联网查梗；机器人小号昵称、签名、头像、自定义在线状态与QQ空间说说的准备、核对和一次确认。不开放群聊或手机系统权限。
+version: v0.1.0
+astrbot_version: '>=4.29.3'
+author: myflww
+repo: https://github.com/myflww/aiwu-jiyu
+support_platforms:
+  - aiocqhttp

@@ -21,3 +21,9 @@
 - 独立素材更新依据GitHub官方Release API返回的`asset.digest`（SHA-256）和固定仓库下载地址验证，再核对逐图哈希、真实图像、署名及原始许可。[GitHub 官方 Release Assets REST 说明](https://docs.github.com/en/rest/releases/assets)。图片数据与可执行插件代码分开；发布包只含清单、图片和原许可文本。
 
 验证使用隔离临时图库、伪GitHub传输和真实AstrBot组件，不发送真实QQ消息、不调用付费模型、不代用户提交图片。
+
+## 软件1.5 自动配图与真实回执
+
+核对日期：2026-11-04。补查[STICKERCONV（ACL2024）](https://aclanthology.org/2024.acl-long.417/)、[Selecting Stickers in Open-Domain Dialogue through Multitask Learning（Findings ACL2022）](https://aclanthology.org/2022.findings-acl.241/)及上述Meme Manager固定提交的实际包回执源码。采用“对话使用意图与图片情绪分开、可明确弃选、准备不等于送达”的设计方向；没有复现论文训练、借用实验准确率或引入辅助模型。缺标记时的短日常互动、标签命中、负反馈与上一张过滤是本项目保守工程规则。
+
+实际SDK人格工具准备、普通/主动候选、最终图片包回执和不含正文的诊断说明见[自动表情可靠性研究与实现](https://github.com/myflww/aiwu-jiyu/blob/main/docs/自动表情可靠性研究与实现.md)。

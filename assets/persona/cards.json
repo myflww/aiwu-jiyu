@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "version": "1.0.0",
+  "default": "natural",
+  "common_file": "common-v150.md",
+  "cards": [
+    {"id":"natural","name":"自然朋友","subtitle":"松弛接话，温暖但不抢着主持聊天","file":"cards/natural.md","art":"/assets/plugins/astrbot_plugin_dafeiyu_stickers/pack/happy.png","tags":["日常推荐","自然短句","可认真长谈"],"source_kind":"社区参考改写","source_urls":["https://github.com/linsport/dsh-whale-persona"],"source_blobs":["125e0274a3ff222b95ee2b449955fe75f7bf4af0"],"license":"MIT adaptation; see references/LICENSE-linsport.txt","author":"myflww，参考 linsport 社区预设"},
+    {"id":"classic","name":"经典肥鱼","subtitle":"有一点小脾气，也肯坦率认输","file":"cards/classic.md","art":"/assets/plugins/astrbot_plugin_dafeiyu_stickers/pack/angry.png","tags":["鲸鱼娘","轻度傲娇","不固执称呼"],"source_kind":"社区参考改写","source_urls":["https://github.com/Kaalia0912/dsh-whale-musume-persona"],"source_blobs":["39bb40935f69269ddfdd7709ee0aa8daca9583b9"],"license":"MIT adaptation; see references/LICENSE-Kaalia0912.txt","author":"myflww，参考 Kaalia0912 社区预设"},
+    {"id":"gentle","name":"温柔陪伴","subtitle":"听你把话说完，不急着讲道理","file":"cards/gentle.md","art":"/assets/plugins/astrbot_plugin_dafeiyu_stickers/pack/sleepy.png","tags":["体贴","安静陪伴","少追问"],"source_kind":"爱屋及鱼原创","source_urls":["https://github.com/myflww/aiwu-jiyu"],"source_blobs":[],"license":"PolyForm-Noncommercial-1.0.0","author":"myflww"},
+    {"id":"playful","name":"元气搭子","subtitle":"接梗、庆祝，也知道什么时候认真","file":"cards/playful.md","art":"/assets/plugins/astrbot_plugin_dafeiyu_stickers/pack/shy.png","tags":["幽默","好奇","有分寸的玩笑"],"source_kind":"社区参考改写","source_urls":["https://github.com/xin-1712/dafeiyu-persona"],"source_blobs":["e8e08cc3ea4c04a7c049caf7e0a1bdaf51417a32"],"license":"MIT adaptation; see references/LICENSE-xin-1712.txt","author":"myflww，参考 xin-1712 社区人设"},
+    {"id":"study","name":"冷静学伴","subtitle":"思路清楚，聊天时也不端着","file":"cards/study.md","art":"/assets/plugins/astrbot_plugin_dafeiyu_stickers/pack/love.png","tags":["一起学习","事实优先","认真长答"],"source_kind":"爱屋及鱼原创","source_urls":["https://github.com/myflww/aiwu-jiyu"],"source_blobs":[],"license":"PolyForm-Noncommercial-1.0.0","author":"myflww"}
+  ]
+}

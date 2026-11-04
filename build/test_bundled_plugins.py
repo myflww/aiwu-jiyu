@@ -400,7 +400,7 @@ class BundledPluginsTests(unittest.TestCase):
         actual = ROOT / "assets" / "plugins"
         with patch.object(plugins, "BUNDLE_ROOT", actual):
             result = plugins.install_bundled()
-        self.assertEqual(len(result["installed"]), 5)
+        self.assertEqual(len(result["installed"]), 6)
         pc = json.loads((actual / "astrbot_plugin_pc_operator" / "_conf_schema.json").read_text("utf-8"))
         memory = json.loads((actual / "astrbot_plugin_love_house" / "_conf_schema.json").read_text("utf-8"))
         self.assertFalse(pc["enabled"]["default"])
@@ -409,7 +409,8 @@ class BundledPluginsTests(unittest.TestCase):
         self.assertEqual(memory["bindings"]["default"], [])
         self.assertFalse(pc["desktop_enabled"]["default"])
         rows = {row["id"]: row for row in result["plugins"]}
-        for plugin_id in ("astrbot_plugin_dafeiyu_companion", "astrbot_plugin_dafeiyu_stickers"):
+        self.assertTrue(rows["astrbot_plugin_dafeiyu_companion"]["enabled"])
+        for plugin_id in ("astrbot_plugin_dafeiyu_stickers", "astrbot_plugin_dafeiyu_life"):
             self.assertTrue(rows[plugin_id]["installed"])
             self.assertFalse(rows[plugin_id]["enabled"])
 

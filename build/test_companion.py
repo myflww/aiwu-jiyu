@@ -31,6 +31,7 @@ def load_plugin():
     filters = SimpleNamespace(EventMessageType=SimpleNamespace(ALL="all"),
                               event_message_type=lambda *a, **kw: lambda fn: fn,
                               on_llm_request=lambda *a, **kw: lambda fn: fn,
+                              on_waiting_llm_request=lambda *a, **kw: lambda fn: fn,
                               on_llm_tool_respond=lambda *a, **kw: lambda fn: fn,
                               on_decorating_result=lambda *a, **kw: lambda fn: fn)
     modules = {}
@@ -80,6 +81,46 @@ class Event:
 
 
 class PolicyTests(unittest.TestCase):
+    def test_transport_settings_validate_independently_of_roleplay_flags(self):
+        options = engine.normalize({})
+        self.assertTrue(options["message_collection_enabled"])
+        self.assertFalse(options["enabled"])
+        self.assertEqual((options["collection_seconds"], options["collection_max_wait_seconds"],
+            options["collection_max_messages"], options["collection_max_chars"], options["group_reply_mode"]),
+            (10, 30, 12, 6000, "addressed"))
+        for value in ({"message_collection_enabled": 1}, {"collection_seconds": 0},
+                      {"collection_seconds": 11, "collection_max_wait_seconds": 10},
+                      {"collection_max_messages": 1}, {"group_reply_mode": "all"},
+                      {"group_hourly_limit": -1}, {"group_participation_probability": 21},
+                      {"group_wake_words": ["鱼"]}, {"group_wake_words": "x" * 201}):
+            with self.assertRaises(ValueError):
+                engine.normalize(value, strict=True)
+
+    def test_local_plugin_activation_respects_native_disabled_pending_and_config_master(self):
+        from backend import plugins
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            directory = root / "data/plugins" / companion.PLUGIN_NAME
+            directory.mkdir(parents=True)
+            config_path = root / "data/config" / (companion.PLUGIN_NAME + "_config.json")
+            config_path.parent.mkdir()
+            config_path.write_text('{"enabled":true}', encoding="utf-8")
+            with patch.object(companion, "ASTRBOT", root), patch.object(plugins, "plugin_path", return_value=directory), \
+                 patch.object(plugins, "_safe_plugin_directory", return_value=True), \
+                 patch.object(plugins, "_inactive_modules", return_value=set()) as inactive, \
+                 patch.object(plugins, "_pending_switches", return_value={}) as pending:
+                self.assertTrue(companion._plugin_enabled())
+                inactive.return_value = {"data.plugins." + companion.PLUGIN_NAME + ".main"}
+                self.assertFalse(companion._plugin_enabled())
+                inactive.return_value = set()
+                pending.return_value = {companion.PLUGIN_NAME: False}
+                self.assertFalse(companion._plugin_enabled())
+                pending.return_value = {companion.PLUGIN_NAME: True}
+                config_path.write_text('{"enabled":false}', encoding="utf-8")
+                self.assertFalse(companion._plugin_enabled())
+                config_path.write_text('{broken', encoding="utf-8")
+                self.assertFalse(companion._plugin_enabled())
+
     def test_disabled_defaults_and_strict_inputs(self):
         self.assertFalse(engine.normalize({})["enabled"])
         self.assertFalse(engine.normalize({"activity_enabled": "true"})["activity_enabled"])
@@ -262,6 +303,53 @@ class CompanionTests(unittest.IsolatedAsyncioTestCase):
     async def prepare_session(self):
         await self.plugin.observe_owner(Event())
         self.plugin._state["last_received"] = (self.now - timedelta(minutes=121)).timestamp()
+
+    async def test_explicit_hot_master_off_to_on_needs_no_reload_and_bad_file_stops_every_capability(self):
+        path = self.data / "data/config" / (main.PLUGIN_NAME + "_config.json")
+        path.parent.mkdir(parents=True)
+        self.plugin._config_path = path
+        self.plugin.config["enabled"] = False
+        settings = {**self.config, "enabled": False, "activity_enabled": True}
+        path.write_text(json.dumps(settings), encoding="utf-8")
+        self.assertFalse(self.plugin._master_enabled())
+        settings["enabled"] = True
+        path.write_text(json.dumps(settings), encoding="utf-8")
+        self.assertTrue(self.plugin._master_enabled())
+        self.assertTrue(self.plugin._transport_enabled())
+        self.assertTrue(self.plugin._enabled())
+        self.assertFalse(self.plugin.config["enabled"])  # Same live instance, no re-init.
+        for corrupted in ("{broken", None):
+            if corrupted is None: path.unlink()
+            else: path.write_text(corrupted, encoding="utf-8")
+            self.assertFalse(self.plugin._master_enabled())
+            self.assertFalse(self.plugin._transport_enabled())
+            self.assertFalse(self.plugin._enabled())
+            self.plugin._activity = {"available": True}
+            with patch.object(main, "foreground_activity", side_effect=AssertionError("No activity after revocation")):
+                await self.plugin._sample_activity()
+            self.assertEqual(self.plugin._activity, {})
+            path.write_text(json.dumps(settings), encoding="utf-8")
+            self.assertTrue(self.plugin._master_enabled())
+        self.provider.text_chat.assert_not_awaited()
+
+    async def test_hot_file_cannot_override_native_inactive_closed_identity_or_session_revocation(self):
+        path = self.data / "data/config" / (main.PLUGIN_NAME + "_config.json")
+        path.parent.mkdir(parents=True)
+        self.plugin._config_path = path
+        path.write_text(json.dumps({**self.config, "enabled": True}), encoding="utf-8")
+        metadata = SimpleNamespace(activated=False)
+        self.context.get_registered_star = lambda _name: metadata
+        self.assertFalse(self.plugin._master_enabled())
+        metadata.activated = True
+        self.assertTrue(self.plugin._master_enabled())
+        self.plugin._closed = True
+        self.assertFalse(self.plugin._master_enabled())
+        self.plugin._closed = False
+        with patch.object(main.SessionPluginManager, "is_plugin_enabled_for_session", AsyncMock(return_value=False)):
+            self.assertFalse(await self.plugin._transport_allows(Event()))
+        path.write_text(json.dumps({**self.config, "enabled": True, "owner_qq": "55555555"}), encoding="utf-8")
+        self.assertFalse(self.plugin._master_enabled())
+        self.provider.text_chat.assert_not_awaited()
 
     async def test_owner_private_target_only(self):
         for event in (Event(sender="33333333"), Event(kind="group"), Event(adapter="slack"),
@@ -569,12 +657,10 @@ class CompanionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(task.cancelled())
         self.assertFalse(await self.plugin._proactive_once(self.now))
 
-    async def test_bubbles_hook_is_optional_owner_only_and_rechecks_permissions(self):
+    async def test_final_send_guard_independent_of_split_and_rechecks_real_qq_session(self):
         event = Event()
+        self.plugin._turns.observe(event)
         self.plugin._bubbles.prepare = AsyncMock()
-        await self.plugin.natural_chat_bubbles(event)
-        self.plugin._bubbles.prepare.assert_not_awaited()
-        self.plugin.config["natural_bubbles_enabled"] = True
         await self.plugin.natural_chat_bubbles(Event(sender="33333333"))
         self.plugin._bubbles.prepare.assert_not_awaited()
         await self.plugin.natural_chat_bubbles(event)
@@ -582,6 +668,8 @@ class CompanionTests(unittest.IsolatedAsyncioTestCase):
         guard = self.plugin._bubbles.prepare.call_args.args[2]
         self.assertTrue(await guard())
         self.plugin.config["natural_bubbles_enabled"] = False
+        self.assertTrue(await guard())  # Plain replies still need no-duplicate guarding.
+        self.plugin.config["enabled"] = False
         self.assertFalse(await guard())
 
     async def test_persistent_session_never_follows_changed_owner(self):
@@ -629,10 +717,11 @@ class CompanionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(public["signature"], engine.runtime_signature(expected))
         self.plugin._config_path.write_text("broken")
         self.assertFalse(self.plugin._options()["proactive_enabled"])
-        # A disk flag cannot grant a master permission revoked in memory.
+        # The fixed validated file is now the user's explicit hot setting;
+        # actual native inactive/closed state is tested as a separate gate.
         self.plugin.config["enabled"] = False
         self.plugin._config_path.write_text(json.dumps({**initial, "enabled": True}))
-        self.assertFalse(self.plugin._enabled())
+        self.assertTrue(self.plugin._enabled())
 
     async def test_terminate_after_first_bubble_keeps_real_history_and_companion_receipt(self):
         from contextlib import suppress

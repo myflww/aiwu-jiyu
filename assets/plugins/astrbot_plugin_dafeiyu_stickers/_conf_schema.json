@@ -3,7 +3,7 @@
     "type": "bool",
     "description": "启用大肥鱼本地心情贴纸",
     "default": true,
-    "hint": "插件总开关由桌面端/AstrBot管理。仅回应当前收到的QQ消息，不主动发送。"
+    "hint": "插件总开关由桌面端/AstrBot管理。回应当前QQ消息，或供已授权主人私聊的主动问候使用；不自行创建聊天目标。"
   },
   "auto_match_enabled": {
     "type": "bool",

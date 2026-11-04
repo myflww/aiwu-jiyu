@@ -1,8 +1,8 @@
 name: astrbot_plugin_dafeiyu_companion
 display_name: 大肥鱼陪伴
-desc: 可选随机主动机会、概率与未回应减扰、自然分条、互动情绪和授权电脑活动概况。仅主人 QQ 私聊，不读取按键、窗口标题或屏幕。
-version: v1.3.0
-astrbot_version: '>=4.29.3'
+desc: 连续消息收集、群聊节制、真实自然分条；可选主人私聊主动陪伴、互动情绪和授权活动概况。不读取按键、窗口标题或屏幕。
+version: v1.4.0
+astrbot_version: '>=4.29.4'
 author: myflww
 repo: https://github.com/myflww/aiwu-jiyu
 support_platforms:

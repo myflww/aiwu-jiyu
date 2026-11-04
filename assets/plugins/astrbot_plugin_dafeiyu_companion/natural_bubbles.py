@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
-from copy import copy
+from copy import deepcopy
 from dataclasses import dataclass, field
 import hashlib
 import re
@@ -20,6 +20,7 @@ import re
 
 STATUS_KEY = "dafeiyu_bubbles_status"
 COUNT_KEY = "dafeiyu_bubbles_sent_count"
+ATTEMPT_KEY = "dafeiyu_bubbles_attempted_count"
 TEXT_KEY = "dafeiyu_bubbles_final_text"
 TOOL_KEY = "dafeiyu_bubbles_tool_round"
 _WRAPPER_ATTR = "_dafeiyu_natural_send_wrapper"
@@ -33,23 +34,29 @@ _PROTECTED = re.compile(
     re.IGNORECASE,
 )
 _BOUNDARY = re.compile(r"(?:[。！？!?]+[”’」』\"']*|(?<=[A-Za-z])\.(?=\s|$)|\n\s*\n)\s*")
+_FORMAL = re.compile(r"(?:参考文献|技术方案|执行结果|法律意见|诊断结论|步骤\s*\d|以下是.{0,8}(?:报告|方案|代码))")
+_TASK = re.compile(r"(?:写(?:一份|一篇)|代码|脚本|表格|论文|方案|报告|详细(?:解释|说明)|完整(?:内容|步骤|文稿)|操作电脑|修复|部署|安装|正式|重要|严肃|不要分条|别分条|一条发完|合同|法律|财务)")
+_MIN_CHAT_CHARS = 36
+_MIN_BUBBLE_CHARS = 12
 
 
 def split_text(text: str) -> list[str]:
     """Split at complete sentence/paragraph boundaries, preserving every char.
 
-    Short chat and structured/technical answers remain whole. This deliberately
-    prefers a single bubble over guessing how to parse Markdown or code.
+    Tiny acknowledgments and structured/technical answers remain whole.
+    The 36/12 character limits are product defaults, not research optima.
+    Complete sentence boundaries are required even for a short casual reply.
     """
-    if not isinstance(text, str) or not 90 <= len(text.strip()) <= 1600 or _PROTECTED.search(text):
+    if not isinstance(text, str) or not _MIN_CHAT_CHARS <= len(text.strip()) <= 1600 or _PROTECTED.search(text) or _FORMAL.search(text):
         return [text]
     boundaries = [match.end() for match in _BOUNDARY.finditer(text) if match.end() < len(text)]
     desired = min(4, max(2, (len(text) + 279) // 280))
     for count in range(desired, 1, -1):
         cuts, previous = [], 0
         for part in range(1, count):
-            candidates = [point for point in boundaries if point >= previous + 30
-                          and len(text) - point >= 30 * (count - part)]
+            candidates = [point for point in boundaries
+                          if len(text[previous:point].strip()) >= _MIN_BUBBLE_CHARS
+                          and len(text[point:].strip()) >= _MIN_BUBBLE_CHARS * (count - part)]
             if not candidates:
                 break
             point = min(candidates, key=lambda item: abs(item - len(text) * part / count))
@@ -91,7 +98,10 @@ def _plan(message) -> tuple[list, str]:
         return [], text
     plan = []
     for index, chunk in enumerate(chunks):
-        plain = copy(chain[0])
+        # AstrBot 4.29.4 components use pydantic.v1: copy.copy shares __dict__.
+        # Mutating that shallow copy rewrites *all* planned packets and the
+        # original reply to the last chunk. Deep-copy before changing text.
+        plain = deepcopy(chain[0])
         plain.text = chunk
         components = [*headers, plain] if index == 0 else [plain]
         if index == len(chunks) - 1:
@@ -109,10 +119,16 @@ def _identity(event):
         if (event.get_platform_name() not in {"aiocqhttp", "qq"} or not sender.isdigit()
                 or sender == bot or not message_id or len(message_id) > 180
                 or not isinstance(origin, str) or len(origin) > 300
-                or origin != f"{event.get_platform_id()}:FriendMessage:{sender}"
-                or kind not in {"FriendMessage", "friend"}):
+                or origin.split(":", 1)[0] != event.get_platform_id()
+                or kind not in {"FriendMessage", "friend", "GroupMessage", "group"}):
             return None
-        return origin, message_id
+        if (kind in {"FriendMessage", "friend"} and origin != f"{event.get_platform_id()}:FriendMessage:{sender}"
+                or kind in {"GroupMessage", "group"} and ":GroupMessage:" not in origin):
+            return None
+        # A member's new group input interrupts only that member's own reply,
+        # never another member's independently addressed turn.
+        scope = origin if kind in {"FriendMessage", "friend"} else origin + "\0" + sender
+        return scope, message_id
     except (AttributeError, TypeError, ValueError):
         return None
 
@@ -147,11 +163,12 @@ class _Delivery:
     claimed: bool = False
     status: str = ""
     sent: int = 0
+    attempted: int = 0
     text: str = ""
 
 
 class BubbleReplies:
-    """Per-plugin, memory-only coordinator. Caller enforces owner/session scope."""
+    """Per-plugin memory-only coordinator; caller enforces real QQ session grants."""
 
     def __init__(self):
         self._sessions = OrderedDict()
@@ -219,6 +236,7 @@ class BubbleReplies:
     def _report(event, delivery):
         event.set_extra(STATUS_KEY, delivery.status)
         event.set_extra(COUNT_KEY, delivery.sent)
+        event.set_extra(ATTEMPT_KEY, delivery.attempted)
         event.set_extra(TEXT_KEY, delivery.text)
 
     async def prepare(self, event, options: dict, guard_async, host_config: dict | None = None) -> bool:
@@ -230,7 +248,7 @@ class BubbleReplies:
         """
         key = _identity(event)
         result = event.get_result()
-        if (self._closed or key is None or options.get("natural_bubbles_enabled") is not True
+        if (self._closed or key is None
                 or result is None or not result.is_llm_result() or getattr(result, "type", None) in _BAD_TYPES
                 or not _host_allows(host_config, result)
                 or event.get_extra(TOOL_KEY, False) or event.get_extra("dafeiyu_sticker_tool_round", False)
@@ -243,6 +261,9 @@ class BubbleReplies:
         if session is None or session.message_id != key[1]:
             return False
         original_send = event.send
+        # A cooperating image plugin delegates exact actual packets to us.
+        # This flag avoids counting a whole unsent split chain as image sent.
+        setattr(event, "_dafeiyu_sticker_bubble_packets", True)
 
         async def send_final(message):
             # Intermediate tool/status/plugin sends use the original host path.
@@ -258,10 +279,13 @@ class BubbleReplies:
                 threshold = int(host_config.get("platform_settings", {}).get("forward_threshold", 1500))
             except (TypeError, ValueError):
                 threshold = 1500
-            if (not plan or len(text) > threshold
+            incoming = getattr(event, "get_message_str", lambda: "")() or ""
+            if (options.get("natural_bubbles_enabled") is not True or _TASK.search(incoming)
+                    or event.get_extra("dafeiyu_formal_response", False)
+                    or not plan or len(text) > threshold
                     or not self._selected(key, text, options.get("natural_bubbles_frequency", "occasional"))):
-                async with session.send_lock:
-                    return await original_send(message)
+                plan = [message]
+                text = "".join(str(getattr(part, "text", "")) for part in getattr(message, "chain", ()))
             delivery = self._deliveries.setdefault(key, _Delivery())
             self._deliveries.move_to_end(key)
             while len(self._deliveries) > 256:
@@ -281,10 +305,30 @@ class BubbleReplies:
                         await self._pause(session.signal, self._delay(key, index))
                     async with session.send_lock:
                         if not self._current(key, session) or not await guard_async() or not self._current(key, session):
-                            delivery.status = "cancelled"
+                            delivery.status = "interrupted" if delivery.attempted else "not_sent"
                             self._report(event, delivery)
                             return
-                        await original_send(bubble)
+                        before = getattr(event, "_dafeiyu_sticker_before_packet", None)
+                        after = getattr(event, "_dafeiyu_sticker_after_packet", None)
+                        if callable(before):
+                            bubble = await before(bubble)
+                        if bubble is None:
+                            continue
+                        # Do not let an awaited revalidation race new input or
+                        # revoked session/plugin permission.
+                        if callable(before) and (not self._current(key, session) or not await guard_async() or not self._current(key, session)):
+                            delivery.status = "interrupted" if delivery.attempted else "not_sent"
+                            self._report(event, delivery)
+                            return
+                        delivery.attempted += 1
+                        try:
+                            await original_send(bubble)
+                        except BaseException:
+                            if callable(after):
+                                await after(bubble, "failed_unknown")
+                            raise
+                        if callable(after):
+                            await after(bubble, "sent")
                     delivery.sent += 1
                     self._report(event, delivery)
                 delivery.status = "sent"

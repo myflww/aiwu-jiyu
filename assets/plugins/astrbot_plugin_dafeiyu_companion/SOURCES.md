@@ -44,3 +44,11 @@
 ## 1.3.0 连续性依据
 
 [Generative Agents v2](https://arxiv.org/abs/2304.03442v2) 的经验记录和动态召回、[MemGPT v2](https://arxiv.org/abs/2310.08560v2) 的分层记忆管理为架构参考；[Iqbal/Bailey CHI 2008](https://doi.org/10.1145/1357054.1357070) 为尊重打扰时机与用户控制的参考。论文不提供本软件安静／活泼档分钟数或未回复概率的实验最优依据，所有产品预设可调整。代码独立编写，不复制论文项目提示词、虚构生活事件或引入新的监控。详见项目研究说明。
+
+## 1.4.0 消息收集与交接
+
+[When to Talk v1](https://arxiv.org/abs/1912.09879v1)、[Talking Turns ICLR2025](https://machinelearning.apple.com/research/talking-turns) 为“何时回应”与“如何组织回复”分离的依据；不把语音时间参数直接套入QQ。
+
+核对了 [astrbot_plugin_debounce，0d8aaaf3285d535b76e2878159a9a8679e81a3f5](https://github.com/advent259141/astrbot_plugin_debounce/blob/0d8aaaf3285d535b76e2878159a9a8679e81a3f5/main.py) 的缓冲和旧响应抑制，以及 [chat_buffer](https://github.com/ctrlkk/astrbot_plugin_chat_buffer/blob/master/main.py) 的等待取消与prompt合并（2026-11-04读取，未固定构建依赖）。两者AGPL-3.0，只学习问题边界，没有复制代码/分类模型或改标许可。本实现直接挂起真实事件、完整保留媒体组件，不伪造用户事件、不新增模型判断调用。
+
+实际验证SDK为 AstrBot4.29.4，已核对消息阶段顺序、共享会话锁、临时媒体生命周期与原生发送器；发现并修复Pydantic.v1浅复制导致packet共用text的问题。研究说明及可重现SDK spy见项目 `docs/消息收集与群聊节制研究.md`、`build/check_turn_taking_sdk.py`。

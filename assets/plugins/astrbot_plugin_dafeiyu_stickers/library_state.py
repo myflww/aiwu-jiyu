@@ -17,6 +17,25 @@ import time
 SCENES = {"general", "casual", "support", "task", "greeting"}
 IDENTIFIER = re.compile(r"[A-Za-z0-9_-]{1,80}\Z")
 MAX_ROWS = 2000
+DIAGNOSTIC_REASONS = {
+    "candidate_offered": "已向本次主模型提供候选",
+    "probability_skipped": "本轮自动配图概率未命中",
+    "scene_suppressed": "严肃、低落倾诉或任务场景优先文字",
+    "model_declined": "模型明确选择不配图",
+    "marker_missing_no_match": "模型未选图，本地也没有充分的日常互动证据",
+    "invalid_marker": "模型选择不在本轮允许候选中",
+    "selected_model": "主模型已选择本轮候选，等待实际发送",
+    "selected_fallback": "按双方明确的日常互动证据选图，等待实际发送",
+    "repeat_avoided": "避免重复上一张图片，本轮保留文字",
+    "cooldown": "自动配图仍在冷却中",
+    "disabled": "自动配图已关闭或仅允许明确请求",
+    "tool_round": "工具回合不额外自动配图",
+    "already_image": "回复已有图片，不再追加",
+    "asset_invalid": "图片校验失败，未发送图片",
+    "packet_not_sent": "图片未进入实际发送，已释放预留",
+    "adapter_accepted": "图片包已获发送适配器接受，不代表对方已读",
+    "delivery_unknown": "图片发送结果未知，保留冷却且不补发",
+}
 
 
 def suppressed_text(text):
@@ -58,6 +77,7 @@ class LibraryState:
             db.execute("CREATE TABLE IF NOT EXISTS favorite (id TEXT PRIMARY KEY, enabled INTEGER NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS used (id TEXT, scope TEXT, at REAL, count INTEGER, PRIMARY KEY(id,scope))")
             db.execute("CREATE TABLE IF NOT EXISTS rejected (id TEXT, scope TEXT, scene TEXT, count INTEGER, at REAL, PRIMARY KEY(id,scope,scene))")
+            db.execute("CREATE TABLE IF NOT EXISTS diagnostic (reason TEXT PRIMARY KEY, count INTEGER, at REAL)")
             if write:
                 db.execute("BEGIN IMMEDIATE")
             yield db
@@ -118,6 +138,23 @@ class LibraryState:
         with self.connection(write=True) as db:
             db.execute("DELETE FROM rejected WHERE id=? AND scope=? AND scene=?", (identifier, scope(origin), scene))
         return {"id": identifier, "scene": scene, "message": "已恢复该场景的自动选图偏好。"}
+
+    def record_decision(self, reason):
+        if reason not in DIAGNOSTIC_REASONS:
+            raise ValueError("未知的配图诊断原因")
+        with self.connection(write=True) as db:
+            db.execute("INSERT INTO diagnostic VALUES (?,1,?) ON CONFLICT(reason) DO UPDATE SET count=MIN(count+1,1000000),at=excluded.at", (reason, time.time()))
+
+    def diagnostics(self):
+        with self.connection() as db:
+            rows = list(db.execute("SELECT reason,count,at FROM diagnostic LIMIT 100")) if db else []
+        rows = [row for row in rows if row[0] in DIAGNOSTIC_REASONS and type(row[1]) is int and type(row[2]) in (int, float)]
+        latest = max(rows, key=lambda row: row[2]) if rows else None
+        return {"available": bool(rows), "last_at": latest[2] if latest else None,
+                "last_reason": latest[0] if latest else None,
+                "last_message": DIAGNOSTIC_REASONS[latest[0]] if latest else "尚无本机配图决策记录",
+                "counts": {row[0]: max(0, min(1000000, row[1])) for row in rows},
+                "note": "仅记录配图原因与次数，不保存QQ号、聊天正文或模型密钥；适配器接受不等于已读。"}
 
 
 def lexical_rank(items, text: str, *, avoid="", matches_only=False):

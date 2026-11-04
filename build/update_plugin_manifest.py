@@ -9,8 +9,8 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE = ROOT / "assets" / "plugins"
 IDS = ("astrbot_plugin_face_convert", "astrbot_plugin_love_house", "astrbot_plugin_pc_operator",
-       "astrbot_plugin_dafeiyu_companion", "astrbot_plugin_dafeiyu_stickers")
-OPTIONAL = set(IDS[-2:])
+       "astrbot_plugin_dafeiyu_companion", "astrbot_plugin_dafeiyu_stickers", "astrbot_plugin_dafeiyu_life")
+OPTIONAL = {"astrbot_plugin_dafeiyu_companion", "astrbot_plugin_dafeiyu_stickers", "astrbot_plugin_dafeiyu_life"}
 TEXT = {".py", ".json", ".yaml", ".yml", ".md", ".txt", ".toml"}
 
 
@@ -41,7 +41,7 @@ def main() -> None:
                  "name": metadata.get("display_name", plugin_id), "version": metadata.get("version", ""),
                  "author": metadata.get("author", "myflww"), "files": files}
         if plugin_id in OPTIONAL:
-            entry.update(default_enabled=False, license="PolyForm-Noncommercial-1.0.0; see its LICENSE and NOTICE")
+            entry.update(default_enabled=plugin_id == "astrbot_plugin_dafeiyu_companion", license="PolyForm-Noncommercial-1.0.0; see its LICENSE and NOTICE")
         entries.append(entry)
     path.write_text(json.dumps({"schema_version": 1, "plugins": entries}, ensure_ascii=False, indent=2) + "\n",
                     encoding="utf-8", newline="\n")

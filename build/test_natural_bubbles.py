@@ -46,6 +46,7 @@ class Chain:
 TEXT = ("今天的小尾巴已经准备好陪你聊天啦，我们可以先慢慢把想做的事情整理清楚。"
         "不用一下子完成全部，先挑一件最想做的小事，认真开始就已经很棒啦。"
         "等这件事情做好以后，我们再一起吃口米饭休息一下，你有什么想法都可以告诉我。")
+SHORT_TEXT = "今天的小尾巴已经准备好陪你一起聊天啦。刚才看到一朵像鲸鱼的小云，忍不住想分享给你。"
 
 
 class Event:
@@ -61,6 +62,7 @@ class Event:
     def get_platform_id(self): return "qq-test"
     def get_platform_name(self): return "aiocqhttp"
     def get_message_type(self): return "FriendMessage"
+    def get_message_str(self): return "一起随便聊聊吧"
     def get_result(self): return self.result
     def set_extra(self, key, value): self.extra[key] = value
     def get_extra(self, key, default=None): return self.extra.get(key, default)
@@ -84,7 +86,26 @@ class TextTests(unittest.TestCase):
             parts = bubbles.split_text(text)
             self.assertEqual(len(parts), count)
             self.assertEqual("".join(parts), text)
-            self.assertTrue(all(len(part) >= 30 for part in parts))
+            self.assertTrue(all(len(part.strip()) >= 12 for part in parts))
+
+    def test_short_casual_sentences_can_be_two_complete_different_bubbles(self):
+        self.assertTrue(40 <= len(SHORT_TEXT) <= 70)
+        parts = bubbles.split_text(SHORT_TEXT)
+        self.assertEqual(len(parts), 2)
+        self.assertNotEqual(parts[0], parts[1])
+        self.assertEqual("".join(parts), SHORT_TEXT)
+        self.assertTrue(all(len(part.strip()) >= 12 and part.rstrip().endswith("。") for part in parts))
+
+    def test_threshold_uses_complete_sentences_without_cutting_tiny_acknowledgments(self):
+        for text in ("在", "嗯", "好呀。", "第一句话还没说完" * 6,
+                     "短句。" + "这是一句足够长但前面短句不应变成单独一包的普通文字。"):
+            self.assertEqual(bubbles.split_text(text), [text])
+        lower = "甲" * 17 + "。" + "乙" * 17 + "。"
+        self.assertEqual(len(lower), 36)
+        self.assertEqual(len(bubbles.split_text(lower)), 2)
+        self.assertEqual(bubbles.split_text(lower[:-1]), [lower[:-1]])
+        padded = "  " + SHORT_TEXT.replace("。", "。\n\n", 1) + "  "
+        self.assertEqual("".join(bubbles.split_text(padded)), padded)
 
     def test_short_unbroken_and_oversized_replies_stay_whole(self):
         for text in ("好呀，先吃一口米饭。", "好" * 120, TEXT * 20):
@@ -128,6 +149,70 @@ class TextTests(unittest.TestCase):
 
 
 class DeliveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unsplit_plain_response_also_claims_once_and_never_falls_through_to_host_again(self):
+        event, service = Event(result=Chain([Plain("好呀，晚安。")])) , AlwaysBubbles()
+        await service.prepare(event, {"natural_bubbles_enabled": False}, AsyncMock(return_value=True), CONFIG)
+        await asyncio.gather(event.send(event.result), event.send(event.result))
+        await event.send(Chain([Plain("模型重试返回不同文本也不应重复回复")]))
+        self.assertEqual(len(event.sent), 1)
+        self.assertEqual(event.sent[0].chain[0].text, "好呀，晚安。")
+
+    async def test_formal_task_keeps_complete_response_even_with_natural_bubbles_enabled(self):
+        event, service = Event(), AlwaysBubbles()
+        event.get_message_str = lambda: "请帮我写一份详细报告"
+        await self.prepare(service, event)
+        await event.send(event.result)
+        await event.send(event.result)
+        self.assertEqual(event.sent, [event.result])
+
+    async def test_explicit_formal_requests_keep_the_same_short_answer_in_one_packet(self):
+        for request in ("这是正式内容", "这是重要的事", "请严肃一点", "不要分条", "别分条", "一条发完",
+                        "合同内容", "法律问题", "财务问题", "完整文稿"):
+            event, service = Event(result=Chain([Plain(SHORT_TEXT)])), AlwaysBubbles()
+            event.get_message_str = lambda value=request: value
+            await self.prepare(service, event)
+            await event.send(event.result)
+            self.assertEqual(len(event.sent), 1, request)
+            self.assertEqual(event.sent[0].chain[0].text, SHORT_TEXT, request)
+
+    async def test_two_group_senders_do_not_interrupt_or_mix_each_others_packets(self):
+        a, b, service = Event(origin="qq-test:GroupMessage:11111111"), Event(sender="22222222", origin="qq-test:GroupMessage:11111111"), AlwaysBubbles()
+        a.get_message_type = b.get_message_type = lambda: "GroupMessage"
+        await self.prepare(service, a)
+        await self.prepare(service, b)
+        await asyncio.gather(a.send(a.result), b.send(b.result))
+        self.assertEqual(len(a.sent), 2)
+        self.assertEqual(len(b.sent), 2)
+
+    async def test_sticker_callbacks_receive_only_actual_packets_and_no_false_image_receipt(self):
+        event, service, image = Event(), AlwaysBubbles(), Image()
+        event.result.chain.append(image)
+        before, after = AsyncMock(side_effect=lambda packet: packet), AsyncMock()
+        event._dafeiyu_sticker_before_packet = before
+        event._dafeiyu_sticker_after_packet = after
+        await self.prepare(service, event)
+        await event.send(event.result)
+        self.assertTrue(event._dafeiyu_sticker_bubble_packets)
+        self.assertEqual(before.await_count, 2)
+        self.assertEqual(after.await_count, 2)
+        self.assertNotIn(image, after.await_args_list[0].args[0].chain)
+        self.assertIs(after.await_args_list[-1].args[0].chain[-1], image)
+        self.assertTrue(all(call.args[1] == "sent" for call in after.await_args_list))
+
+    async def test_new_input_during_async_image_revalidation_sends_no_obsolete_packet(self):
+        event, service = Event(), AlwaysBubbles()
+        async def before(packet):
+            service.observe(Event(message_id="new-input"))
+            return packet
+        event._dafeiyu_sticker_before_packet = before
+        event._dafeiyu_sticker_after_packet = AsyncMock()
+        await self.prepare(service, event)
+        await event.send(event.result)
+        self.assertEqual(event.sent, [])
+        self.assertEqual(event.get_extra(bubbles.ATTEMPT_KEY), 0)
+        self.assertEqual(event.get_extra(bubbles.STATUS_KEY), "not_sent")
+        event._dafeiyu_sticker_after_packet.assert_not_awaited()
+
     async def prepare(self, service, event, guard=None, config=CONFIG):
         return await service.prepare(event, OPTIONS, guard or AsyncMock(return_value=True), config)
 
@@ -160,7 +245,7 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
             await self.prepare(service, event, config=config)
             await event.send(result)
             self.assertEqual(event.sent, [result])
-            self.assertIsNone(event.get_extra(bubbles.STATUS_KEY))
+            self.assertEqual(event.get_extra(bubbles.STATUS_KEY), "sent" if config is CONFIG else None)
 
     async def test_tool_round_and_non_llm_result_never_intercepted(self):
         for mode in ("tool", "sticker-tool", "non-llm", "system"):
@@ -179,7 +264,7 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
         await self.prepare(service, event, guard)
         await event.send(event.result)
         self.assertEqual(len(event.sent), 1)
-        self.assertEqual(event.get_extra(bubbles.STATUS_KEY), "cancelled")
+        self.assertEqual(event.get_extra(bubbles.STATUS_KEY), "interrupted")
         await event.send(event.result)
         self.assertEqual(len(event.sent), 1)
 
@@ -194,7 +279,7 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
         service.observe(new)
         await asyncio.wait_for(pending, 0.3)
         self.assertEqual(len(event.sent), 1)
-        self.assertEqual(event.get_extra(bubbles.STATUS_KEY), "cancelled")
+        self.assertEqual(event.get_extra(bubbles.STATUS_KEY), "interrupted")
         duplicate_old = Event(message_id="turn-1")
         service.observe(duplicate_old)
         self.assertEqual(service._sessions[new.unified_msg_origin].message_id, "turn-2")
@@ -216,7 +301,7 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(completed, ["after_message_sent"])
         self.assertIsNone(event.result)
         self.assertEqual(len(event.sent), 1)
-        self.assertEqual(event.get_extra(bubbles.STATUS_KEY), "cancelled")
+        self.assertEqual(event.get_extra(bubbles.STATUS_KEY), "interrupted")
 
     async def test_ambiguous_failure_is_not_retried_or_followed_by_more_segments(self):
         event, service = Event(result=Chain([Plain(TEXT * 6)])), AlwaysBubbles()
@@ -293,7 +378,7 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
         rendered = Chain([Image()])
         await event.send(rendered)
         self.assertEqual(event.sent, [rendered])
-        self.assertIsNone(event.get_extra(bubbles.STATUS_KEY))
+        self.assertEqual(event.get_extra(bubbles.STATUS_KEY), "sent")
 
     async def test_pending_network_send_finishes_before_next_turn_bubble(self):
         old, new, service = Event(), Event(message_id="turn-2"), AlwaysBubbles()
@@ -314,7 +399,7 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
         release.set()
         await asyncio.gather(pending_old, pending_new)
         self.assertEqual(order, ["old", "new", "new"])
-        self.assertEqual(old.get_extra(bubbles.STATUS_KEY), "cancelled")
+        self.assertEqual(old.get_extra(bubbles.STATUS_KEY), "interrupted")
 
 
 if __name__ == "__main__":
