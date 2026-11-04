@@ -28,7 +28,7 @@
     {
       "id": "astrbot_plugin_love_house",
       "name": "爱之屋经历记忆（实验适配）",
-      "version": "v0.4.0",
+      "version": "v0.5.0",
       "author": "myflww",
       "license": "PolyForm-Noncommercial-1.0.0; see its LICENSE",
       "files": [
@@ -44,8 +44,8 @@
         },
         {
           "path": "bridge.py",
-          "sha256": "3fa3770c0762fc53b98b14f128ad50fee87cc629f2edf3f350b0ee97dc9f84d1",
-          "size": 17744
+          "sha256": "168a6c07df887b40d8010324c0386446d799a41931bf5f8c7f38166ba62ae742",
+          "size": 26933
         },
         {
           "path": "LICENSE",
@@ -54,12 +54,12 @@
         },
         {
           "path": "main.py",
-          "sha256": "c853123612baf1768f79e59064459e152ae783c7fc00f2637fcf47b0382d3c70",
+          "sha256": "210537d440a45d943e29cd4e88ba9889b0869f7e3025161a521aaa91b9e5fa56",
           "size": 20182
         },
         {
           "path": "metadata.yaml",
-          "sha256": "b409f67d7e435f011c8022adcc07e00cc6162580567653b2bf273a36eac00308",
+          "sha256": "63a6c5fdb81aadee24abc6cee610300ea8e354fd5707536c28bcf75be21edd88",
           "size": 359
         },
         {
@@ -121,7 +121,7 @@
     {
       "id": "astrbot_plugin_dafeiyu_companion",
       "name": "大肥鱼陪伴",
-      "version": "v1.4.0",
+      "version": "v1.5.0",
       "author": "myflww",
       "files": [
         {
@@ -131,13 +131,23 @@
         },
         {
           "path": "_conf_schema.json",
-          "sha256": "05f7dc1e3515a75853a3e34d5d73469e02af0fde6a5375a598489762fabf19a1",
-          "size": 7286
+          "sha256": "9ad9b6b451f2dfd8783777c6161fa25a4e36905ef945c355f2359b0f17cf067e",
+          "size": 8214
+        },
+        {
+          "path": "adaptive.py",
+          "sha256": "95d4946c7b444dc58d0a2c6691dc5c964efb45de375df73916352243c47ad1e5",
+          "size": 19080
         },
         {
           "path": "engine.py",
-          "sha256": "9550efca61aac6d9afbd1c94a741edc391527a29302b6f11e6ba7ca6986cc5ad",
-          "size": 20115
+          "sha256": "ad2bd9ee7346bd5993a9d489c50fa894f8686828e91b9d5f6e341afae50b3417",
+          "size": 20316
+        },
+        {
+          "path": "growth.py",
+          "sha256": "f4f9b762c687771b05f6d7a1095be8a6ef390a4a5cd2fed4fb648c79b4e8268b",
+          "size": 31203
         },
         {
           "path": "LICENSE",
@@ -146,18 +156,18 @@
         },
         {
           "path": "main.py",
-          "sha256": "6614c7e14fa0879b92b4bdb8d8ced480de5116c8e5dd3d73c8046185ea7932d9",
-          "size": 40866
+          "sha256": "e189898e48731508d9286a02313acc480dc2a68794915c78f58950e0e64b479a",
+          "size": 61424
         },
         {
           "path": "metadata.yaml",
-          "sha256": "fcb508e3950d57c988a8871406f6ead6c1b6ea53a70786da7380105c894716da",
+          "sha256": "9727bc866dd605426f00e70ea347786e0d1ab1d7d5aed63054539d66356082cd",
           "size": 378
         },
         {
           "path": "natural_bubbles.py",
-          "sha256": "7fa37004872e31abc7bcba4c91bc1689f99674be684899d445bc8371f59d8536",
-          "size": 16340
+          "sha256": "5a034bb6578e11e186d5827b64915daebfc5c0748d51a44d97eaef035760d774",
+          "size": 27725
         },
         {
           "path": "NOTICE",
@@ -171,8 +181,8 @@
         },
         {
           "path": "README.md",
-          "sha256": "c6f2221d25106cd50a97d41f308fe22d4ae376af7815ac9ddba5b1b22a3b5149",
-          "size": 10329
+          "sha256": "fe0ffa017fb0de5e91bc57b4deb66fcbeca323e098ed13171688afbe45e99ba6",
+          "size": 11156
         },
         {
           "path": "references/LICENSE-dsh-aurabot-qq.txt",
@@ -191,8 +201,8 @@
         },
         {
           "path": "reply_pipeline.py",
-          "sha256": "456ee3b630763c171a8af83673925a965bac06d221cdb2e9e7001db548430fa4",
-          "size": 10474
+          "sha256": "62a9243258ae625c4916e6e1bb94b4d82df32932c08676ae70c891f59a70168d",
+          "size": 11673
         },
         {
           "path": "SOURCES.md",
@@ -201,8 +211,8 @@
         },
         {
           "path": "turn_taking.py",
-          "sha256": "c679111ce1d450f20d8d1f06810ddce465338bdcf55fe9ac948b1590be81e62d",
-          "size": 16883
+          "sha256": "77891b284627d658641e53b0abd91dbc94b600201e707e5e2f623742fe68a661",
+          "size": 18935
         }
       ],
       "default_enabled": true,
@@ -211,7 +221,7 @@
     {
       "id": "astrbot_plugin_dafeiyu_stickers",
       "name": "大肥鱼自动心情贴纸与素材库",
-      "version": "v1.4.0",
+      "version": "v1.4.1",
       "author": "myflww",
       "files": [
         {
@@ -261,8 +271,8 @@
         },
         {
           "path": "main.py",
-          "sha256": "0140a93971f9ad63aaa3017b06ea5596806708b5bcd879074b7a14b826ed3651",
-          "size": 56461
+          "sha256": "324b69ec45acbef2d973c2f9c4ee38bc4f88e6a05ffea63126aef6ea70588a06",
+          "size": 56621
         },
         {
           "path": "material_catalog.py",
@@ -271,7 +281,7 @@
         },
         {
           "path": "metadata.yaml",
-          "sha256": "10715bf880be0fb0791771b19382831b166836dfde4addb8943f513fb3319ed4",
+          "sha256": "e4e1992413540a1162aae325d57d98d4f087b4dd0ffffcf81b95b660fe4a333e",
           "size": 392
         },
         {

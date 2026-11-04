@@ -76,15 +76,23 @@ class CollectionTests(unittest.IsolatedAsyncioTestCase):
         return asyncio.create_task(self.collector.collect(event, {**OPTIONS, **options}, self.guard))
 
     async def test_trailing_reset_one_continuing_event_preserves_text_image_quote_order(self):
+        clock = [0.0]
+        self.collector._clock = lambda: clock[0]
         image, quote = Image("file:///original.png"), Reply("987654321")
         first = Event("1", "先看这张图", chain=[Plain("先看这张图"), image])
         second = Event("2", "再看这个细节", chain=[quote, Plain("再看这个细节")])
         first._temporary_local_files = ["original-managed-image.png"]
         task1 = self.offer(first)
-        await asyncio.sleep(.02)
+        for _ in range(4): await asyncio.sleep(0)
+        clock[0] = .02
         task2 = self.offer(second)
-        await asyncio.sleep(.022)
+        for _ in range(4): await asyncio.sleep(0)
+        clock[0] = .04
+        next(iter(self.collector._pending.values())).changed.set()
+        for _ in range(4): await asyncio.sleep(0)
         self.assertFalse(task1.done())  # Original deadline passed; new input reset it.
+        clock[0] = .056
+        next(iter(self.collector._pending.values())).changed.set()
         self.assertEqual(await asyncio.wait_for(asyncio.gather(task1, task2), .5), [False, True])
         self.assertEqual(second.message_str, "先看这张图\n再看这个细节")
         self.assertEqual(second.get_messages()[1:4], [image, second.get_messages()[2], quote])
@@ -271,6 +279,8 @@ class HookIntegrationTests(unittest.IsolatedAsyncioTestCase):
         return False
 
     async def test_collection_works_with_every_optional_companionship_feature_off(self):
+        self.settings.update({key:False for key in ("enabled", "proactive_enabled", "emotion_enabled",
+            "activity_enabled", "whale_style_enabled", "natural_bubbles_enabled", "growth_enabled")})
         self.assertFalse(self.settings["enabled"])
         first, second = Event("a", "第一条"), Event("b", "第二条")
         pending = asyncio.create_task(self.execute(first))

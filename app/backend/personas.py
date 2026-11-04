@@ -276,6 +276,9 @@ def _replace(text, expected, card_id):
     config = config_store.load()
     config["persona"] = {"card_id": card_id, "prompt_revision": _revision(text)}
     config_store.save(config)
+    # Rhythm follows the same selected card without restarting the QQ service.
+    from backend import companion
+    companion.sync_config(config)
     return {"ok": True, "changed": True, "active_card_id": card_id,
             "revision": _revision(text), "backup_id": backup_id,
             "notice": "人格已更新；聊天和记忆保留，旧会话里的措辞不会被删除。"}

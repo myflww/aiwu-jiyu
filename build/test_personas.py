@@ -54,6 +54,7 @@ class PersonaTests(unittest.TestCase):
         self.native = NativeAPI()
         self.config = {"owner_qq": "123456789", "bot_qq": "987654321", "unrelated": {"keep": True}}
         self.patchers = [patch.object(personas, "RUN_DIR", self.directory),
+            patch("backend.companion.sync_config"),
             patch.object(personas.astrbot_api, "dashboard_token", return_value="synthetic-test-token"),
             patch.object(personas.astrbot_api, "list_personas", side_effect=self.native.list_personas),
             patch.object(personas.astrbot_api, "_request", side_effect=self.native.request),

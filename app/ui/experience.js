@@ -206,7 +206,7 @@
       if(shell.getLibrary()!==library)throw new Error("选择的记忆库已变化，请重新打开。");const active=shell.getModalGeneration?.();
       const preview=await post("/api/memories/mutate",{library_id:library,id:entry.id,action:"forget-preview"});if(shell.getLibrary()!==library||shell.getModalGeneration?.()!==active)return;
       const plan=preview.preview||{};
-      shell.openModal("永久忘记前，请核对影响范围",`<p>这次会处理 <b>${e(plan.node_count??0)}</b> 条记忆、<b>${e(plan.archive_count??0)}</b> 份原始档案、<b>${e(plan.copied_archive_count??0)}</b> 份相关复制记录，以及本库 <b>${e(plan.backup_count??0)}</b> 份旧备份。</p><div class="notice">${e(plan.note||"此操作无法通过普通恢复功能撤销。")}</div><label class="exp-confirm"><input type="checkbox" id="expForgetConfirmed">我已核对范围，并确认永久忘记这些内容</label>`,async()=>{
+      shell.openModal("永久忘记前，请核对影响范围",`<p>这次会处理 <b>${e(plan.node_count??0)}</b> 条记忆、<b>${e(plan.archive_count??0)}</b> 份原始档案、<b>${e(plan.copied_archive_count??0)}</b> 份相关复制记录，以及本库 <b>${e(plan.backup_count??0)}</b> 份旧备份。</p><div class="notice">${e(plan.note||"此操作无法通过普通恢复功能撤销。")}</div><p class="exp-hint">也会清理这本库的成长推测、计划和反馈原句，保留纯枚举表达偏好；若原库随后操作失败，这些派生手记仍已清理。</p><label class="exp-confirm"><input type="checkbox" id="expForgetConfirmed">我已核对范围，并确认永久忘记这些内容</label>`,async()=>{
         if(shell.getLibrary()!==library)throw new Error("选择的记忆库已变化，请重新预览。");
         if(!$("expForgetConfirmed")?.checked)throw new Error("请先核对影响范围并明确确认。");
         await post("/api/memories/mutate",{library_id:library,id:entry.id,action:"forget",preview_token:preview.preview_token,confirm:true});await loadMemories();shell.toast("爱之屋已完成确认范围内的忘记操作。");

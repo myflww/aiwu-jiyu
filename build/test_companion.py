@@ -33,7 +33,9 @@ def load_plugin():
                               on_llm_request=lambda *a, **kw: lambda fn: fn,
                               on_waiting_llm_request=lambda *a, **kw: lambda fn: fn,
                               on_llm_tool_respond=lambda *a, **kw: lambda fn: fn,
-                              on_decorating_result=lambda *a, **kw: lambda fn: fn)
+                              on_decorating_result=lambda *a, **kw: lambda fn: fn,
+                              llm_tool=lambda *a, **kw: lambda fn: fn,
+                              after_message_sent=lambda *a, **kw: lambda fn: fn)
     modules = {}
     for name in ("astrbot", "astrbot.api", "astrbot.api.event", "astrbot.api.provider", "astrbot.api.star",
                  "astrbot.core", "astrbot.core.platform", "astrbot.core.platform.message_type",
@@ -84,12 +86,12 @@ class PolicyTests(unittest.TestCase):
     def test_transport_settings_validate_independently_of_roleplay_flags(self):
         options = engine.normalize({})
         self.assertTrue(options["message_collection_enabled"])
-        self.assertFalse(options["enabled"])
+        self.assertTrue(options["enabled"])
         self.assertEqual((options["collection_seconds"], options["collection_max_wait_seconds"],
             options["collection_max_messages"], options["collection_max_chars"], options["group_reply_mode"]),
-            (10, 30, 12, 6000, "addressed"))
+            (10, 30, 12, 6000, "auto"))
         for value in ({"message_collection_enabled": 1}, {"collection_seconds": 0},
-                      {"collection_seconds": 11, "collection_max_wait_seconds": 10},
+                      {"reply_timing_mode":"fixed", "collection_seconds": 11, "collection_max_wait_seconds": 10},
                       {"collection_max_messages": 1}, {"group_reply_mode": "all"},
                       {"group_hourly_limit": -1}, {"group_participation_probability": 21},
                       {"group_wake_words": ["鱼"]}, {"group_wake_words": "x" * 201}):
@@ -122,11 +124,11 @@ class PolicyTests(unittest.TestCase):
                 self.assertFalse(companion._plugin_enabled())
 
     def test_disabled_defaults_and_strict_inputs(self):
-        self.assertFalse(engine.normalize({})["enabled"])
+        self.assertTrue(engine.normalize({})["enabled"])
         self.assertFalse(engine.normalize({"activity_enabled": "true"})["activity_enabled"])
         self.assertFalse(engine.normalize({})["whale_style_enabled"])
         self.assertTrue(engine.normalize({"whale_style_enabled": True})["enabled"])
-        self.assertFalse(engine.normalize({})["natural_bubbles_enabled"])
+        self.assertTrue(engine.normalize({})["natural_bubbles_enabled"])
         self.assertEqual(engine.normalize({})["natural_bubbles_frequency"], "occasional")
         for body in ({"proactive_enabled": 1}, {"whale_style_enabled": "true"}, {"natural_bubbles_enabled": "true"},
                      {"natural_bubbles_frequency": "always"}, {"natural_bubbles_frequency": []}, {"interval_minutes": True}, {"interval_minutes": 4},

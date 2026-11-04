@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from collections import OrderedDict
 import json
 import re
 
-from .natural_bubbles import split_text, BubbleReplies
+from .natural_bubbles import selected_chunks, BubbleReplies, reply_policy
 
 _MARKER = re.compile(r"\[(?:大肥鱼表情|sticker)\s*[:：]\s*[^\[\]\r\n\x00]{1,50}\]", re.I)
 _PROTECTED = re.compile(r"```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`+[^`\r\n]*(?:`+|$)"
@@ -47,6 +48,7 @@ async def session_guard(origin, *, required=False):
 class ReplyPipeline:
     def __init__(self, context, chain_factory, plugin_allowed):
         self.context, self.chain_factory, self.plugin_allowed = context, chain_factory, plugin_allowed
+        self._deliveries = OrderedDict()
 
     async def _plugin(self, names, origin):
         getter = getattr(self.context, "get_registered_star", None)
@@ -97,6 +99,22 @@ class ReplyPipeline:
         return task.result(), interrupted
 
     async def deliver(self, origin, cid, message_id, text, options, guard, *, on_result=None):
+        key = (origin, cid, message_id)
+        if key in self._deliveries:
+            return {"accepted": False, "attempted": 0, "sent_bubbles": 0, "history": "not_sent", "memory": "not_sent",
+                    "sticker": "none", "text": "", "duplicate_suppressed": True}
+        while len(self._deliveries) >= 256:
+            finished = next((k for k, active in self._deliveries.items() if not active), None)
+            if finished is None:
+                return {"accepted": False, "attempted": 0, "sent_bubbles": 0, "text": "", "capacity_limited": True}
+            del self._deliveries[finished]
+        self._deliveries[key] = True
+        try:
+            return await self._deliver(origin, cid, message_id, text, options, guard, on_result=on_result)
+        finally:
+            self._deliveries[key] = False
+
+    async def _deliver(self, origin, cid, message_id, text, options, guard, *, on_result=None):
         sticker, image, reservation, cancelled = None, None, None, False
         status = {"accepted": False, "attempted": 0, "sent_bubbles": 0, "history": "not_sent", "memory": "not_sent", "sticker": "none"}
         try:
@@ -106,7 +124,10 @@ class ReplyPipeline:
             cancelled = True
         except Exception:
             status["sticker"] = "unavailable"
-        if not cancelled and sticker and callable(getattr(sticker, "prepare_proactive", None)):
+        suppress_image = options.get("growth_no_auto_sticker") is True
+        if suppress_image:
+            status["sticker"] = "growth_suppressed"
+        if not cancelled and not suppress_image and sticker and callable(getattr(sticker, "prepare_proactive", None)):
             try:
                 prepared, interrupted = await self._settle(sticker.prepare_proactive(origin, text))
                 cancelled |= interrupted
@@ -118,9 +139,8 @@ class ReplyPipeline:
                 status["sticker"] = "unavailable"
         text = visible_text(text)
         valid_text = bool(text.strip())
-        chunks = split_text(text) if valid_text and options.get("natural_bubbles_enabled") else [text] if valid_text else []
-        if len(chunks) > 1 and not BubbleReplies._selected((origin, message_id), text, options.get("natural_bubbles_frequency", "occasional")):
-            chunks = [text]
+        policy = reply_policy(options.get("dafeiyu_reply_policy") or options.get("reply_policy"))
+        chunks = selected_chunks(text, options, policy, (origin, message_id)) if valid_text else []
         accepted, image_receipt = [], "not_sent"
         if not valid_text:
             status["invalid"] = True
@@ -184,7 +204,10 @@ class ReplyPipeline:
         if cancelled:
             status["cancelled"] = True
         if on_result:
-            on_result(status)
+            try:
+                on_result(status)
+            except Exception:
+                status["result_callback"] = "unavailable"
         if cancelled:
             raise asyncio.CancelledError
         return status

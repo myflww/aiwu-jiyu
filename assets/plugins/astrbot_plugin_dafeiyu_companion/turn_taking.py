@@ -10,6 +10,7 @@ from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 import hashlib
 import json
+import math
 import re
 import time
 
@@ -189,6 +190,8 @@ class _Batch:
     components: int = 0
     timer: asyncio.Task | None = None
     last: float = 0
+    delay: float = 10
+    max_wait: float = 30
 
 
 class MessageCollector:
@@ -230,6 +233,11 @@ class MessageCollector:
         batch = self._pending.get(ident[:2]) if ident else None
         return batch.entries[0].event.get_extra(GROUP_KEY) if batch and batch.entries else None
 
+    def pending_group_mode(self, event):
+        ident = identity(event)
+        batch = self._pending.get(ident[:2]) if ident else None
+        return batch.entries[0].event.get_extra("dafeiyu_collection_group_mode") if batch and batch.entries else None
+
     def _finish(self, key, batch):
         if self._pending.get(key) is not batch:
             return
@@ -258,17 +266,32 @@ class MessageCollector:
         event.message_str = "\n".join(texts)
         event.message_obj.message_str = event.message_str
         event.set_extra(COLLECTED_KEY, {"count": len(live), "message_ids": ids, "original_texts": texts})
+        policies = [item.event.get_extra("dafeiyu_reply_policy") for item in live]
+        policies = [item for item in policies if isinstance(item, dict)]
+        if policies:
+            strict = [item for item in policies if item.get("response_mode") == "single"]
+            policy = dict(strict[-1] if strict else policies[-1])
+            # A late fragment must not turn an earlier formal request into
+            # chat bubbles. Keep public metadata only; input/media stay native.
+            if strict:
+                policy["response_mode"] = "single"
+            counts = [item["max_bubbles"] for item in policies
+                      if type(item.get("max_bubbles")) is int and 1 <= item["max_bubbles"] <= 4]
+            if counts:
+                policy["max_bubbles"] = min(counts)
+            policy["collection_seconds"], policy["collection_max_wait_seconds"] = batch.delay, batch.max_wait
+            event.set_extra("dafeiyu_reply_policy", policy)
         for item in live:
             winner = item.event is event
             item.event.set_extra(STATUS_KEY, "released" if winner else "collected")
             if not item.future.done():
                 item.future.set_result(winner)
 
-    async def _wait(self, key, batch, options):
+    async def _wait(self, key, batch):
         try:
             while self._pending.get(key) is batch:
-                remaining = min(batch.last + options["collection_seconds"],
-                                batch.started + options["collection_max_wait_seconds"]) - self._clock()
+                remaining = min(batch.last + batch.delay,
+                                batch.started + batch.max_wait) - self._clock()
                 if remaining <= 0:
                     self._finish(key, batch)
                     return
@@ -298,20 +321,30 @@ class MessageCollector:
             event.set_extra(STATUS_KEY, "disabled")
             return True
         now = self._clock()
+        # The newest real arrival may ask for a shorter or longer trailing
+        # pause. The first-arrival deadline can only get stricter, never slide
+        # forever as a person continues typing or changes persona/settings.
+        def finite(value, fallback, maximum):
+            return min(maximum, max(0.0, float(value))) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) else fallback
+        delay = finite(options.get("collection_seconds"), 10.0, 30.0)
+        max_wait = finite(options.get("collection_max_wait_seconds"), 30.0, 120.0)
         batch = self._pending.get(key)
+        expired = bool(batch and now >= min(batch.last + batch.delay, batch.started + batch.max_wait))
         if batch is None:
             # Bounded number of real incoming waiters. Eviction cancels old
             # work rather than starting unguarded, duplicate model calls.
             if len(self._pending) >= 128:
                 self.cancel(next(iter(self._pending)))
-            batch = _Batch(started=now, last=now)
+            batch = _Batch(started=now, last=now, delay=delay, max_wait=max_wait)
             self._pending[key] = batch
+        else:
+            batch.delay, batch.max_wait = delay, min(batch.max_wait, max_wait)
         future = asyncio.get_running_loop().create_future()
         batch.entries.append(_Pending(event, future))
         batch.last = now
         batch.chars += len(event.get_message_str() or "")
         batch.components += len(event.get_messages())
-        if (quiet or len(batch.entries) >= options["collection_max_messages"]
+        if (quiet or expired or len(batch.entries) >= options["collection_max_messages"]
                 or batch.chars >= options["collection_max_chars"] or batch.components >= 128):
             # Threshold flushes whole messages; never truncate the last input
             # or strip its media in order to force an artificial character cap.
@@ -319,7 +352,7 @@ class MessageCollector:
         else:
             batch.changed.set()
             if batch.timer is None:
-                batch.timer = asyncio.create_task(self._wait(key, batch, options), name="aiwu-message-collection")
+                batch.timer = asyncio.create_task(self._wait(key, batch), name="aiwu-message-collection")
         try:
             winner = await future
             if winner and not self._closed and await guard():

@@ -2,7 +2,11 @@
 (() => {
   "use strict";
   const $=id=>document.getElementById(id);
-  let shell,personaState=null,turnState=null,personasGeneration=0,turnGeneration=0,lifeGeneration=0,personaWriting=false;
+  let shell,personaState=null,turnState=null,personasGeneration=0,turnGeneration=0,lifeGeneration=0,personaWriting=false,turnWriting=false;
+  const turnEdits={turn:0,group:0},turnDirty={turn:false,group:false};
+  const timingModes={adaptive:{name:"自然动态",tag:"推荐",description:"根据话有没有说完、最近的发送间隔与人格，自然调整等待和回应方式。"},fixed:{name:"固定等待",tag:"旧版节奏",description:"每条新消息重新计时，等到固定秒数再一起回应；保留原来的 10 秒模式。"},instant:{name:"即时回应",tag:"少等一会儿",description:"不额外等待收集；消息到达后进入处理，模型生成与发送仍需要时间。"}};
+  const groupModes={auto:{name:"自然加入",tag:"推荐",description:"叫到她时回应，也跟进刚刚正在进行的对话；群里热闹时少插话。"},addressed:{name:"只在点名时",tag:"有叫有回应",description:"实际 @、引用她的消息，或明确叫她的名字时才回应。"},quiet:{name:"安静旁听",tag:"只认 @ / 引用",description:"只回应实际 @ 或引用她消息的内容；单独提到名字不会唤醒。"},light:{name:"旧版轻度参与",tag:"高级兼容",description:"保留原来的相关消息概率与频率上限；推荐日常使用“自然加入”。"}};
+  const personaRhythms={natural:{name:"自然朋友",hint:"松弛地接话，完整问题认真答，随口聊天轻一点。"},classic:{name:"经典肥鱼",hint:"保留一点小脾气和俏皮，接话有停顿，重要内容说清楚。"},gentle:{name:"温柔陪伴",hint:"更愿意听你补充，温柔接住，少抢话、少追问。"},playful:{name:"元气搭子",hint:"日常接梗更轻快，认真话题与急事仍优先说重点。"},study:{name:"冷静学伴",hint:"完整问题更利落，解释与任务结果完整表达。"}};
   const e=value=>shell.esc(String(value??""));
   const post=(path,body={})=>shell.api(path,{method:"POST",body:JSON.stringify(body)});
   const cardArt=value=>/^\/assets\/plugins\/astrbot_plugin_dafeiyu_stickers\/pack\/(?:happy|sad|angry|shy|sleepy|love)\.png$/.test(value||"")?value:"";
@@ -13,14 +17,69 @@
     finally{if(button.isConnected){button.disabled=false;button.textContent=before;}}
   }
   function section(id,html){const node=document.createElement("section");node.id=id;node.className="experience-panel conversation-panel";node.innerHTML=html;return node;}
+  function modeButtons(modes,attribute){return Object.entries(modes).map(([key,value])=>`<button type="button" class="conversation-mode" ${attribute}="${key}" aria-pressed="false"><span class="conversation-mode-tag">${e(value.tag)}</span><b>${e(value.name)}</b><span>${e(value.description)}</span></button>`).join("");}
+  function markTurnDirty(scope){++turnGeneration;++turnEdits[scope];turnDirty[scope]=true;notice(scope==="turn"?"turnNotice":"groupNotice","有未保存的修改，保存后才会应用。");paintModes();}
+  function paintModes(){
+    const timing=timingModes[$("turnTimingMode")?.value],group=groupModes[$("groupReplyMode")?.value];if(!timing||!group)return;
+    document.querySelectorAll("[data-timing-mode]").forEach(button=>{const selected=button.dataset.timingMode===$("turnTimingMode").value;button.setAttribute("aria-pressed",String(selected));button.classList.toggle("selected",selected);});
+    document.querySelectorAll("[data-group-mode]").forEach(button=>{const selected=button.dataset.groupMode===$("groupReplyMode").value;button.setAttribute("aria-pressed",String(selected));button.classList.toggle("selected",selected);});
+    notice("turnModeHelp",timing.description);notice("groupModeHelp",group.description);
+    $("turnFixedFields").classList.toggle("hidden",$("turnTimingMode").value!=="fixed");
+    $("turnAdaptiveExamples").classList.toggle("hidden",$("turnTimingMode").value!=="adaptive");
+    $("groupLegacyFields").classList.toggle("hidden",$("groupReplyMode").value!=="light");
+    $("turnPausedNotice").classList.toggle("hidden",$("turnCollectEnabled").checked);
+    const key=turnState?.persona_profile||turnState?.rhythm?.persona_profile,profile=Object.hasOwn(personaRhythms,key)?personaRhythms[key]:null;
+    notice("turnPersonaRhythm",profile?`当前节奏人格：${profile.name} · ${profile.hint}`:"人格节奏会随已应用的人格卡调整；自定义人格使用自然朋友节奏。");
+  }
+  function paintRhythm(value){
+    const rhythm=value.rhythm||{},rows=Array.isArray(rhythm.recent)?rhythm.recent.filter(row=>row&&typeof row==="object"&&!Array.isArray(row)).slice(-8).reverse():[];
+    notice("turnRuntimeNotice",rhythm.worker_running===true?"已读取到插件在线心跳。是否回应仍由真实会话权限与当前规则决定。":"尚未读取到有效的节奏心跳；这里展示已保存设置，不能据此确认当前会话已生效。");
+    $("turnRecentDecisions").innerHTML=rows.length?`<ol class="conversation-decisions">${rows.map(row=>{
+      const when=typeof row.at==="number"&&Number.isFinite(row.at)&&row.at>0&&row.at<4102444800?new Date(row.at*1000).toLocaleTimeString("zh-CN",{timeZone:"Asia/Shanghai",hour:"2-digit",minute:"2-digit",second:"2-digit"}):"时间未记录";
+      const wait=typeof row.wait_seconds==="number"&&Number.isFinite(row.wait_seconds)&&row.wait_seconds>=0&&row.wait_seconds<=120?`等待 ${Number(row.wait_seconds.toFixed(1))} 秒`:"等待未记录";
+      const profile=Object.hasOwn(personaRhythms,row.profile)?personaRhythms[row.profile]:null,scope=row.group===true?"群聊":row.group===false?"私聊":"对话";
+      return `<li><div><time>${e(when)}</time><span>${e(scope)}${profile?` · ${e(profile.name)}`:""}</span><b>${e(wait)}</b></div><p>${e(String(row.reason_label||row.reason||"尚无可读的决策说明").slice(0,240))}</p></li>`;
+    }).join("")}</ol>`:'<p class="exp-hint">还没有近期决策记录。收到获准处理的新消息后，这里会显示原因和等待，不显示聊天正文。</p>';
+  }
   function init(value){
     shell=value;
     if($("personaCardsPanel"))return;
     const panel=section("personaCardsPanel",`<div class="exp-heading"><img src="/assets/ui/states/dafeiyu-remembering-v140.png" alt=""><div><small>同一条小鱼，也有不同的相处方式</small><h2>人格预设</h2><p>五张完整人格卡，先预览再应用。切换前保留原人格备份。</p></div></div><div class="row between wrap"><p id="personaCurrent" class="exp-hint" role="status">打开此页后读取运行人格。</p><button type="button" class="text-button" id="personaRefresh">刷新人格</button></div><div id="personaCardList" class="persona-card-grid"></div><details class="conversation-advanced"><summary>恢复原人格与来源说明</summary><p class="exp-hint">切换保留聊天、记忆、工具选择和独立权限。旧聊天中的措辞不会被删除；完整预设也不能代替模型实际能力。</p><div id="personaBackupList"></div></details>`);
     $("settingsIdentity")?.after(panel);
-    const turn=section("conversationTurnPanel",`<div class="exp-heading"><img src="/assets/ui/states/dafeiyu-connecting-v140.png" alt=""><div><small>等你把话说完，再好好接住</small><h2>连续消息与发送节奏</h2><p>从最后一条消息起计时，合并原文、图片与补充，不抢着逐条回答。</p></div></div><label class="perm-row"><input type="checkbox" id="turnCollectEnabled"><div><b>先收集连续短消息</b><span class="small">新消息重置等待；有最长等待和容量上限。命令及立即处理的输入按规则绕过。</span></div></label><div class="companion-form-grid"><label class="field"><span>最后一条后等待（秒）</span><input id="turnWaitSeconds" type="number" min="1" max="30" value="10"></label><label class="field"><span>连续输入最长等待（秒）</span><input id="turnMaxSeconds" type="number" min="5" max="120" value="30"></label></div><label class="perm-row"><input type="checkbox" id="turnBubblesEnabled"><div><b>合适时发成几条完整短句</b><span class="small">正式说明、代码和任务结果保持完整。多条消息由发送程序执行，不只是换行。</span></div></label><details class="conversation-advanced"><summary>收集容量与群聊规则</summary><div class="companion-form-grid"><label class="field"><span>单批最多消息数</span><input id="turnMaxMessages" type="number" min="2" max="30" value="12"></label><label class="field"><span>单批最多文字数</span><input id="turnMaxChars" type="number" min="500" max="20000" value="6000"></label></div><p class="exp-hint">群里按发言人分别收集，不把两个人的话冒充同一个人。群聊的回应范围在“聊天权限”里设置。</p><button class="text-button" type="button" id="turnGoGroups">去设置群聊规则 ↗</button></details><div class="row wrap"><button class="soft" type="button" id="turnSave">保存对话节奏</button><button class="text-button" type="button" id="turnRefresh">刷新</button></div><p id="turnNotice" class="exp-hint" role="status"></p>`);
+    const turn=section("conversationTurnPanel",`
+      <div class="exp-heading"><img src="/assets/ui/states/dafeiyu-connecting-v140.png" alt=""><div><small>等你把话说完，再好好接住</small><h2>对话节奏</h2><p>选一种相处节奏就好，细节交给小鱼。</p></div></div>
+      <input type="hidden" id="turnTimingMode" value="adaptive">
+      <div class="conversation-mode-grid" role="group" aria-label="选择对话节奏">${modeButtons(timingModes,"data-timing-mode")}</div>
+      <p id="turnModeHelp" class="conversation-mode-help"></p><p id="turnPersonaRhythm" class="conversation-persona-note"></p>
+      <div id="turnPausedNotice" class="notice">当前已暂停收集连续消息。可在高级设置中重新开启；选择节奏不会替你解除暂停。</div>
+      <div id="turnAdaptiveExamples" class="conversation-examples" aria-label="自然动态如何接话">
+        <div><b>轻松闲聊</b><span>自然停顿，轻松接话，不抢着长篇解释。</span></div>
+        <div><b>问题已经完整</b><span>少等一点，认真接住你的问题。</span></div>
+        <div><b>你还在继续补充</b><span>参考最近发消息的间隔，多留一点说话空间。</span></div>
+        <div><b>有急事要说</b><span>缩短等待，先回应眼前重点。</span></div>
+      </div>
+      <details class="conversation-advanced" id="turnAdvanced"><summary>高级：固定秒数、连续消息与发送方式</summary>
+        <label class="perm-row"><input type="checkbox" id="turnCollectEnabled" checked><div><b>收集连续短消息</b><span class="small">关闭后暂停等待收集；即时回应模式也不额外等待。最长等待与容量上限始终有边界。</span></div></label>
+        <div id="turnFixedFields" class="companion-form-grid hidden"><label class="field"><span>最后一条后固定等待（秒）</span><input id="turnWaitSeconds" type="number" min="1" max="30" value="10"></label></div>
+        <div class="companion-form-grid"><label class="field"><span>连续输入最长等待（秒）</span><input id="turnMaxSeconds" type="number" min="5" max="120" value="30"></label><label class="field"><span>单批最多消息数</span><input id="turnMaxMessages" type="number" min="2" max="30" value="12"></label><label class="field"><span>单批最多文字数</span><input id="turnMaxChars" type="number" min="500" max="20000" value="6000"></label></div>
+        <label class="perm-row"><input type="checkbox" id="turnBubblesEnabled"><div><b>合适时发成几条完整短句</b><span class="small">关闭后发成一条，仍可按场景调整语气。正式说明、代码与任务结果保持完整。</span></div></label>
+        <p class="exp-hint">群里按发言人分别收集，不把两个人的话合成一个人的输入。命令及需要立即处理的输入按规则绕过等待。</p>
+        <button class="text-button" type="button" id="turnGoGroups">去设置群聊回应 ↗</button>
+      </details>
+      <div class="row wrap"><button class="soft" type="button" id="turnSave" disabled>保存对话节奏</button><button class="text-button" type="button" id="turnRefresh">刷新</button></div><p id="turnNotice" class="exp-hint" role="status">正在等待读取已保存设置。</p>
+      <details class="conversation-advanced" id="turnDecisionDetails"><summary>最近为什么这样接话</summary><p id="turnRuntimeNotice" class="exp-hint"></p><div id="turnRecentDecisions"></div></details>`);
     panel.after(turn);
-    const groups=section("groupRulesPanel",`<div class="exp-heading"><img src="/assets/ui/states/dafeiyu-quiet-v140.png" alt=""><div><small>给群里的每个人留一点空间</small><h2>群聊回应规则</h2><p>进入聊天名单不等于每句话都回答。不同成员分别收集，沿用真实群会话。</p></div></div><label class="field"><span>什么时候加入聊天</span><select id="groupReplyMode"><option value="addressed">只在被 @、引用或明确叫到时回应（推荐）</option><option value="light">轻度参与 · 仍需相关唤醒、概率与限流</option></select></label><label class="field"><span>明确叫她的名字（逗号分隔）</span><input id="groupWakeWords" maxlength="200" placeholder="大肥鱼,小鱼"></label><details class="conversation-advanced"><summary>轻度参与的频率上限</summary><div class="companion-form-grid"><label class="field"><span>两次轻度参与间隔（秒）</span><input id="groupCooldown" type="number" min="0" max="3600" value="90"></label><label class="field"><span>每小时轻度参与上限</span><input id="groupHourlyLimit" type="number" min="0" max="60" value="6"></label><label class="field"><span>相关消息参与机会（%）</span><input id="groupProbability" type="number" min="0" max="20" value="3"></label></div><p class="exp-hint">0次表示不轻度参与；明确叫到她的消息仍可回应。该上限不代替群白名单，也不开放电脑或账号权限。</p></details><div class="row wrap"><button class="soft" type="button" id="groupSave">保存群聊规则</button><button class="text-button" type="button" id="groupRefresh">刷新规则</button></div><p id="groupNotice" class="exp-hint" role="status"></p>`);
+    const groups=section("groupRulesPanel",`
+      <div class="exp-heading"><img src="/assets/ui/states/dafeiyu-quiet-v140.png" alt=""><div><small>给群里的每个人留一点空间</small><h2>群聊怎么接话</h2><p>三种实用模式，选好就能用，无需先调概率和冷却。</p></div></div>
+      <input type="hidden" id="groupReplyMode" value="auto">
+      <div class="conversation-mode-grid" role="group" aria-label="选择群聊回应方式">${modeButtons(Object.fromEntries(Object.entries(groupModes).filter(([key])=>key!=="light")),"data-group-mode")}</div>
+      <p id="groupModeHelp" class="conversation-mode-help"></p><p class="exp-hint">仅在聊天名单允许的群里生效。不同成员分别接话；群聊模式不会扩大电脑操作或账号修改权限。</p>
+      <details class="conversation-advanced" id="groupAdvanced"><summary>高级：唤醒名字与旧版规则</summary>
+        <label class="field"><span>明确叫她的名字（逗号分隔）</span><input id="groupWakeWords" maxlength="200" placeholder="大肥鱼,小鱼"></label><p class="exp-hint">自然加入、只在点名时会识别这些名字；安静旁听只认实际 @ 或引用她。</p>
+        <button type="button" class="text-button conversation-legacy-mode" data-group-mode="light" aria-pressed="false">使用旧版轻度参与规则</button>
+        <div id="groupLegacyFields" class="hidden"><div class="companion-form-grid"><label class="field"><span>两次轻度参与间隔（秒）</span><input id="groupCooldown" type="number" min="0" max="3600" value="90"></label><label class="field"><span>每小时轻度参与上限</span><input id="groupHourlyLimit" type="number" min="0" max="60" value="6"></label><label class="field"><span>相关消息参与机会（%）</span><input id="groupProbability" type="number" min="0" max="20" value="3"></label></div><p class="exp-hint">只用于兼容旧版。0 次表示不轻度参与；明确叫到仍可回应。这些数值不会影响上方三种日常模式。</p></div>
+      </details>
+      <div class="row wrap"><button class="soft" type="button" id="groupSave" disabled>保存群聊方式</button><button class="text-button" type="button" id="groupRefresh">刷新</button></div><p id="groupNotice" class="exp-hint" role="status">正在等待读取已保存设置。</p>`);
     $("view-whitelist")?.querySelector(".permission-summary")?.after(groups);
     const nav=$("view-settings")?.querySelector(".settings-section-nav");
     for(const [label,target] of [["人格预设","personaCardsPanel"],["对话节奏","conversationTurnPanel"]]){if(!nav)continue;const b=document.createElement("button");b.type="button";b.textContent=label;b.onclick=()=>$(target)?.scrollIntoView({behavior:"smooth",block:"start"});nav.appendChild(b);}
@@ -28,22 +87,39 @@
     $("turnGoGroups").onclick=()=>shell.showView("whitelist");
     ["turnRefresh","groupRefresh"].forEach(id=>$(id).onclick=event=>busy(event.currentTarget,"读取中…",loadTurns));
     $("turnSave").onclick=event=>busy(event.currentTarget,"保存中…",async()=>{
-      const body={message_collection_enabled:$("turnCollectEnabled").checked,collection_seconds:Number($("turnWaitSeconds").value),collection_max_wait_seconds:Number($("turnMaxSeconds").value),collection_max_messages:Number($("turnMaxMessages").value),collection_max_chars:Number($("turnMaxChars").value),natural_bubbles_enabled:$("turnBubblesEnabled").checked};
-      await saveTurns(body,"turnNotice");
+      const mode=$("turnTimingMode").value;if(!Object.hasOwn(timingModes,mode))throw new Error("请选择一种对话节奏。");
+      const body={reply_timing_mode:mode,message_collection_enabled:$("turnCollectEnabled").checked,collection_max_wait_seconds:readInteger("turnMaxSeconds",5,120,"最长等待"),collection_max_messages:readInteger("turnMaxMessages",2,30,"单批消息数"),collection_max_chars:readInteger("turnMaxChars",500,20000,"单批文字数"),natural_bubbles_enabled:$("turnBubblesEnabled").checked};
+      if(mode==="fixed")body.collection_seconds=readInteger("turnWaitSeconds",1,30,"固定等待");
+      await saveTurns(body,"turn");
     });
-    $("groupSave").onclick=event=>busy(event.currentTarget,"保存中…",()=>saveTurns({group_reply_mode:$("groupReplyMode").value,group_wake_words:$("groupWakeWords").value,group_cooldown_seconds:Number($("groupCooldown").value),group_hourly_limit:Number($("groupHourlyLimit").value),group_participation_probability:Number($("groupProbability").value)},"groupNotice"));
-    document.querySelectorAll("#conversationTurnPanel input,#groupRulesPanel input,#groupRulesPanel select").forEach(node=>node.addEventListener("input",()=>{++turnGeneration;}));
+    $("groupSave").onclick=event=>busy(event.currentTarget,"保存中…",async()=>{
+      const mode=$("groupReplyMode").value;if(!Object.hasOwn(groupModes,mode))throw new Error("请选择一种群聊方式。");
+      const body={group_reply_mode:mode,group_wake_words:$("groupWakeWords").value};
+      if(mode==="light")Object.assign(body,{group_cooldown_seconds:readInteger("groupCooldown",0,3600,"轻度参与间隔"),group_hourly_limit:readInteger("groupHourlyLimit",0,60,"每小时参与上限"),group_participation_probability:readInteger("groupProbability",0,20,"参与机会")});
+      await saveTurns(body,"group");
+    });
+    for(const [scope,selector] of [["turn","#conversationTurnPanel input"],["group","#groupRulesPanel input"]])document.querySelectorAll(selector).forEach(node=>{if(node.type!=="hidden")for(const event of ["input","change"])node.addEventListener(event,()=>markTurnDirty(scope));});
+    document.querySelectorAll("[data-timing-mode]").forEach(button=>button.onclick=()=>{$("turnTimingMode").value=button.dataset.timingMode;markTurnDirty("turn");});
+    document.querySelectorAll("[data-group-mode]").forEach(button=>button.onclick=()=>{$("groupReplyMode").value=button.dataset.groupMode;markTurnDirty("group");});
+    paintModes();paintRhythm({});
   }
+  function readInteger(id,min,max,label){const raw=$(id).value,value=Number(raw);if(String(raw).trim()===""||!Number.isInteger(value)||value<min||value>max)throw new Error(`${label}请填写 ${min}–${max} 范围内的整数。`);return value;}
   async function loadTurns(){
     const ticket=++turnGeneration,value=await shell.api("/api/companion");if(ticket!==turnGeneration)return;turnState=value;
-    const values={turnWaitSeconds:"collection_seconds",turnMaxSeconds:"collection_max_wait_seconds",turnMaxMessages:"collection_max_messages",turnMaxChars:"collection_max_chars",groupReplyMode:"group_reply_mode",groupWakeWords:"group_wake_words",groupCooldown:"group_cooldown_seconds",groupHourlyLimit:"group_hourly_limit",groupProbability:"group_participation_probability"};
-    for(const [id,key] of Object.entries(values)){if(value[key]!==undefined)$(id).value=value[key];}
-    $("turnCollectEnabled").checked=value.message_collection_enabled!==false;$("turnBubblesEnabled").checked=!!value.natural_bubbles_enabled;
-    const text=value.plugin_installed?`已保存等待 ${value.collection_seconds??10} 秒，最长 ${value.collection_max_wait_seconds??30} 秒。${value.plugin_enabled?"对话节奏插件已启用；服务运行时处理新消息。":"需要在插件页启用“对话节奏与陪伴”。"}`:"完成运行环境安装后部署收集能力。";
-    notice("turnNotice",text);notice("groupNotice",!value.plugin_enabled?"规则已保存；请先启用“对话节奏与陪伴”插件。":value.group_reply_mode==="light"?"已选轻度参与，明确叫到优先，其余遵守概率与上限。":"已选只在明确叫到时回应，群友互相聊天时保持安静。");
+    const fields={turn:{turnWaitSeconds:"collection_seconds",turnMaxSeconds:"collection_max_wait_seconds",turnMaxMessages:"collection_max_messages",turnMaxChars:"collection_max_chars"},group:{groupWakeWords:"group_wake_words",groupCooldown:"group_cooldown_seconds",groupHourlyLimit:"group_hourly_limit",groupProbability:"group_participation_probability"}};
+    for(const scope of ["turn","group"]){if(turnDirty[scope])continue;for(const [id,key] of Object.entries(fields[scope]))if(value[key]!==undefined)$(id).value=value[key];}
+    if(!turnDirty.turn){$("turnTimingMode").value=Object.hasOwn(timingModes,value.reply_timing_mode)?value.reply_timing_mode:"adaptive";$("turnCollectEnabled").checked=value.message_collection_enabled!==false;$("turnBubblesEnabled").checked=value.natural_bubbles_enabled!==false;}
+    if(!turnDirty.group)$("groupReplyMode").value=Object.hasOwn(groupModes,value.group_reply_mode)?value.group_reply_mode:"auto";
+    paintModes();paintRhythm(value);
+    if(!turnDirty.turn)notice("turnNotice",!value.plugin_installed?"完成运行环境安装后部署对话节奏能力。":!value.plugin_enabled?"设置已保存；需要在插件页启用“对话节奏与陪伴”。":value.message_collection_enabled===false?"当前已暂停收集；已保留所选模式。":`已保存“${timingModes[$("turnTimingMode").value].name}”。运行插件会热读取；实际在线情况见下方近期决策。`);
+    if(!turnDirty.group)notice("groupNotice",!value.plugin_enabled?"规则已保存；请先启用“对话节奏与陪伴”插件。":`已保存“${groupModes[$("groupReplyMode").value].name}”；仍遵守聊天名单与会话权限。`);
+    if(!turnWriting)for(const id of ["turnSave","groupSave"])$(id).disabled=false;
   }
-  async function saveTurns(body,target){
-    const token=++turnGeneration;await post("/api/companion",body);if(token===turnGeneration){await loadTurns();notice(target,"已保存，运行插件会热读取新规则。");}else notice(target,"本次提交已保存；你随后编辑的内容尚未保存。");shell.toast("对话规则已保存。");
+  async function saveTurns(body,scope){
+    if(!turnState)throw new Error("请先读取已保存设置，再保存修改。");if(turnWriting)throw new Error("正在保存对话设置，请稍后再试。");
+    const revision=turnEdits[scope],target=scope==="turn"?"turnNotice":"groupNotice";turnWriting=true;++turnGeneration;for(const id of ["turnSave","groupSave"])$(id).disabled=true;
+    try{await post("/api/companion",body);if(turnEdits[scope]===revision)turnDirty[scope]=false;try{await loadTurns();}catch{notice(target,turnDirty[scope]?"本次提交已保存；你随后编辑的内容尚未保存，暂时无法刷新运行状态。":"设置已保存；暂时无法刷新运行状态，可以稍后再刷新。");shell.toast("设置已保存；暂时无法刷新运行状态。");return;}notice(target,turnDirty[scope]?"本次提交已保存；你随后编辑的内容尚未保存。":"已保存，运行插件会热读取新规则。");shell.toast("对话规则已保存。");}
+    finally{turnWriting=false;for(const id of ["turnSave","groupSave"])$(id).disabled=!turnState;}
   }
   async function loadPersonas(){
     if(personaWriting)return;const ticket=++personasGeneration,value=await shell.api("/api/personas");if(ticket!==personasGeneration||personaWriting)return;personaState=value;
@@ -58,12 +134,12 @@
     const state=personaState,revision=state?.revision??null;
     shell.openModal(card.name+" · 完整人格卡",`<div class="persona-preview"><div class="exp-heading"><img src="${e(cardArt(card.art))}" alt=""><div><b>${e(card.subtitle)}</b><p>${e(card.author)}</p><small>${e(card.license)}</small></div></div><p>应用前备份当前人格；保留原有工具选择、聊天和记忆。旧会话的用词可能仍会影响后续表达。</p><label class="field"><span>完整设定与示例</span><textarea rows="15" readonly>${e(value.prompt)}</textarea></label><div class="row wrap">${(card.source_urls||[]).filter(x=>/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(x)).map(url=>`<a href="${e(url)}" target="_blank" rel="noopener noreferrer">查看参考项目 ↗</a>`).join("")}</div>${!state?.can_apply?'<p class="notice">请先启动对话服务，再应用人格卡。</p>':""}</div>`,async()=>{
       if(!state?.can_apply)throw new Error("请先启动对话服务。");personaWriting=true;++personasGeneration;
-      try{await post("/api/personas/apply",{card_id:card.id,expected_revision:revision});shell.toast("已应用人格，原人格备份已保留。");}finally{personaWriting=false;await loadPersonas();}
+      try{await post("/api/personas/apply",{card_id:card.id,expected_revision:revision});shell.toast("已应用人格，原人格备份已保留。");}finally{personaWriting=false;await Promise.all([loadPersonas(),loadTurns()]);}
     });$("modalOk").textContent="应用这张人格";$("modalOk").disabled=!state?.can_apply;
   }
   function restorePersona(item){
     const revision=personaState?.revision??null;
-    shell.openModal("恢复原人格",`<p>将恢复这份备份里的原提示词，当前提示词也会先备份。聊天、记忆和独立工具选择保留。</p><label class="exp-confirm"><input type="checkbox" id="personaRestoreConfirm">确认恢复这份原人格</label>`,async()=>{if(!$("personaRestoreConfirm")?.checked)throw new Error("请确认要恢复的原人格。");personaWriting=true;++personasGeneration;try{await post("/api/personas/restore",{backup_id:item.id,expected_revision:revision,confirmed:true});shell.toast("原人格已恢复。");}finally{personaWriting=false;await loadPersonas();}});$("modalOk").textContent="恢复人格";$("modalOk").disabled=!personaState?.can_apply;
+    shell.openModal("恢复原人格",`<p>将恢复这份备份里的原提示词，当前提示词也会先备份。聊天、记忆和独立工具选择保留。</p><label class="exp-confirm"><input type="checkbox" id="personaRestoreConfirm">确认恢复这份原人格</label>`,async()=>{if(!$("personaRestoreConfirm")?.checked)throw new Error("请确认要恢复的原人格。");personaWriting=true;++personasGeneration;try{await post("/api/personas/restore",{backup_id:item.id,expected_revision:revision,confirmed:true});shell.toast("原人格已恢复。");}finally{personaWriting=false;await Promise.all([loadPersonas(),loadTurns()]);}});$("modalOk").textContent="恢复人格";$("modalOk").disabled=!personaState?.can_apply;
   }
   async function openLife(){
     const ticket=++lifeGeneration,before=shell.getModalGeneration(),value=await shell.api("/api/life");if(ticket!==lifeGeneration||before!==shell.getModalGeneration())return;

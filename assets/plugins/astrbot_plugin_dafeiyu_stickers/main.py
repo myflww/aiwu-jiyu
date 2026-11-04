@@ -91,7 +91,7 @@ def strip_markers(chain):
     return result, [match.group(1).strip() for match in matches]
 
 
-@register(PLUGIN_NAME, "myflww", "大肥鱼自动心情贴纸与素材库", "1.4.0")
+@register(PLUGIN_NAME, "myflww", "大肥鱼自动心情贴纸与素材库", "1.4.1")
 class DafeiyuStickers(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -171,6 +171,9 @@ class DafeiyuStickers(Star):
         return await asyncio.to_thread(verify_asset, item)
 
     def _auto_allowed(self, event, text=""):
+        if event.get_extra("dafeiyu_growth_no_auto_sticker") is True:
+            event.set_extra(GATE_REASON_KEY, "scene_suppressed")
+            return False
         if SENSITIVE_CONTEXT.search(text) or TASK_CONTEXT.search(text) or "`" in text:
             event.set_extra(GATE_REASON_KEY, "scene_suppressed")
             return False

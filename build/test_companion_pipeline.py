@@ -23,12 +23,13 @@ class Chain:
  def message(self,text):self.chain.append(SimpleNamespace(text=text));return self
 
 class PreferenceTests(unittest.TestCase):
- def test_presets_do_not_enable_capabilities_and_legacy_is_custom(self):
+ def test_presets_do_not_enable_opt_in_capabilities_and_legacy_is_custom(self):
   for name,data in pref.PROFILES.items():
    self.assertFalse(set(data['values']) & set(main.normalize({}) and ('proactive_enabled','activity_enabled','emotion_enabled','whale_style_enabled','natural_bubbles_enabled')))
    options=main.normalize(data['values'])
    self.assertEqual(pref.matched_profile(options),name)
-   self.assertFalse(options['enabled'])
+   for flag in ('proactive_enabled','activity_enabled','emotion_enabled','whale_style_enabled'):
+    self.assertFalse(options[flag])
   self.assertEqual(pref.matched_profile(main.normalize({'interval_minutes':30,'daily_limit':3})),'custom')
  def test_explicit_feedback_does_not_match_quoted_or_hypothetical_sentences(self):
   self.assertEqual(pref.feedback_mode('今天忙，少找我。'),'quiet')
@@ -78,6 +79,38 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
   self.context=SimpleNamespace(conversation_manager=self.manager,send_message=AsyncMock(return_value=True),get_registered_star=lambda name:SimpleNamespace(activated=True,star_cls=self.instances[name]) if name in self.instances else None)
   self.allowed=AsyncMock(return_value=True)
   self.pipe=pipeline.ReplyPipeline(self.context,Chain,self.allowed)
+ async def test_same_outgoing_decision_and_concurrent_reentry_never_resend_or_duplicate_memory(self):
+  entered,release=asyncio.Event(),asyncio.Event()
+  async def send(*args):entered.set();await release.wait();return True
+  self.context.send_message.side_effect=send
+  first=asyncio.create_task(self.pipe.deliver(UMO,'cid','same','hello',{},AsyncMock(return_value=True)))
+  await entered.wait()
+  duplicate=await self.pipe.deliver(UMO,'cid','same','different retry',{},AsyncMock(return_value=True))
+  self.assertTrue(duplicate['duplicate_suppressed']);release.set();await first
+  again=await self.pipe.deliver(UMO,'cid','same','same words',{},AsyncMock(return_value=True))
+  self.assertTrue(again['duplicate_suppressed']);self.context.send_message.assert_awaited_once()
+  self.memory.companion_record.assert_awaited_once();self.assertEqual(len(self.history),2)
+ async def test_fresh_outgoing_id_can_repeat_words_and_callback_failure_is_not_transport_failure(self):
+  def bad_callback(_):raise OSError('synthetic state error')
+  first=await self.pipe.deliver(UMO,'cid','a','same words',{},AsyncMock(return_value=True),on_result=bad_callback)
+  second=await self.pipe.deliver(UMO,'cid','b','same words',{},AsyncMock(return_value=True))
+  self.assertTrue(first['accepted'] and second['accepted']);self.assertEqual(first['result_callback'],'unavailable')
+  self.assertEqual(self.context.send_message.await_count,2)
+ async def test_single_and_max_bubbles_policy_are_honored_by_proactive_actual_packets(self):
+  text='今天可以慢慢聊一聊，不急着把所有事情都做完。'*24
+  self.sticker.prepare_proactive.return_value={'text':text,'component':None,'reservation':None}
+  await self.pipe.deliver(UMO,'cid','single',text,{'natural_bubbles_enabled':True,'reply_policy':{'response_mode':'single','max_bubbles':4}},AsyncMock(return_value=True))
+  self.assertEqual(self.context.send_message.await_count,1)
+  self.context.send_message.reset_mock()
+  with patch.object(pipeline.BubbleReplies,'_selected',return_value=False),patch.object(pipeline.asyncio,'sleep',new=AsyncMock()):
+   result=await self.pipe.deliver(UMO,'cid','multiple',text,{'natural_bubbles_enabled':True,'reply_policy':{'response_mode':'bubbles','max_bubbles':2}},AsyncMock(return_value=True))
+  self.assertEqual(self.context.send_message.await_count,2)
+  self.assertEqual(result['text'],text)
+ async def test_explicit_growth_preference_blocks_automatic_image_preparation_but_not_clean_text(self):
+  result=await self.pipe.deliver(UMO,'cid','no-auto','你好呀[sticker:happy]',{'growth_no_auto_sticker':True},AsyncMock(return_value=True))
+  self.sticker.prepare_proactive.assert_not_awaited();self.sticker.revalidate_proactive.assert_not_awaited()
+  self.assertTrue(result['accepted']);self.assertEqual(result['sticker'],'growth_suppressed')
+  self.assertEqual(result['text'],'你好呀');self.assertEqual(len(self.context.send_message.call_args.args[1].chain),1)
  async def test_real_memory_and_candidates_retrieved_no_extra_model_or_fake_event(self):
   notes,status=await self.pipe.context_notes(UMO,'out1','最近待关心的事')
   self.assertIn('real memory',notes);self.assertIn('sticker candidates',notes)
@@ -177,6 +210,7 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
 
 class MemoryControlTests(unittest.TestCase):
  def setUp(self):
+  self.derived=patch('backend.companion_growth.forget_library',return_value={'ok':True},create=True);self.derived.start();self.addCleanup(self.derived.stop)
   self.lib=patch.object(memory.lovehouse,'libraries',return_value={'libraries':[{'id':'default','is_demo':False},{'id':'demo','is_demo':True}]});self.lib.start();self.addCleanup(self.lib.stop)
   self.requests=patch.object(memory.lovehouse,'_request');self.api=self.requests.start();self.addCleanup(self.requests.stop)
   self.reads=patch.object(memory,'_native_get',side_effect=lambda path,lib:self.api('GET',path,library_id=lib));self.reads.start();self.addCleanup(self.reads.stop)

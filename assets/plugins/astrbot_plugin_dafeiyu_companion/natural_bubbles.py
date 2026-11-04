@@ -1,9 +1,9 @@
-"""Bounded, optional QQ chat bubbles, without replacing AstrBot's pipeline.
+"""Per-turn delivery claims and optional QQ bubbles in AstrBot's pipeline.
 
-The installed AstrBot RespondStage sends each component independently when its
-native segmented_reply is enabled. We deliberately yield to that setting, and
-wrap only this incoming event's final send otherwise. The native respond stage
-still owns after_message_sent and result cleanup. No model calls or new targets.
+Native segmentation/streaming retain their partitioning. The same bounded
+guard covers their final decision, while custom bubbles require a compatible
+complete-text host. Attempts and accepted packet receipts remain distinct;
+after_message_sent only closes slots, never proves delivery. No new targets.
 
 Primary references: https://docs.astrbot.app/use/webui.html and
 https://github.com/AstrBotDevs/AstrBot/issues/10047 . This is original code.
@@ -11,10 +11,12 @@ https://github.com/AstrBotDevs/AstrBot/issues/10047 . This is original code.
 from __future__ import annotations
 
 import asyncio
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from copy import deepcopy
 from dataclasses import dataclass, field
 import hashlib
+import inspect
+import json
 import re
 
 
@@ -26,6 +28,7 @@ TOOL_KEY = "dafeiyu_bubbles_tool_round"
 _WRAPPER_ATTR = "_dafeiyu_natural_send_wrapper"
 _OBSERVED_ATTR = "_dafeiyu_natural_observation"
 _SESSION_ATTR = "_dafeiyu_natural_session"
+POLICY_KEY = "dafeiyu_reply_policy"
 _BAD_TYPES = {"tool_direct_result", "tool_call", "tool_result", "system", "reasoning", "thinking", "break", "agent_stats"}
 _PROTECTED = re.compile(
     r"`|~~~|\b(?:https?|ftp|file)://|\bwww\.|\[[^\]\n]*\]\(|!\[|\[CQ:|"
@@ -40,7 +43,7 @@ _MIN_CHAT_CHARS = 36
 _MIN_BUBBLE_CHARS = 12
 
 
-def split_text(text: str) -> list[str]:
+def split_text(text: str, *, max_bubbles=4) -> list[str]:
     """Split at complete sentence/paragraph boundaries, preserving every char.
 
     Tiny acknowledgments and structured/technical answers remain whole.
@@ -50,7 +53,10 @@ def split_text(text: str) -> list[str]:
     if not isinstance(text, str) or not _MIN_CHAT_CHARS <= len(text.strip()) <= 1600 or _PROTECTED.search(text) or _FORMAL.search(text):
         return [text]
     boundaries = [match.end() for match in _BOUNDARY.finditer(text) if match.end() < len(text)]
-    desired = min(4, max(2, (len(text) + 279) // 280))
+    max_bubbles = max_bubbles if type(max_bubbles) is int and 1 <= max_bubbles <= 4 else 4
+    if max_bubbles == 1:
+        return [text]
+    desired = min(max_bubbles, max(2, (len(text) + 279) // 280))
     for count in range(desired, 1, -1):
         cuts, previous = [], 0
         for part in range(1, count):
@@ -72,7 +78,34 @@ def _kind(component) -> str:
     return type(component).__name__
 
 
-def _plan(message) -> tuple[list, str]:
+def _signature(message):
+    """Per-turn final/packet identity after the SDK clears its result alias.
+
+    This is never a global text filter: a new incoming message ID has a new
+    delivery key. Independent nonmatching tool/status output remains separate.
+    """
+    fields = {"Plain": "text", "Image": "file", "Face": "id", "At": "qq", "Reply": "id"}
+    values = []
+    for part in getattr(message, "chain", ()):
+        kind = _kind(part)
+        if kind not in fields:
+            return None
+        values.append((kind, str(getattr(part, fields[kind], ""))))
+    return hashlib.sha256(json.dumps(values, ensure_ascii=False).encode()).digest() if values else None
+
+
+def packet_invites_reply(message):
+    text = "".join(str(getattr(part, "text", "")) for part in getattr(message, "chain", ()) if _kind(part) == "Plain").strip()
+    if (not text or len(text) > 240 or _PROTECTED.search(text)
+            or re.search(r"[“”‘’\"]|(?:[他她]说|举例|引用|这句话|意思是)", text)):
+        return False
+    clauses = [part.strip() for part in re.split(r"[。！!\n]+", text) if part.strip()]
+    tail = clauses[-1] if clauses else ""
+    return bool(tail and len(tail) <= 160 and (tail.endswith(("?", "？"))
+        or re.search(r"(?:要不要|想不想|愿意吗|好不好|怎么样|可以吗).{0,36}$", tail)))
+
+
+def _plan(message, *, max_bubbles=4) -> tuple[list, str]:
     """Keep headers on the first bubble and a single trailing sticker on last.
 
     Inline Face and mixed media are kept as one original chain. In particular,
@@ -93,7 +126,7 @@ def _plan(message) -> tuple[list, str]:
     # Adjacent Plain components carry no intervening media; join without adding
     # or removing characters. derive() preserves host message metadata.
     text = "".join(str(part.text) for part in chain)
-    chunks = split_text(text)
+    chunks = split_text(text, max_bubbles=max_bubbles)
     if len(chunks) < 2 or not callable(getattr(message, "derive", None)):
         return [], text
     plan = []
@@ -165,6 +198,29 @@ class _Delivery:
     sent: int = 0
     attempted: int = 0
     text: str = ""
+    route: str = "custom"
+    owner: object = None
+    remaining: Counter = field(default_factory=Counter)
+    signatures: set = field(default_factory=set)
+
+
+def reply_policy(value):
+    value = value if isinstance(value, dict) else {}
+    mode = value.get("response_mode", "auto")
+    maximum = value.get("max_bubbles", 4)
+    return {"response_mode": mode if mode in {"single", "bubbles", "auto"} else "auto",
+            "max_bubbles": maximum if type(maximum) is int and 1 <= maximum <= 4 else 4,
+            "profile": value.get("profile") if value.get("profile") in {"quiet", "natural", "lively"} else "natural"}
+
+
+def selected_chunks(text, options, policy, key, *, formal=False):
+    policy = reply_policy(policy)
+    if formal or policy["response_mode"] == "single" or options.get("natural_bubbles_enabled") is not True:
+        return [text]
+    chunks = split_text(text, max_bubbles=policy["max_bubbles"])
+    if policy["response_mode"] == "auto" and not BubbleReplies._selected(key, text, options.get("natural_bubbles_frequency", "occasional")):
+        return [text]
+    return chunks
 
 
 class BubbleReplies:
@@ -239,21 +295,66 @@ class BubbleReplies:
         event.set_extra(ATTEMPT_KEY, delivery.attempted)
         event.set_extra(TEXT_KEY, delivery.text)
 
-    async def prepare(self, event, options: dict, guard_async, host_config: dict | None = None) -> bool:
-        """Install one wrapper, never send from the decorating hook itself.
+    @staticmethod
+    def _known_host(config):
+        platform = config.get("platform_settings", {}) if isinstance(config, dict) else {}
+        segmented = platform.get("segmented_reply", {}) if isinstance(platform, dict) else {}
+        return isinstance(segmented, dict) and type(segmented.get("enable")) is bool
 
-        guard_async() must recheck current owner, option, plugin and LLM/session
-        authorization. It is called before *every* actual bubble transmission.
-        An exception/ambiguous adapter failure stops delivery; we never retry.
+    @staticmethod
+    async def _notify(event, name, *args):
+        callback = getattr(event, name, None)
+        if not callable(callback):
+            return
+        try:
+            result = callback(*args)
+            if inspect.isawaitable(result):
+                await result
+        except Exception:
+            # Receipt/analytics hooks cannot turn an accepted adapter call into
+            # a failed send, nor grant permission to repeat it.
+            event.set_extra("dafeiyu_reply_callback_error", True)
+
+    def _claim(self, key, event, route):
+        existing = self._deliveries.get(key)
+        if existing is not None:
+            return existing, False
+        while len(self._deliveries) >= 256:
+            removable = next((k for k, value in self._deliveries.items() if value.status != "sending"
+                and (value.route != "host" or not value.remaining
+                     or not self._current(k, getattr(value.owner, _SESSION_ATTR, None)))), None)
+            if removable is None:
+                return None, False
+            del self._deliveries[removable]
+        delivery = _Delivery(claimed=True, status="sending", route=route, owner=event)
+        self._deliveries[key] = delivery
+        return delivery, True
+
+    def finish(self, event):
+        """End native component slots, without inventing any send receipt."""
+        key = _identity(event)
+        delivery = self._deliveries.get(key)
+        if delivery is not None and delivery.owner is event:
+            delivery.remaining.clear()
+            if delivery.status == "sending":
+                delivery.status = "sent" if delivery.sent else "not_sent"
+            self._report(event, delivery)
+
+    async def arm(self, event, options, guard_async, host_config):
+        """Arm once before generation; final-only decoration also calls this.
+
+        send_streaming bypasses on_decorating_result in the real SDK. Callers
+        should arm at on_llm_request so a streaming decision has the same
+        at-most-once boundary. No model/result is generated or sent here.
         """
         key = _identity(event)
-        result = event.get_result()
-        if (self._closed or key is None
-                or result is None or not result.is_llm_result() or getattr(result, "type", None) in _BAD_TYPES
-                or not _host_allows(host_config, result)
-                or event.get_extra(TOOL_KEY, False) or event.get_extra("dafeiyu_sticker_tool_round", False)
-                or event.get_extra("agent_user_aborted", False)):
+        if self._closed or key is None or not self._known_host(host_config):
             return False
+        result = event.get_result()
+        if result is not None and result.is_llm_result():
+            setattr(event, "_dafeiyu_reply_source_result", result)
+            setattr(event, "_dafeiyu_reply_source_components", list(result.chain or ()))
+            setattr(event, "_dafeiyu_reply_source_signature", _signature(result))
         if getattr(event, _WRAPPER_ATTR, None) is self:
             return True
         self.observe(event)
@@ -261,87 +362,200 @@ class BubbleReplies:
         if session is None or session.message_id != key[1]:
             return False
         original_send = event.send
-        # A cooperating image plugin delegates exact actual packets to us.
-        # This flag avoids counting a whole unsent split chain as image sent.
+        original_stream = getattr(event, "send_streaming", None)
+        active_stream = None
         setattr(event, "_dafeiyu_sticker_bubble_packets", True)
 
+        async def packet(message, delivery):
+            async with session.send_lock:
+                if delivery.status not in {"sending", "sent"}:
+                    return False
+                if not self._current(key, session) or not await guard_async() or not self._current(key, session):
+                    delivery.status = "interrupted" if delivery.attempted else "not_sent"
+                    self._report(event, delivery)
+                    return False
+                before = getattr(event, "_dafeiyu_sticker_before_packet", None)
+                if callable(before):
+                    message = await before(message)
+                    if message is None:
+                        return True
+                    if not self._current(key, session) or not await guard_async() or not self._current(key, session):
+                        delivery.status = "interrupted" if delivery.attempted else "not_sent"
+                        self._report(event, delivery)
+                        return False
+                delivery.attempted += 1
+                signature = _signature(message)
+                if signature is not None and len(delivery.signatures) < 512:
+                    delivery.signatures.add(signature)
+                # SDK ProcessStage treats _has_send_oper=False as permission
+                # for another implicit Agent run. A timeout can happen after
+                # delivery but before adapter.super().send() sets that flag.
+                # Mark the *attempt*, independently of accepted receipt counts.
+                event._has_send_oper = True
+                try:
+                    value = await original_send(message)
+                    if value is False:
+                        raise RuntimeError("Adapter did not acknowledge the packet")
+                except BaseException:
+                    await self._notify(event, "_dafeiyu_sticker_after_packet", message, "failed_unknown")
+                    raise
+                delivery.sent += 1
+                delivery.text = (delivery.text + "".join(str(getattr(part, "text", "")) for part in getattr(message, "chain", ())))[:16000]
+                self._report(event, delivery)
+                event.set_extra("dafeiyu_last_packet_invites_reply", packet_invites_reply(message))
+                await self._notify(event, "_dafeiyu_sticker_after_packet", message, "sent")
+                await self._notify(event, "_dafeiyu_reply_packet_accepted", event)
+                return True
+
         async def send_final(message):
-            # Intermediate tool/status/plugin sends use the original host path.
-            if (getattr(message, "type", None) in _BAD_TYPES or event.get_extra(TOOL_KEY, False)
-                    or event.get_extra("dafeiyu_sticker_tool_round", False)):
+            nonlocal active_stream
+            if message is None or getattr(message, "type", None) in _BAD_TYPES:
                 return await original_send(message)
-            previous = self._deliveries.get(key)
-            if previous is not None and previous.claimed:
-                self._report(event, previous)
+            source = event.get_result()
+            prepared = getattr(event, "_dafeiyu_reply_source_result", None)
+            final = source is not None and (source is prepared or source.is_llm_result())
+            # The native stage can retain a local result after another hook
+            # clears/replaces event.result. Its derived chain still carries
+            # the prepared components; don't turn that alias into a bypass.
+            if not final and prepared is not None:
+                refs = {id(part) for part in getattr(event, "_dafeiyu_reply_source_components", ())}
+                final = any(id(part) in refs for part in getattr(message, "chain", ()))
+                if final:
+                    source = prepared
+            existing = self._deliveries.get(key)
+            signature = _signature(message)
+            if not final and signature is not None and (signature == getattr(event, "_dafeiyu_reply_source_signature", None)
+                    or existing is not None and signature in existing.signatures):
+                final, source = True, prepared
+            stream_packet = active_stream is not None
+            if stream_packet:
+                try:
+                    from astrbot.core.platform.astr_message_event import streaming_response_event
+                    stream_packet = streaming_response_event.get() is event
+                except ImportError:
+                    pass  # Isolated SDK-independent test hosts.
+            if not final and not stream_packet:
+                return await original_send(message)  # Independent command/tool.
+            if stream_packet:
+                delivery = active_stream
+                if delivery.status not in {"sending", "sent"}:
+                    return
+                await packet(message, delivery)
                 return
-            plan, text = _plan(message)
+            if existing is not None:
+                if existing.attempted:
+                    event._has_send_oper = True
+                # Native RespondStage intentionally sends one component at a
+                # time. Only the original event's still-unconsumed components
+                # may continue. A cloned final/retry cannot gain new slots.
+                payload = [part for part in getattr(message, "chain", ()) if _kind(part) not in {"At", "Reply"}]
+                counts = Counter(id(part) for part in payload)
+                if (existing.route != "host" or existing.owner is not event
+                        or existing.status not in {"sending", "sent"} or not counts
+                        or any(existing.remaining[identifier] < count for identifier, count in counts.items())):
+                    self._report(event, existing)
+                    return
+                delivery = existing
+                delivery.remaining.subtract(counts)
+                try:
+                    if await packet(message, delivery):
+                        delivery.status = "sent" if delivery.sent else "not_sent"
+                except asyncio.CancelledError:
+                    delivery.status = "cancelled"
+                    raise
+                except Exception:
+                    delivery.status = "failed"
+                    raise RuntimeError("Final packet delivery uncertain; automatic retry suppressed") from None
+                finally:
+                    self._report(event, delivery)
+                return
+            custom = _host_allows(host_config, source)
+            route = "custom" if custom else "host"
+            delivery, claimed = self._claim(key, event, route)
+            if not claimed:
+                if delivery is not None:
+                    self._report(event, delivery)
+                return
+            policy = reply_policy(event.get_extra(POLICY_KEY))
+            plan, text = _plan(message, max_bubbles=policy["max_bubbles"])
+            incoming = getattr(event, "get_message_str", lambda: "")() or ""
+            formal = bool(_TASK.search(incoming) or event.get_extra("dafeiyu_formal_response", False))
             try:
                 threshold = int(host_config.get("platform_settings", {}).get("forward_threshold", 1500))
             except (TypeError, ValueError):
                 threshold = 1500
-            incoming = getattr(event, "get_message_str", lambda: "")() or ""
-            if (options.get("natural_bubbles_enabled") is not True or _TASK.search(incoming)
-                    or event.get_extra("dafeiyu_formal_response", False)
-                    or not plan or len(text) > threshold
-                    or not self._selected(key, text, options.get("natural_bubbles_frequency", "occasional"))):
+            tool_round = event.get_extra(TOOL_KEY, False) or event.get_extra("dafeiyu_sticker_tool_round", False)
+            enabled = options.get("natural_bubbles_enabled") is True and policy["response_mode"] != "single"
+            selected = policy["response_mode"] == "bubbles" or self._selected(key, text, options.get("natural_bubbles_frequency", "occasional"))
+            if not custom or formal or tool_round or not enabled or not plan or len(text) > threshold or not selected:
                 plan = [message]
-                text = "".join(str(getattr(part, "text", "")) for part in getattr(message, "chain", ()))
-            delivery = self._deliveries.setdefault(key, _Delivery())
-            self._deliveries.move_to_end(key)
-            while len(self._deliveries) > 256:
-                self._deliveries.popitem(last=False)
-            # Claim before any await. Repeated results/retries for an incoming
-            # message cannot restart an already-sent or uncertain split reply.
-            if delivery.claimed:
-                self._report(event, delivery)
-                return
-            delivery.claimed = True
-            delivery.status = "sending"
-            delivery.text = text[:1600]
+            if route == "host":
+                # Capture native components once, before a retry can substitute
+                # a new whole result. Headers do not consume payload slots.
+                counts = Counter(id(part) for part in getattr(source, "chain", ()) if _kind(part) not in {"At", "Reply"})
+                counts |= Counter(id(part) for part in getattr(event, "_dafeiyu_reply_source_components", ()) if _kind(part) not in {"At", "Reply"})
+                payload = Counter(id(part) for part in getattr(message, "chain", ()) if _kind(part) not in {"At", "Reply"})
+                for identifier, count in payload.items():
+                    counts[identifier] = max(counts[identifier], count)
+                delivery.remaining = counts - payload
             self._report(event, delivery)
             try:
                 for index, bubble in enumerate(plan):
                     if index:
-                        await self._pause(session.signal, self._delay(key, index))
-                    async with session.send_lock:
-                        if not self._current(key, session) or not await guard_async() or not self._current(key, session):
-                            delivery.status = "interrupted" if delivery.attempted else "not_sent"
-                            self._report(event, delivery)
-                            return
-                        before = getattr(event, "_dafeiyu_sticker_before_packet", None)
-                        after = getattr(event, "_dafeiyu_sticker_after_packet", None)
-                        if callable(before):
-                            bubble = await before(bubble)
-                        if bubble is None:
-                            continue
-                        # Do not let an awaited revalidation race new input or
-                        # revoked session/plugin permission.
-                        if callable(before) and (not self._current(key, session) or not await guard_async() or not self._current(key, session)):
-                            delivery.status = "interrupted" if delivery.attempted else "not_sent"
-                            self._report(event, delivery)
-                            return
-                        delivery.attempted += 1
-                        try:
-                            await original_send(bubble)
-                        except BaseException:
-                            if callable(after):
-                                await after(bubble, "failed_unknown")
-                            raise
-                        if callable(after):
-                            await after(bubble, "sent")
-                    delivery.sent += 1
-                    self._report(event, delivery)
-                delivery.status = "sent"
-                self._report(event, delivery)
+                        scale = {"quiet": 1.2, "natural": 1.0, "lively": .8}[policy["profile"]]
+                        await self._pause(session.signal, max(.5, min(3.0, self._delay(key, index) * scale)))
+                    if not await packet(bubble, delivery):
+                        return
+                delivery.status = "sent" if delivery.sent else "not_sent"
             except asyncio.CancelledError:
                 delivery.status = "cancelled"
-                self._report(event, delivery)
                 raise
             except Exception:
                 delivery.status = "failed"
-                self._report(event, delivery)
                 raise RuntimeError("Natural chat delivery did not complete; automatic retry suppressed") from None
+            finally:
+                self._report(event, delivery)
+
+        async def send_streaming(*args, **kwargs):
+            nonlocal active_stream
+            delivery, claimed = self._claim(key, event, "stream")
+            if not claimed:
+                if delivery and delivery.attempted:
+                    event._has_send_oper = True
+                return
+            active_stream = delivery
+            self._report(event, delivery)
+            try:
+                if not self._current(key, session) or not await guard_async() or not self._current(key, session):
+                    delivery.status = "not_sent"
+                    return
+                # Native stream implementations can deliver without event.send.
+                # Claim the decision, but don't invent a packet receipt for it.
+                event._has_send_oper = True
+                await original_stream(*args, **kwargs)
+                if delivery.status in {"sending", "sent"}:
+                    delivery.status = "sent" if delivery.sent else "receipt_unobserved"
+            except asyncio.CancelledError:
+                delivery.status = "cancelled"
+                raise
+            except Exception:
+                delivery.status = "failed"
+                raise RuntimeError("Streaming delivery uncertain; automatic retry suppressed") from None
+            finally:
+                active_stream = None
+                self._report(event, delivery)
 
         event.send = send_final
+        if callable(original_stream):
+            event.send_streaming = send_streaming
         setattr(event, _WRAPPER_ATTR, self)
         return True
+
+    async def prepare(self, event, options: dict, guard_async, host_config: dict | None = None) -> bool:
+        result = event.get_result()
+        if (result is None or not result.is_llm_result() or getattr(result, "type", None) in _BAD_TYPES
+                or event.get_extra("agent_user_aborted", False)):
+            return False
+        # Tool rounds, native segmentation, TTS and image conversion still need
+        # a final-decision claim. They merely opt out of our custom splitting.
+        return await self.arm(event, options, guard_async, host_config)

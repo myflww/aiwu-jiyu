@@ -613,6 +613,7 @@ function showView(name) {
   if (name === "plugins") loadPlugins();
   globalThis.AiwuExperience?.loadView(name).catch(() => {});
   globalThis.AiwuConversation?.loadView(name).catch(() => {});
+  globalThis.AiwuGrowth?.loadView(name).catch(() => {});
 }
 
 function showApp() {
@@ -2479,6 +2480,7 @@ function bindEvents() {
 async function init() {
   bindEvents();
   globalThis.AiwuConversation?.init({api,esc,toast,openModal,closeModal,showView,getModalGeneration:()=>modalGeneration,getState:()=>state,refreshPlugins:loadPlugins});
+  globalThis.AiwuGrowth?.init({api,esc,toast,openModal,closeModal});
   globalThis.AiwuExperience?.init({api,esc,toast,openModal,closeModal,showView,openCompanion:openCompanionModal,openStickers:openStickerLibrary,openComputer:openPcModal,getState:()=>state,isConnected:()=>localConnected,getLibrary:()=>lovehouseSelected,getModalGeneration:()=>modalGeneration,getLibraries:()=>lovehouseState?.libraries||[],selectLibrary:async id=>{if(!(lovehouseState?.libraries||[]).some(row=>row.id===id&&!row.is_demo))throw new Error("请选择当前可用的记忆库。");lovehouseSelected=id;renderLoveHouse(lovehouseState);renderLovehouseLibraries();await refreshLovehouseDetails();}});
   applyArtStyle(artStyle);
   let connected = false;

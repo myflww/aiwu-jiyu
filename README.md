@@ -6,7 +6,7 @@
 
 <img src="assets/ui/dafeiyu-daily.webp" alt="大肥鱼日常手绘立绘" width="280">
 
-[下载 Windows 版](https://github.com/myflww/aiwu-jiyu/releases) · [使用说明](docs/使用说明.md) · [1.5.0 使用指南](docs/1.5.0使用指南.md) · [反馈问题](https://github.com/myflww/aiwu-jiyu/issues) · [参与改进](CONTRIBUTING.md)
+[下载 Windows 版](https://github.com/myflww/aiwu-jiyu/releases) · [动态对话](docs/1.6.0动态对话.md) · [记忆与成长](docs/经历记忆与表达成长.md) · [使用说明](docs/使用说明.md) · [反馈问题](https://github.com/myflww/aiwu-jiyu/issues) · [参与改进](CONTRIBUTING.md)
 
 ## 能做什么
 
@@ -15,6 +15,7 @@
 | QQ 聊天 | 使用 QQ 小号登录，填写主人主号；好友和群聊按名单开放 |
 | 插件开关 | QQ 原生表情、长期记忆、电脑操作、主动陪伴与情绪、大肥鱼表情包分别启停 |
 | 长期记忆 | 连接本机爱之屋，选择记忆库，登记要保存的 QQ 会话 |
+| 相处与成长 | 人格、场景和连续输入共同调节节奏；明确反馈形成可撤回的表达偏好，有证据的反思与事实分开保存 |
 | 电脑操作与作品箱 | 分级授权文件、命令工具；最高权限可查看控件、按需截屏、点击输入与打开桌面应用 |
 | 实时内存 | 首页显示系统物理内存、应用进程分项和最近 60 秒走势，首页可见时每 2 秒采样 |
 | 四种立绘 | 日常手绘、蓝白水手、水手 Q 版、经典 Q 版，在设置里切换 |

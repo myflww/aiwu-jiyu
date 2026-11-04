@@ -20,7 +20,7 @@ from backend import astrbot_api
 from backend import metrics, pc_access, updater, log_retention, companion, stickers, plugin_updates
 from backend import dashboard_credentials, custom_stickers, sticker_contributions
 from backend import health, tasks, recovery, companion_memory, sticker_library, sticker_materials
-from backend import personas, life
+from backend import personas, life, companion_growth
 from backend.paths import APP_HOME, ASSETS, LOGS, RUN_DIR, UI_DIR, ensure_dirs
 
 _lock = threading.Lock()
@@ -285,6 +285,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/stickers": {"ok": True, **stickers.status()},
             "/api/companion": {"ok": True, **companion.DEFAULTS, "owner_configured": False,
                                 "plugin_installed": False},
+            "/api/growth": {"ok": True, "enabled": False, "available": False, "library_bound": False,
+                            "counts":{}, "notice":"预览不读取私人相处手记。"},
             "/api/stickers/contributions/auth": {"ok": True, "configured": False, "login": "", "remembered": False},
             "/api/stickers/contributions/status": {"ok": True, "running": False, "state": "preview", "message": "预览不提交任何图片。", "pr_url": ""},
             "/api/logs/retention": {"ok": True, **log_retention.policy(), "preview": True,
@@ -388,6 +390,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {"ok": True, **(service.snapshot() if service else log_retention.policy())})
             elif path == "/api/companion":
                 self._json(200, {"ok": True, **companion.status()})
+            elif path == "/api/growth":
+                self._json(200, companion_growth.status())
             elif path == "/api/stickers":
                 self._json(200, {"ok": True, **stickers.status(settings=stickers.load_settings(), custom_items=custom_stickers.list_items())})
             elif path.startswith("/api/stickers/custom/") and path.endswith("/image"):
@@ -490,7 +494,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(403, {"ok": False, "message": "这是界面预览，请在正式应用中设置"})
             return
         try:
-            if path == "/api/dashboard/credentials" or path.startswith(("/api/stickers/custom/", "/api/stickers/contributions/", "/api/stickers/library/", "/api/stickers/materials/", "/api/memories/", "/api/recovery/", "/api/companion/", "/api/personas/", "/api/life/")):
+            if path == "/api/dashboard/credentials" or path.startswith(("/api/stickers/custom/", "/api/stickers/contributions/", "/api/stickers/library/", "/api/stickers/materials/", "/api/memories/", "/api/recovery/", "/api/companion/", "/api/personas/", "/api/life/", "/api/growth/")):
                 expected = f"http://127.0.0.1:{self.server.server_address[1]}"
                 if self.headers.get("Origin") != expected or self.headers.get("Host") != expected.removeprefix("http://"):
                     self._json(403, {"ok": False, "message": "请在爱屋及鱼窗口中操作。"})
@@ -536,6 +540,14 @@ class Handler(BaseHTTPRequestHandler):
             if path in {"/api/companion/profile", "/api/companion/temporary"}:
                 payload = companion.apply_profile(body.get("profile")) if path.endswith("/profile") else companion.set_temporary(body)
                 self._json(200, {"ok": True, **payload})
+                return
+            if path.startswith("/api/growth/"):
+                actions = {"/api/growth/inspect":companion_growth.inspect,
+                           "/api/growth/mutate":companion_growth.mutate}
+                if path not in actions:
+                    self._json(404, {"ok":False, "message":"成长手记接口不存在。"})
+                else:
+                    self._json(200, actions[path](body))
                 return
             if path.startswith("/api/memories/"):
                 action = path.rsplit("/", 1)[-1]

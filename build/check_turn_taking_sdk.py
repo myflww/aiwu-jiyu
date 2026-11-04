@@ -159,10 +159,17 @@ async def run():
     formal = Event("formal", "请写一份完整报告")
     await ordinary(formal)
     assert len(formal.sent) == 1 and formal.sent[0].get_plain_text() == TEXT
+    formal_follow = Event("formal-supplement", "还有一些细节")
+    formal_follow.set_extra("sdk_response_text", SHORT_TEXT)
+    await ordinary(formal_follow)
+    assert formal_follow.get_extra("dafeiyu_reply_policy")["response_mode"] == "single"
+    assert len(formal_follow.sent) == 1 and formal_follow.sent[0].get_plain_text() == SHORT_TEXT
     assert 40 <= len(SHORT_TEXT) <= 70
     short_chat = Event("short-casual", "一起聊聊今天的小云朵")
     short_chat.set_extra("sdk_response_text", SHORT_TEXT)
     await ordinary(short_chat)
+    assert short_chat.get_extra("dafeiyu_reply_policy")["scene"] == "calm"
+    assert "explicit_casual_switch" in short_chat.get_extra("dafeiyu_reply_policy")["reasons"]
     short_packets = [packet.get_plain_text() for packet in short_chat.sent]
     assert len(short_packets) == 2 and short_packets[0] != short_packets[1], short_packets
     assert "".join(short_packets) == SHORT_TEXT
@@ -193,7 +200,7 @@ async def run():
     native_result = MessageEventResult(chain=[Plain(part) for part in natural.split_text(TEXT)])
     native_result.result_content_type = ResultContentType.LLM_RESULT
     native_event.set_result(native_result)
-    assert not await instance._bubbles.prepare(native_event, instance._options(), AsyncMock(return_value=True), native_host)
+    assert await instance._bubbles.prepare(native_event, instance._options(), AsyncMock(return_value=True), native_host)
     native_stage = RespondStage()
     await native_stage.initialize(SimpleNamespace(astrbot_config=native_host))
     await native_stage.process(native_event)
@@ -231,6 +238,7 @@ async def run():
         "group_addressed_hard_gate": True, "real_pydantic_component_independence": True,
         "formal_response_whole": True, "native_segmentation_single_owner": True,
         "short_40_to_70_char_reply_two_actual_packets": True,
+        "formal_supplement_stays_whole_then_explicit_casual_releases_focus": True,
         "same_short_formal_reply_one_actual_packet": True,
         "explicit_no_reply_real_user_history": True,
         "native_inactive_and_explicit_hot_master": True,

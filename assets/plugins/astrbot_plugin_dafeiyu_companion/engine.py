@@ -12,10 +12,12 @@ from pathlib import Path
 DEFAULTS = {
     "proactive_enabled": False, "emotion_enabled": False, "activity_enabled": False,
     "whale_style_enabled": False,
-    "natural_bubbles_enabled": False, "natural_bubbles_frequency": "occasional",
+    "natural_bubbles_enabled": True, "natural_bubbles_frequency": "occasional",
+    "reply_timing_mode": "adaptive",
+    "growth_enabled": True,
     "message_collection_enabled": True, "collection_seconds": 10,
     "collection_max_wait_seconds": 30, "collection_max_messages": 12, "collection_max_chars": 6000,
-    "group_reply_mode": "addressed", "group_cooldown_seconds": 90,
+    "group_reply_mode": "auto", "group_cooldown_seconds": 90,
     "group_hourly_limit": 6, "group_participation_probability": 3,
     "group_wake_words": "大肥鱼,小鱼",
     "interval_minutes": 120, "daily_limit": 4, "quiet_start": 23, "quiet_end": 8,
@@ -23,7 +25,7 @@ DEFAULTS = {
     "idle_minutes": 40, "trigger_probability": 100, "unanswered_decay_percent": 50,
     "max_unanswered": 4, "session_expiry_days": 7, "timezone": "local",
 }
-BOOL_FIELDS = ("proactive_enabled", "emotion_enabled", "activity_enabled", "whale_style_enabled", "natural_bubbles_enabled")
+BOOL_FIELDS = ("proactive_enabled", "emotion_enabled", "activity_enabled", "whale_style_enabled", "natural_bubbles_enabled", "growth_enabled")
 RANGES = {"interval_minutes": (5, 1440), "daily_limit": (0, 20),
           "collection_seconds": (1, 30), "collection_max_wait_seconds": (5, 120),
           "collection_max_messages": (2, 30), "collection_max_chars": (500, 20000),
@@ -34,7 +36,8 @@ RANGES = {"interval_minutes": (5, 1440), "daily_limit": (0, 20),
           "idle_minutes": (0, 1440), "trigger_probability": (0, 100),
           "unanswered_decay_percent": (0, 100), "max_unanswered": (0, 20), "session_expiry_days": (0, 365)}
 ENUMS = {"schedule_mode": {"fixed", "random"}, "timezone": {"local", "Asia/Shanghai", "UTC"},
-         "group_reply_mode": {"addressed", "light"},
+         "group_reply_mode": {"auto", "addressed", "quiet", "light"},
+         "reply_timing_mode": {"adaptive", "fixed", "instant"},
          "natural_bubbles_frequency": {"occasional", "often"}}
 PRESETS = {"dsh_reference": {"schedule_mode": "random", "min_interval_minutes": 60,
     "max_interval_minutes": 180, "idle_minutes": 40, "daily_limit": 4,
@@ -224,7 +227,7 @@ def normalize(data: dict, *, strict: bool = False) -> dict:
         if strict:
             raise ValueError("最长主动机会间隔不能小于最短间隔")
         result["max_interval_minutes"] = result["min_interval_minutes"]
-    if result["collection_max_wait_seconds"] < result["collection_seconds"]:
+    if result["reply_timing_mode"] == "fixed" and result["collection_max_wait_seconds"] < result["collection_seconds"]:
         if strict:
             raise ValueError("消息最长等待不能小于尾沿等待时间")
         result["collection_max_wait_seconds"] = result["collection_seconds"]

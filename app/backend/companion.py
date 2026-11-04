@@ -5,6 +5,7 @@ import importlib.util
 import json
 import math
 import os
+import re
 from pathlib import Path
 import stat
 import sqlite3
@@ -80,6 +81,12 @@ def load(config: dict | None = None) -> dict:
     return _policy.normalize(incoming if isinstance(incoming, dict) else {})
 
 
+def persona_profile(config: dict | None = None) -> str:
+    config = config_store.load() if config is None else config
+    value = (config.get("persona") or {}).get("card_id") if isinstance(config.get("persona"), dict) else None
+    return value if value in {"natural", "classic", "gentle", "playful", "study"} else "natural"
+
+
 def sync_config(config: dict | None = None) -> None:
     config = config_store.load() if config is None else config
     # No plugin files/config are created on a machine before its runtime exists.
@@ -105,7 +112,8 @@ def sync_config(config: dict | None = None) -> None:
     # plugin master-off remains respected until the user saves its settings.
     if isinstance(config.get("companion"), dict) or not native_master_disabled:
         existing["enabled"] = True
-    existing.update(owner_qq=str(config.get("owner_qq") or ""), bot_qq=str(config.get("bot_qq") or ""), persona_id="大肥鱼")
+    existing.update(owner_qq=str(config.get("owner_qq") or ""), bot_qq=str(config.get("bot_qq") or ""), persona_id="大肥鱼",
+                    persona_profile=persona_profile(config))
     with tempfile.NamedTemporaryFile(dir=directory, prefix=".companion-", suffix=".tmp", delete=False) as stream:
         temporary = Path(stream.name)
         stream.write((json.dumps(existing, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
@@ -159,10 +167,16 @@ def _plugin_enabled():
 def status(config: dict | None = None) -> dict:
     from backend import plugins
     config = config_store.load() if config is None else config
+    runtime = _runtime_status(config)
     return {**load(config), "owner_configured": bool(config.get("owner_qq")),
+            "persona_profile": persona_profile(config),
+            "rhythm": {"mode":load(config)["reply_timing_mode"], "persona_profile":persona_profile(config),
+                       "worker_running":runtime.get("worker_running") is True,
+                       "recent":runtime.get("conversation_policy", []),
+                       "note":"只保存最近的节奏决策，不包含聊天正文；未观察到消息时不推测状态。"},
             "plugin_installed": plugins.plugin_path(PLUGIN_NAME).is_dir(),
             "plugin_enabled": _plugin_enabled(),
-            "runtime": _runtime_status(config),
+            "runtime": runtime,
             "profiles": json.loads(json.dumps(_preferences.PROFILES, ensure_ascii=False)),
             "profile": _preferences.matched_profile(load(config)),
             "temporary_preference": _preferences.public_preference(temporary_preference(config)),
@@ -171,9 +185,9 @@ def status(config: dict | None = None) -> dict:
             "preset_sources": {"dsh_reference": {"label": "Aurabot 参考值",
                 "source": "https://github.com/aureth-labs/dsh-aurabot-qq/blob/b3301f6b014016e141c07d266a716c0fea566aab/src/core/config.js",
                 "note": "来自上游默认配置，不是科学最佳值；仅填入时间范围、日预算和免打扰，保存后才应用。概率、未回复减扰及其他能力保持你的选择。"}},
-            "privacy_summary": "只对主人私聊生效。活动感知仅含前台应用名与闲置时长；不记录按键、窗口标题或屏幕。启用后这些概况可用于模型回复。",
+            "privacy_summary": "主动联系与成长仅限主人私聊；群聊节奏遵守名单和会话配置。活动感知仅含前台应用名与闲置时长，不记录按键、窗口标题或屏幕。",
             "proactive_summary": "开启后由后台在主动机会到来时自主选话题，无需设置 cron。机会须通过概率、未回应减扰、预算与免打扰判断，不承诺必发；使用当前模型可能产生 API 用量。",
-            "style_summary": "可选傲娇甜口与自然中文表达，减少固定欢迎词；保留现有人格和工具，不要求或展示隐藏思维链。"}
+            "style_summary": "跟随选定人格、当前场景与明确表达偏好，保留人格身份和工具，不要求或展示隐藏思维链。"}
 
 
 def _runtime_status(config: dict) -> dict:
@@ -189,6 +203,7 @@ def _runtime_status(config: dict) -> dict:
               "unanswered_count": 0, "effective_probability": options["trigger_probability"],
               "paused_until_reply": False, "last_opportunity_at": None, "last_opportunity_result": None,
               "last_trigger_source": None, "initiated_count": 0, "last_receipt": None,
+              "conversation_policy": [],
               "usage": {"scope": "proactive", "date": _policy.schedule_now(options).date().isoformat(),
                         "input_tokens": 0, "output_tokens": 0, "reported_calls": 0, "unreported_calls": 0, "available": False}}
     path = ASTRBOT / "data" / "plugin_data" / PLUGIN_NAME / "runtime.json"
@@ -226,6 +241,33 @@ def _runtime_status(config: dict) -> dict:
             return result
         result.update(code=status_code, message=_policy.RUNTIME_MESSAGES[status_code],
                       worker_running=candidate["worker_running"], session_known=candidate["session_known"])
+        rows = candidate.get("conversation_policy", [])
+        if isinstance(rows, list):
+            for row in rows[-8:]:
+                if not isinstance(row, dict):
+                    continue
+                at, wait = row.get("at"), row.get("wait_seconds")
+                reason = row.get("reason")
+                if (type(at) not in (int, float) or not math.isfinite(at) or not 0 < at < 4102444800
+                        or type(wait) not in (int, float) or not math.isfinite(wait) or not 0 <= wait <= 120
+                        or not isinstance(reason, str) or not re.fullmatch(r"[a-z_]{1,50}", reason)
+                        or row.get("response_mode") not in {"single", "bubbles", "auto"}
+                        or row.get("profile") not in {"natural", "classic", "gentle", "playful", "study"}
+                        or type(row.get("group")) is not bool):
+                    continue
+                labels = {"question":"问题已完整，较快接话", "complete_question":"问题已完整，较快接话",
+                          "continuation":"还有补充，稍等说完", "fragment":"短句可能未说完",
+                          "formal":"认真内容保持完整", "urgent":"紧急内容立即处理",
+                          "support":"放慢语气，先好好倾听", "fixed":"使用固定等待",
+                          "instant":"即时回应", "adaptive":"按这次场景动态接话",
+                          "short_fragment":"短句可能未说完", "formal_or_task":"认真内容保持完整",
+                          "explicit_continuation":"还有补充，等你说完", "correction":"改口后再听一会儿",
+                          "media_caption_window":"等图片后的说明", "conversational_turn":"按相处节奏接话",
+                          "explicit_end":"明确结束，安静记下", "command_or_urgent":"命令或急事立即处理",
+                          "fixed_wait":"使用固定等待", "instant_wait":"即时回应"}
+                result["conversation_policy"].append({"at":at, "wait_seconds":wait,
+                    "reason":reason, "reason_label":labels.get(reason,"按这次对话调整节奏"),
+                    "response_mode":row["response_mode"], "profile":row["profile"], "group":row["group"]})
         count = candidate.get("daily_count")
         if type(count) is int and 0 <= count <= 20:
             result["daily_count"] = count

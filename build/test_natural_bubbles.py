@@ -245,18 +245,136 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
             await self.prepare(service, event, config=config)
             await event.send(result)
             self.assertEqual(event.sent, [result])
-            self.assertEqual(event.get_extra(bubbles.STATUS_KEY), "sent" if config is CONFIG else None)
+            self.assertEqual(event.get_extra(bubbles.STATUS_KEY), None if not config else "sent")
 
-    async def test_tool_round_and_non_llm_result_never_intercepted(self):
+    async def test_tool_finals_are_unsplit_but_claimed_and_non_llm_status_remains_independent(self):
         for mode in ("tool", "sticker-tool", "non-llm", "system"):
             event, service = Event(), AlwaysBubbles()
             if mode == "tool": service.mark_tool(event)
             elif mode == "sticker-tool": event.set_extra("dafeiyu_sticker_tool_round", True)
             elif mode == "non-llm": event.result.is_llm_result = lambda: False
             else: event.result.type = "system"
-            self.assertFalse(await self.prepare(service, event))
+            self.assertEqual(await self.prepare(service, event), mode in {"tool", "sticker-tool"})
             await event.send(event.result)
             self.assertEqual(event.sent, [event.result])
+            if mode in {"tool", "sticker-tool"}:
+                await event.send(event.result)
+                self.assertEqual(event.sent, [event.result])
+
+    async def test_native_components_each_have_one_slot_and_cloned_final_cannot_start_again(self):
+        first, second = Plain("第一条"), Plain("第二条")
+        event, service = Event(result=Chain([first, second])), AlwaysBubbles()
+        config = {**CONFIG, "platform_settings": {"segmented_reply": {"enable": True}}}
+        await self.prepare(service, event, config=config)
+        await event.send(event.result.derive([first]))
+        await event.send(event.result.derive([second]))
+        await event.send(event.result)
+        self.assertEqual([packet.chain[0].text for packet in event.sent], ["第一条", "第二条"])
+        service.finish(event)
+        event.result = None
+        await event.send(Chain([Plain("第一条")]))
+        self.assertEqual(len(event.sent), 2)
+
+    async def test_queued_native_tail_cannot_continue_after_first_packet_becomes_uncertain(self):
+        first, second = Plain("第一条"), Plain("第二条")
+        event, service = Event(result=Chain([first, second])), AlwaysBubbles()
+        entered, release, attempts = asyncio.Event(), asyncio.Event(), []
+        async def uncertain(packet):
+            attempts.append(packet)
+            entered.set()
+            await release.wait()
+            raise TimeoutError("accepted but receipt lost")
+        event.send = uncertain
+        await self.prepare(service, event, config={**CONFIG, "platform_settings": {"segmented_reply": {"enable": True}}})
+        a = asyncio.create_task(event.send(event.result.derive([first])))
+        await entered.wait()
+        b = asyncio.create_task(event.send(event.result.derive([second])))
+        await asyncio.sleep(0)
+        release.set()
+        await asyncio.gather(a, b, return_exceptions=True)
+        self.assertEqual(len(attempts), 1)
+        self.assertEqual(event.get_extra(bubbles.COUNT_KEY), 0)
+
+    async def test_cleared_result_alias_and_cloned_final_are_scoped_to_turn_not_global_words(self):
+        service, event = AlwaysBubbles(), Event(result=Chain([Plain("你好")]))
+        await self.prepare(service, event)
+        final = event.result
+        await event.send(final)
+        event.result = None
+        await event.send(final.derive([Plain("你好")]))
+        self.assertEqual(len(event.sent), 1)
+        new = Event(message_id="new-request", result=Chain([Plain("你好")]))
+        await self.prepare(service, new)
+        await new.send(new.result)
+        self.assertEqual(len(new.sent), 1)
+
+    async def test_policy_single_and_bounded_bubbles_override_probability_without_rewriting_text(self):
+        for mode, maximum, count in (("single", 4, 1), ("bubbles", 2, 2)):
+            event, service = Event(result=Chain([Plain(TEXT * 10)])), AlwaysBubbles()
+            service._selected = lambda *args: False
+            event.set_extra(bubbles.POLICY_KEY, {"response_mode": mode, "max_bubbles": maximum, "profile": "quiet"})
+            await self.prepare(service, event)
+            await event.send(event.result)
+            self.assertEqual(len(event.sent), count)
+            self.assertEqual("".join(packet.chain[0].text for packet in event.sent), TEXT * 10)
+
+    async def test_real_receipt_callback_failure_cannot_reclassify_or_repeat_an_accepted_packet(self):
+        event, service = Event(result=Chain([Plain("收到啦。")])) , AlwaysBubbles()
+        event._dafeiyu_reply_packet_accepted = AsyncMock(side_effect=RuntimeError("synthetic analytics failure"))
+        await self.prepare(service, event)
+        await event.send(event.result)
+        await event.send(event.result)
+        self.assertEqual(len(event.sent), 1)
+        self.assertEqual(event.get_extra(bubbles.STATUS_KEY), "sent")
+        self.assertEqual(event.get_extra(bubbles.COUNT_KEY), 1)
+        event._dafeiyu_reply_packet_accepted.assert_awaited_once_with(event)
+
+    async def test_invitation_flag_comes_only_from_accepted_packet_not_unsent_question(self):
+        event, service = Event(result=Chain([Plain(TEXT + "今晚要不要一起再聊一会儿？")])) , AlwaysBubbles()
+        snapshots = []
+        async def accepted(incoming):
+            snapshots.append(incoming.get_extra("dafeiyu_last_packet_invites_reply"))
+        event._dafeiyu_reply_packet_accepted = accepted
+        await self.prepare(service, event, AsyncMock(side_effect=[True, False]))
+        await event.send(event.result)
+        self.assertEqual(snapshots, [False])
+        self.assertNotIn("？", event.get_extra(bubbles.TEXT_KEY))
+        question = Event(message_id="question", result=Chain([Plain("那要不要再来一张？")]))
+        await self.prepare(service, question)
+        await question.send(question.result)
+        self.assertTrue(question.get_extra("dafeiyu_last_packet_invites_reply"))
+        self.assertFalse(bubbles.packet_invites_reply(Chain([Image()])))
+        self.assertFalse(bubbles.packet_invites_reply(Chain([Plain('他说“要不要再来一张？”')])) )
+
+    async def test_unknown_transport_attempt_sets_host_operation_flag_but_no_accepted_callback(self):
+        event, service = Event(), AlwaysBubbles()
+        event._has_send_oper = False
+        event._dafeiyu_reply_packet_accepted = AsyncMock()
+        async def failure(message):
+            raise TimeoutError("adapter may have accepted already")
+        event.send = failure
+        await self.prepare(service, event)
+        with self.assertRaises(RuntimeError):
+            await event.send(event.result)
+        self.assertTrue(event._has_send_oper)
+        self.assertEqual(event.get_extra(bubbles.COUNT_KEY), 0)
+        self.assertEqual(event.get_extra(bubbles.TEXT_KEY), "")
+        event._dafeiyu_reply_packet_accepted.assert_not_awaited()
+
+    async def test_streaming_is_armed_once_and_never_custom_split_or_resend_as_full_final(self):
+        event, service = Event(), AlwaysBubbles()
+        async def stream_native(generator, *_args):
+            async for packet in generator:
+                await event.send(packet)
+        event.send_streaming = stream_native
+        await service.arm(event, OPTIONS, AsyncMock(return_value=True), CONFIG)
+        async def chunks():
+            yield Chain([Plain("第一句。")])
+            yield Chain([Plain("第二句。")])
+        await event.send_streaming(chunks())
+        await event.send_streaming(chunks())
+        await event.send(event.result)
+        self.assertEqual([packet.chain[0].text for packet in event.sent], ["第一句。", "第二句。"])
 
     async def test_guard_rechecked_before_every_segment_and_disable_stops_tail(self):
         event, service = Event(), AlwaysBubbles()

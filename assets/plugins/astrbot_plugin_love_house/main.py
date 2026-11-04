@@ -23,7 +23,7 @@ from .bridge import AdapterError, Bridge, Router
 from .source_client import SourceClient
 
 
-@register("love_house", "myflww", "爱之屋 Agent 经历记忆（实验适配）", "0.4.0")
+@register("love_house", "myflww", "爱之屋 Agent 经历记忆（实验适配）", "0.5.0")
 class LoveHousePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -227,7 +227,7 @@ class LoveHousePlugin(Star):
         material = event.get_extra(marker)
         if not isinstance(material, str):
             material = await asyncio.wait_for(asyncio.to_thread(bridge.read_material,
-                event.unified_msg_origin, message_id, event.message_str), timeout=1.2)
+                event.unified_msg_origin, message_id, event.message_str), timeout=3.0)
             event.set_extra(marker, material)
         return material
 

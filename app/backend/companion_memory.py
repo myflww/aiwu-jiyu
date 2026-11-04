@@ -204,6 +204,11 @@ def mutate(body):
         plan = lovehouse._request("POST", route + "forget-preview", {}, library_id=library)
         if _fingerprint(plan) != saved[2]:
             raise ValueError("忘记范围已经变化，请重新检查预览")
+        # A forgotten experience must not survive as a separate short model
+        # hypothesis. Clear derived private text first; failure aborts the
+        # original native forget, rather than reporting a partial success.
+        from backend import companion_growth
+        companion_growth.forget_library(library)
         result = lovehouse._request("POST", route + "forget", {"confirm": True}, library_id=library)
         with _lock:
             _previews.pop(token, None)

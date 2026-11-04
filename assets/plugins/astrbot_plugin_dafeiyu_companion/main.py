@@ -27,6 +27,7 @@ from .engine import (activity_summary, foreground_activity, mood_after, mood_sum
 from .natural_bubbles import BubbleReplies
 from .preferences import read_preference, write_preference, effective_options, feedback_mode, public_preference
 from .reply_pipeline import ReplyPipeline, session_guard
+from .adaptive import AdaptiveController
 from .turn_taking import (Turns, MessageCollector, GroupAdmission, identity as turn_identity,
                           is_group, command_event, addressed_elsewhere, no_reply_requested, retain_user_input,
                           GROUP_KEY, TURN_KEY, NO_REPLY_KEY)
@@ -35,7 +36,7 @@ PLUGIN_NAME = "astrbot_plugin_dafeiyu_companion"
 QQ_ADAPTERS = {"aiocqhttp", "qq"}
 
 
-@register(PLUGIN_NAME, "myflww", "大肥鱼陪伴：消息收集、群聊节制与可选自主搭话", "1.4.0")
+@register(PLUGIN_NAME, "myflww", "大肥鱼陪伴：动态节奏、自然群聊与可选自主搭话", "1.5.0")
 class DafeiyuCompanion(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -62,6 +63,11 @@ class DafeiyuCompanion(Star):
         self._turns = Turns()
         self._collector = MessageCollector(self._plain)
         self._groups = GroupAdmission()
+        self._adaptive = AdaptiveController()
+        self._rhythm_recent = []
+        self._hot_profile = None
+        self._growth = None
+        self._growth_root = None
         self._reply_pipeline = ReplyPipeline(context, MessageChain, self._plugin_allowed)
 
     def _options(self) -> dict:
@@ -100,6 +106,8 @@ class DafeiyuCompanion(Star):
                         or str(value.get("bot_qq", self._identity()[1])) != self._identity()[1]):
                     raise ValueError("Identity change requires a proper plugin reload")
                 self._hot_master_enabled = value.get("enabled")
+                profile = value.get("persona_profile", "natural")
+                self._hot_profile = profile if profile in {"natural", "classic", "gentle", "playful", "study"} else "natural"
                 self._hot_options = normalize({**base, **{key:value[key] for key in DEFAULTS if key in value}}, strict=True)
                 self._hot_stamp = stamp
             self._hot_valid = True
@@ -153,6 +161,11 @@ class DafeiyuCompanion(Star):
         admission = event.get_extra(GROUP_KEY)
         if admission == "silent":
             return False
+        if admission == "auto_followup" and self._options()["group_reply_mode"] != "auto":
+            return False
+        if (admission == "addressed" and self._options()["group_reply_mode"] == "quiet"
+                and self._adaptive.admit(event, self._options(), self.context.get_config(umo=event.unified_msg_origin)) != "addressed"):
+            return False
         if admission == "light":
             options = self._options()
             if (options["group_reply_mode"] != "light" or not options["group_hourly_limit"]
@@ -163,6 +176,20 @@ class DafeiyuCompanion(Star):
     def _temporary(self):
         owner, bot = self._identity()
         return read_preference(self._preference_path, owner, bot) if self._preference_path else {}
+
+    def _persona_profile(self):
+        self._base_options()
+        value = self._hot_profile or self.config.get("persona_profile", "natural")
+        return value if value in {"natural", "classic", "gentle", "playful", "study"} else "natural"
+
+    def _record_policy(self, event, policy):
+        reasons = policy.get("reasons") or ["adaptive"]
+        reason = "fixed_wait" if policy.get("mode") == "fixed" else "instant_wait" if policy.get("mode") == "instant" else reasons[0]
+        self._rhythm_recent.append({"at":time.time(), "reason":reason,
+            "wait_seconds":policy.get("collection_seconds", 0), "response_mode":policy.get("response_mode", "auto"),
+            "profile":policy.get("profile", self._persona_profile()), "group":is_group(event)})
+        del self._rhythm_recent[:-8]
+        self._publish()
 
     def _enabled(self) -> bool:
         options = self._options()
@@ -183,6 +210,8 @@ class DafeiyuCompanion(Star):
             self._turns = Turns()
             self._collector = MessageCollector(self._plain)
             self._groups = GroupAdmission()
+            self._adaptive = AdaptiveController()
+            self._rhythm_recent = []
         self._closed = False
         # Keep a lightweight worker alive even when capabilities are off.
         # AstrBot may update the config object after plugin initialization.
@@ -191,6 +220,7 @@ class DafeiyuCompanion(Star):
         self._state_path = directory / "state.json"
         self._runtime_path = directory / "runtime.json"
         self._preference_path = directory / "preferences.json"
+        self._growth_root = directory
         if directory.name == PLUGIN_NAME and directory.parent.name == "plugin_data":
             self._config_path = directory.parent.parent / "config" / f"{PLUGIN_NAME}_config.json"
         if self._state_path.is_symlink():
@@ -213,6 +243,7 @@ class DafeiyuCompanion(Star):
         self._bubbles.close()
         self._collector.close()
         self._turns.close()
+        self._adaptive.close()
         if self._worker:
             self._worker.cancel()
             with suppress(asyncio.CancelledError):
@@ -343,6 +374,7 @@ class DafeiyuCompanion(Star):
             public[key] = self._state.get(key)
         public["reply_pipeline"] = self._state.get("reply_pipeline", {})
         public["usage"] = self._usage_snapshot(now)
+        public["conversation_policy"] = list(self._rhythm_recent)
         owner, bot = self._identity()
         base = self._base_options()
         master = (self._hot_master_enabled if self._config_path is not None and self._hot_valid
@@ -358,6 +390,10 @@ class DafeiyuCompanion(Star):
     def _owner_event(self, event: AstrMessageEvent) -> bool:
         if not self._enabled() or not self._owner():
             return False
+        return self._owner_identity(event)
+
+    def _owner_identity(self, event: AstrMessageEvent) -> bool:
+        """An identity check, independent from optional feature aggregates."""
         try:
             owner, bot = self._identity()
             sender = str(event.get_sender_id())
@@ -392,10 +428,22 @@ class DafeiyuCompanion(Star):
         await self.observe_owner(event)
         options = self._options()
         host = self.context.get_config(umo=event.unified_msg_origin)
+        policy = self._adaptive.predict(event, options, profile=self._persona_profile())
+        await self._apply_growth_policy(event, policy)
+        event.set_extra("dafeiyu_reply_policy", policy)
+        if (is_group(event) and self._collector.pending_group_mode(event) is not None
+                and self._collector.pending_group_mode(event) != options["group_reply_mode"]):
+            self._collector.cancel_event(event)
+        event.set_extra("dafeiyu_collection_group_mode", options["group_reply_mode"])
         continuation = (is_group(event) and self._collector.has_pending(event)
                         and not command_event(event) and not addressed_elsewhere(event))
         inherited = self._collector.pending_admission(event)
-        admission = ("light" if inherited == "light" else "continuation") if continuation else self._groups.admit(event, options, host)
+        if continuation:
+            admission = "light" if inherited == "light" else "continuation"
+        elif options["group_reply_mode"] in {"auto", "quiet"}:
+            admission = self._adaptive.admit(event, options, host)
+        else:
+            admission = self._groups.admit(event, options, host)
         event.set_extra(GROUP_KEY, admission)
         if admission == "silent":
             # Leave unrelated plugin commands/listeners available while hard
@@ -403,17 +451,25 @@ class DafeiyuCompanion(Star):
             event.is_at_or_wake_command = False
             event.call_llm = True
             return
-        if admission in {"addressed", "light", "continuation"}:
+        self._record_policy(event, policy)
+        if admission in {"addressed", "light", "continuation", "auto_followup"}:
             event.is_at_or_wake_command = True
         elif admission == "command":
             event.call_llm = True
         # Preserve plugin commands and emergency requests as immediate input.
         async def still_collecting():
-            return (self._options()["message_collection_enabled"] and await self._reply_allows(event))
-        accepted = await self._collector.collect(event, options, still_collecting)
+            latest = self._options()
+            return (latest["message_collection_enabled"] and latest["reply_timing_mode"] == options["reply_timing_mode"]
+                    and (not is_group(event) or latest["group_reply_mode"] == options["group_reply_mode"])
+                    and await self._reply_allows(event))
+        collecting = {**options, "collection_seconds":policy["collection_seconds"],
+                      "collection_max_wait_seconds":policy["collection_max_wait_seconds"]}
+        accepted = await self._collector.collect(event, collecting, still_collecting)
         if not accepted:
             event.stop_event()
-        elif no_reply_requested(event):
+            return
+        await self._observe_growth_feedback(event)
+        if no_reply_requested(event):
             event.set_extra(NO_REPLY_KEY, True)
             event.is_at_or_wake_command = False
             event.call_llm = True
@@ -511,13 +567,299 @@ class DafeiyuCompanion(Star):
 
     @filter.on_llm_request()
     async def companion_context(self, event: AstrMessageEvent, req: ProviderRequest):
-        if not self._owner_event(event):
+        if (not self._owner_event(event) or not any(self._options()[key] for key in
+                ("proactive_enabled", "emotion_enabled", "activity_enabled", "whale_style_enabled"))):
             return
         await self.observe_owner(event)
         note = await self._note()
         marker = "[爱屋及鱼·可选陪伴状态]"
         if note and marker not in (req.system_prompt or ""):
             req.system_prompt = (req.system_prompt or "") + "\n\n" + marker + "\n" + note
+
+    @filter.on_llm_request(priority=900)
+    async def adaptive_context(self, event: AstrMessageEvent, req: ProviderRequest):
+        if not await self._reply_allows(event):
+            return
+        await self._arm_reply(event)
+        policy = event.get_extra("dafeiyu_reply_policy")
+        if not isinstance(policy, dict):
+            return
+        marker = "[爱屋及鱼·本轮动态表达]"
+        hint = policy.get("style_hint")
+        if isinstance(hint, str) and marker not in (req.system_prompt or ""):
+            req.system_prompt = (req.system_prompt or "") + "\n\n" + marker + "\n" + hint[:1800]
+
+    def _growth_store(self):
+        if self._growth is not None:
+            return self._growth
+        if self._growth_root is None:
+            return None
+        try:
+            from .growth import Growth
+            self._growth = Growth(self._growth_root)
+        except Exception:
+            # Optional local learning cannot break ordinary chat. No private
+            # paths, messages or exception repr are logged on failure.
+            return None
+        return self._growth
+
+    async def _growth_allows(self, event):
+        if self._options().get("growth_enabled") is not True or not self._owner_identity(event):
+            return False
+        allowed = await self._transport_allows(event)
+        return bool(allowed and self._options().get("growth_enabled") is True and self._owner_identity(event)
+                    and self._turns.current_event(event))
+
+    async def _growth_route(self, event):
+        if not await self._growth_allows(event):
+            return None
+        try:
+            memory = await self._reply_pipeline._plugin(("love_house", "astrbot_plugin_love_house"), event.unified_msg_origin)
+            if memory is None or not callable(getattr(memory, "_route", None)):
+                return None
+            bridge = await asyncio.to_thread(memory._route, event)
+            if bridge is None or not await self._growth_allows(event):
+                return None
+            current = await self._reply_pipeline._plugin(("love_house", "astrbot_plugin_love_house"), event.unified_msg_origin)
+            if current is not memory:
+                return None
+            library = getattr(bridge, "library_id", None)
+            if not isinstance(library, str) or not library or len(library) > 200:
+                return None
+            return memory, bridge, library
+        except Exception:
+            return None
+
+    async def _observe_growth_feedback(self, event):
+        if not await self._growth_allows(event):
+            return
+        store = self._growth_store()
+        if store is None:
+            return
+        route = await self._growth_route(event)
+        if route is None:
+            return
+        _, _, library = route
+        owner, bot = self._identity()
+        event_id = str(event.message_obj.message_id)
+        try:
+            await asyncio.to_thread(store.observe_feedback, owner, bot, event.unified_msg_origin,
+                                    event_id, event.get_message_str(), library)
+            policy = event.get_extra("dafeiyu_reply_policy")
+            if isinstance(policy, dict):
+                await self._apply_growth_policy(event, policy, timing=False)
+        except Exception:
+            event.set_extra("dafeiyu_growth_status", "feedback_unavailable")
+
+    @staticmethod
+    def _explicit_growth_policy(event, policy, preferences, *, timing=True):
+        """Finite explicit preferences only; never infer grants from prose."""
+        hints = []
+        if preferences.get("length") == "short":
+            policy["response_mode"], policy["max_bubbles"] = "single", 1
+            hints.append("主人明确希望简短：先答当前要点，保留必要事实和安全说明，不机械截断原文。")
+        elif preferences.get("length") == "detailed":
+            hints.append("主人明确希望更详细：内容需要时解释清楚，但不要凭空加长闲聊。")
+        if preferences.get("questions") == "fewer":
+            hints.append("主人明确希望少反问：能直接回答就回答，不在每轮末尾追问。")
+        if preferences.get("humor") == "less":
+            hints.append("主人明确希望少开玩笑：认真回应，不拿困难或拒绝打趣。")
+        if preferences.get("wait") == "more":
+            hints.append("主人明确希望先听完：不抢答，不把短暂停顿解释为对方已经说完。")
+            if timing and policy.get("mode") == "adaptive" and not any(reason in {"explicit_end", "command_or_urgent", "formal_or_task"}
+                                  for reason in policy.get("reasons", ())):
+                delay = policy.get("collection_seconds", 0)
+                cap = policy.get("collection_max_wait_seconds", 30)
+                if type(delay) in {int, float} and type(cap) in {int, float} and delay > 0:
+                    policy["collection_seconds"] = min(12, cap, delay + 1.5)
+        no_stickers = preferences.get("stickers") == "less"
+        event.set_extra("dafeiyu_growth_no_auto_sticker", no_stickers)
+        if no_stickers:
+            hints.append("主人明确希望少自动配图：本轮不自动加表情；明确索要图片仍走原发送工具。")
+        if hints:
+            current = str(policy.get("style_hint") or "")
+            policy["style_hint"] = current + " " + " ".join(hint for hint in hints if hint not in current)
+            policy["reasons"] = list(dict.fromkeys([*(policy.get("reasons") or []), "explicit_behavior_preference"]))
+        event.set_extra("dafeiyu_reply_policy", policy)
+
+    async def _apply_growth_policy(self, event, policy, *, timing=True):
+        if not await self._growth_allows(event):
+            return
+        store = self._growth_store()
+        if store is None:
+            return
+        route = await self._growth_route(event)
+        if route is None:
+            return
+        try:
+            owner, bot = self._identity()
+            preferences = await asyncio.to_thread(store.preferences, owner, bot, event.unified_msg_origin, route[2])
+            fresh = await self._growth_route(event)
+            if (isinstance(preferences, dict) and fresh is not None and fresh[0] is route[0]
+                    and fresh[1].source_id == route[1].source_id and fresh[2] == route[2]):
+                self._explicit_growth_policy(event, policy, preferences, timing=timing)
+        except Exception:
+            event.set_extra("dafeiyu_growth_status", "preference_unavailable")
+
+    @staticmethod
+    def _growth_request_tool(req, tool=None):
+        """Own tool only, request-local; do not mutate persona/global grants."""
+        try:
+            from astrbot.api import ToolSet
+            existing = getattr(req, "func_tool", None)
+            if existing is None and tool is None:
+                return
+            req.func_tool = ToolSet(tools=list(getattr(existing, "tools", []) or []))
+            req.func_tool.remove_tool("dafeiyu_reflect_experience")
+            if tool is not None:
+                req.func_tool.add_tool(tool)
+        except (ImportError, AttributeError, TypeError):
+            return
+
+    async def _growth_proactive_context(self, owner, bot, origin, event_id, shared_note):
+        """Use the actual autonomous recall, never manufacture a user event."""
+        if (self._options().get("growth_enabled") is not True or not self._enabled()
+                or self._identity() != (owner, bot) or not valid_session(origin, owner)
+                or not await self._session_allows(origin)):
+            return "", {}
+        store = self._growth_store()
+        if store is None:
+            return "", {}
+        try:
+            memory = await self._reply_pipeline._plugin(("love_house", "astrbot_plugin_love_house"), origin)
+            if memory is None or not callable(getattr(memory, "_companion_bridge", None)):
+                return "", {}
+            bridge = await asyncio.to_thread(memory._companion_bridge, origin)
+            library = getattr(bridge, "library_id", None)
+            if not isinstance(library, str) or not library:
+                return "", {}
+            opened, closed = "<love_house_memory_material>", "</love_house_memory_material>"
+            if (not isinstance(shared_note, str) or len(shared_note) > 24000
+                    or shared_note.count(opened) != 1 or shared_note.count(closed) != 1):
+                await asyncio.to_thread(store.clear_event, owner, bot, origin, event_id)
+                return "", {}
+            start, end = shared_note.index(opened), shared_note.index(closed)
+            binding = await asyncio.to_thread(store.bind_evidence, owner, bot, origin, event_id,
+                shared_note[start:end + len(closed)], origin="proactive")
+            if not isinstance(binding, dict) or binding.get("library_id") != library:
+                return "", {}
+            note = await asyncio.to_thread(store.context, owner, bot, origin, event_id, library)
+            preferences = await asyncio.to_thread(store.preferences, owner, bot, origin, library)
+            current_memory = await self._reply_pipeline._plugin(("love_house", "astrbot_plugin_love_house"), origin)
+            current_bridge = await asyncio.to_thread(memory._companion_bridge, origin)
+            session_allowed = await self._session_allows(origin)
+            if (self._options().get("growth_enabled") is not True or not self._enabled()
+                    or self._identity() != (owner, bot) or not session_allowed
+                    or current_memory is not memory or current_bridge is None
+                    or current_bridge.source_id != bridge.source_id or getattr(current_bridge, "library_id", None) != library):
+                return "", {}
+            return note if isinstance(note, str) else "", preferences if isinstance(preferences, dict) else {}
+        except Exception:
+            return "", {}
+
+    @filter.on_llm_request(priority=-500)
+    async def growth_context(self, event: AstrMessageEvent, req: ProviderRequest):
+        # The native registry may have exposed all active tools. Remove our
+        # tool first even for groups/off sessions, then add it only locally
+        # after this exact owner's real memory packet has been validated.
+        self._growth_request_tool(req)
+        if not await self._growth_allows(event) or event.get_extra(NO_REPLY_KEY):
+            return
+        store = self._growth_store()
+        if store is None:
+            return
+        owner, bot = self._identity()
+        origin, event_id = event.unified_msg_origin, str(event.message_obj.message_id)
+        route = await self._growth_route(event)
+        try:
+            if route is None:
+                await asyncio.to_thread(store.clear_event, owner, bot, origin, event_id)
+                event.set_extra("dafeiyu_growth_status", "memory_not_bound")
+                return
+            memory, bridge, library = route
+            material = event.get_extra("love_house_material_" + bridge.source_id)
+            # No call to _material and no user-text marker parsing here: this
+            # must be the actual packet already retrieved by LoveHouse's hook.
+            binding = await asyncio.to_thread(store.bind_evidence, owner, bot, origin, event_id, material)
+            if not isinstance(binding, dict) or binding.get("library_id") != library:
+                await asyncio.to_thread(store.clear_event, owner, bot, origin, event_id)
+                event.set_extra("dafeiyu_growth_status", "no_current_evidence")
+                return
+            if not await self._growth_allows(event):
+                return
+            event._dafeiyu_growth_memory = memory
+            event.set_extra("dafeiyu_growth_binding", {"event_id": event_id, "source_id": bridge.source_id,
+                "library_id": library, "record_ids": list(binding.get("record_ids") or [])[:32]})
+            note = await asyncio.to_thread(store.context, owner, bot, origin, event_id, library)
+            fresh = await self._growth_route(event)
+            if (fresh is None or fresh[0] is not memory or fresh[1].source_id != bridge.source_id
+                    or fresh[2] != library):
+                event.set_extra("dafeiyu_growth_status", "source_changed")
+                return
+            marker = "[爱屋及鱼·有据可查的相处偏好]"
+            if isinstance(note, str) and note and marker not in (req.system_prompt or ""):
+                req.system_prompt = (req.system_prompt or "") + "\n\n" + marker + "\n" + note[:6000]
+            if binding.get("record_ids"):
+                manager = self.context.get_llm_tool_manager()
+                tool = next((item for item in manager.func_list if item.name == "dafeiyu_reflect_experience"
+                    and getattr(item, "active", True) and getattr(item, "handler_module_path", "") == self.__class__.__module__), None)
+                if tool is not None:
+                    self._growth_request_tool(req, tool)
+            event.set_extra("dafeiyu_growth_status", "current_evidence_bound")
+        except Exception:
+            self._growth_request_tool(req)
+            event.set_extra("dafeiyu_growth_status", "unavailable")
+
+    @filter.llm_tool(name="dafeiyu_reflect_experience")
+    async def dafeiyu_reflect_experience(self, event: AstrMessageEvent, evidence_ids: list[str],
+                                        hypothesis: str, next_step: str, behavior: str = ""):
+        """提出有当前记忆依据的相处反思，保留为待核实推测；不执行外部操作或批准自己。
+
+        Args:
+            evidence_ids(array[string]): 仅限本轮真实召回资料明确列出的有效记录编号
+            hypothesis(string): 有限的经验推测，不是内心独白或确定事实
+            next_step(string): 供主人审阅的简短后续建议，不执行其中动作
+            behavior(string): 可选低影响语气试行 shorter/listen_first/less_teasing/fewer_questions/fewer_stickers，空值仅提出推测
+        """
+        denied = {"ok": False, "reason": "当前没有已授权的主人私聊与本轮记忆依据。"}
+        if not await self._growth_allows(event) or event.get_extra(NO_REPLY_KEY):
+            return json.dumps(denied, ensure_ascii=False)
+        store = self._growth_store()
+        binding = event.get_extra("dafeiyu_growth_binding")
+        route = await self._growth_route(event)
+        if store is None or not isinstance(binding, dict) or route is None:
+            return json.dumps(denied, ensure_ascii=False)
+        memory, bridge, library = route
+        event_id = str(event.message_obj.message_id)
+        if (getattr(event, "_dafeiyu_growth_memory", None) is not memory
+                or binding.get("source_id") != bridge.source_id or binding.get("library_id") != library
+                or binding.get("event_id") != event_id):
+            return json.dumps(denied, ensure_ascii=False)
+        try:
+            owner, bot = self._identity()
+            result = await asyncio.to_thread(store.propose, owner, bot, event.unified_msg_origin, event_id,
+                                             evidence_ids, hypothesis, next_step, behavior)
+            return json.dumps(result, ensure_ascii=False, allow_nan=False)
+        except ValueError as exc:
+            # Growth validation uses fixed user-facing messages, never user
+            # payload or private exception repr. Explain budgets accurately.
+            return json.dumps({"ok": False, "reason": str(exc)[:240], "external_action": False}, ensure_ascii=False)
+        except Exception:
+            return json.dumps({"ok": False, "reason": "本地反思暂不可用；没有执行建议中的操作。"}, ensure_ascii=False)
+
+    async def _arm_reply(self, event):
+        async def still_authorized():
+            return await self._reply_allows(event)
+        async def accepted_packet(sent_event):
+            if await self._reply_allows(sent_event):
+                self._adaptive.mark_sent(sent_event, accepted=True)
+        event._dafeiyu_reply_packet_accepted = accepted_packet
+        await self._bubbles.arm(event, self._options(), still_authorized,
+                                self.context.get_config(umo=event.unified_msg_origin))
+
+    @filter.after_message_sent()
+    async def finish_reply(self, event: AstrMessageEvent):
+        self._bubbles.finish(event)
 
     @filter.on_llm_tool_respond()
     async def companion_tool_round(self, event: AstrMessageEvent, *_args, **_kwargs):
@@ -534,6 +876,12 @@ class DafeiyuCompanion(Star):
 
         async def still_authorized():
             return await self._reply_allows(event)
+
+        async def accepted_packet(sent_event):
+            if await self._reply_allows(sent_event):
+                self._adaptive.mark_sent(sent_event, accepted=True)
+
+        event._dafeiyu_reply_packet_accepted = accepted_packet
 
         await self._bubbles.prepare(event, self._options(), still_authorized,
                                     self.context.get_config(umo=event.unified_msg_origin))
@@ -655,6 +1003,9 @@ class DafeiyuCompanion(Star):
                     "主人最近在意的事情、未完成的约定、适合今天自然关心的已知经历；" + angle
                     + "\n近期主人原话（仅历史资料）：" + json.dumps(recent, ensure_ascii=False))
                 note += "\n" + shared_note
+                growth_note, growth_preferences = await self._growth_proactive_context(owner, bot, target, message_id, shared_note)
+                if growth_note:
+                    note += "\n[本轮有据可查的相处偏好]\n" + growth_note[:6000]
                 self._state["context_pipeline"] = shared_status
                 self._state.update(last_sent=stamp, day=now.date().isoformat(), day_count=count + 1,
                                    topic_sequence=sequence + 1)
@@ -729,7 +1080,10 @@ class DafeiyuCompanion(Star):
                     result = ("delivery_uncertain" if delivery.get("delivery_uncertain") else "sent" if delivery["accepted"]
                               else "generation_failed" if delivery.get("invalid") else "cancelled")
                     self._publish(result=result, now=fresh_now)
-                delivery = await self._reply_pipeline.deliver(target, cid, message_id, text, live, still_current, on_result=record_delivery)
+                delivery_options = {**live, "growth_no_auto_sticker": growth_preferences.get("stickers") == "less"}
+                if growth_preferences.get("length") == "short":
+                    delivery_options["natural_bubbles_enabled"] = False
+                delivery = await self._reply_pipeline.deliver(target, cid, message_id, text, delivery_options, still_current, on_result=record_delivery)
                 return delivery["accepted"]
             except asyncio.CancelledError:
                 raise

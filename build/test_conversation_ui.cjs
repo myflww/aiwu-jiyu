@@ -10,7 +10,7 @@ const decode=value=>String(value).replace(/&quot;/g,'"').replace(/&#39;/g,"'").r
 function harness(){
  const nodes=new Map(),calls=[],toasts=[],gates=[];let generation=0,saveModal=null;
  let personas={revision:'rev-one',can_apply:true,active_name:'原人格',cards:[{id:'calm',name:'安静小鱼',subtitle:'安静陪伴',author:'myflww',license:'非商业',tags:['轻松'],art:'/assets/plugins/astrbot_plugin_dafeiyu_stickers/pack/happy.png',source_urls:['https://github.com/myflww/aiwu-jiyu']}],backups:[{id:'backup-one',created_at:1700000000,card_before:'原人格'}]};
- let prompt='完整人格与示例',turns={collection_seconds:10,collection_max_wait_seconds:30,collection_max_messages:12,collection_max_chars:6000,message_collection_enabled:true,natural_bubbles_enabled:true,group_reply_mode:'addressed',group_wake_words:'小鱼',group_cooldown_seconds:90,group_hourly_limit:6,group_participation_probability:3,plugin_installed:true,plugin_enabled:true};
+ let prompt='完整人格与示例',turns={reply_timing_mode:'adaptive',persona_profile:'natural',collection_seconds:10,collection_max_wait_seconds:30,collection_max_messages:12,collection_max_chars:6000,message_collection_enabled:true,natural_bubbles_enabled:true,group_reply_mode:'auto',group_wake_words:'小鱼',group_cooldown_seconds:90,group_hourly_limit:6,group_participation_probability:3,plugin_installed:true,plugin_enabled:true,rhythm:{mode:'adaptive',persona_profile:'natural',worker_running:false,recent:[]}};
  let life={settings:{search_enabled:false,search_provider:'bing_rss',searxng_url:'',profile_enabled:false,qzone_enabled:false},capabilities:{},owner_configured:true,bot_configured:true,avatars:[{id:'happy',label:'开心'}]};
  let searchResults=[{url:'https://example.com/source',title:'来源',snippet:'实际搜索摘要'}],review={action:'nickname',label:'确认修改',target_bot:'robot-test',before:'旧昵称',after:'新昵称'};
  function simple(node,selector){if(selector.startsWith('#'))return node.id===selector.slice(1);if(selector.startsWith('.'))return node.classList.contains(selector.slice(1));const attr=selector.match(/^\[([^=\]]+)(?:="([^"]*)")?\]$/);if(attr)return Object.hasOwn(node.attrs,attr[1])&&(attr[2]===undefined||node.attrs[attr[1]]===attr[2]);return node.tagName===selector.toUpperCase();}
@@ -60,7 +60,7 @@ function harness(){
  const window={},context=vm.createContext({window,document,console,Date});vm.runInContext(source,context);window.AiwuConversation.init(shell);
  return {api:window.AiwuConversation,shell,calls,toasts,get,requests:url=>calls.filter(call=>call.url===url),save:()=>saveModal?.(),title:()=>get('modalTitle').textContent,
   click:id=>get(id).fire('click'),button:(selector,id='personaCardList')=>{const node=get(id).querySelector(selector);assert.ok(node,'missing '+selector);return node;},
-  setPersonas:value=>{personas={...personas,...clone(value)};},setPrompt:value=>{prompt=value;},setSearch:value=>{searchResults=clone(value);},setReview:value=>{review={...review,...clone(value)};},
+  setPersonas:value=>{personas={...personas,...clone(value)};},setTurns:value=>{turns={...turns,...clone(value)};},setPrompt:value=>{prompt=value;},setSearch:value=>{searchResults=clone(value);},setReview:value=>{review={...review,...clone(value)};},
   defer(url){let enter,release,reject;const entered=new Promise(resolve=>{enter=resolve;}),promise=new Promise((yes,no)=>{release=yes;reject=no;});gates.push({url,enter,promise});return {entered,release,reject};}};
 }
 
@@ -122,14 +122,108 @@ test('untrusted persona, search and review text is escaped; active URLs must pas
 });
 
 test('edits during a rules GET or save survive the stale response instead of silently restoring old input',async()=>{
- const h=harness();await h.api.loadTurns();const gate=h.defer('/api/companion'),loading=h.api.loadTurns();await gate.entered;
+ const h=harness();await h.api.loadTurns();await h.button('[data-timing-mode="fixed"]','conversationTurnPanel').fire('click');const gate=h.defer('/api/companion'),loading=h.api.loadTurns();await gate.entered;
  h.get('turnWaitSeconds').value='23';await h.get('turnWaitSeconds').fire('input');gate.release();await loading;assert.equal(h.get('turnWaitSeconds').value,'23');
  const save=h.defer('/api/companion'),saving=h.click('turnSave');await save.entered;h.get('turnWaitSeconds').value='27';await h.get('turnWaitSeconds').fire('input');save.release();await saving;
- assert.equal(h.get('turnWaitSeconds').value,'27');assert.equal(h.requests('/api/companion').at(-1).body.collection_seconds,23);assert.match(h.get('turnNotice').textContent,/尚未保存/);
+ assert.equal(h.get('turnWaitSeconds').value,'27');assert.equal(h.requests('/api/companion').filter(call=>call.method==='POST').at(-1).body.collection_seconds,23);assert.match(h.get('turnNotice').textContent,/尚未保存/);
 });
 
 test('a returned search is not shown under a subsequently edited query, and a late life GET does not steal another modal',async()=>{
  const h=harness();await h.api.openLife();h.get('lifeQuery').value='旧关键词';const gate=h.defer('/api/life/search'),search=h.click('lifeSearchRun');await gate.entered;h.get('lifeQuery').value='新关键词';gate.release();await search;
  assert.match(h.get('lifeSearchResults').textContent,/关键词已改变/);assert.equal(h.get('lifeSearchResults').querySelectorAll('a').length,0);
  const life=h.defer('/api/life'),opening=h.api.openLife();await life.entered;h.shell.openModal('其他设置','<p>保留此窗口</p>',null);life.release();await opening;assert.equal(h.title(),'其他设置');
+});
+
+test('rhythm and group choices work without advanced numbers and page loading performs only reads',async()=>{
+ const h=harness();assert.equal(h.get('turnSave').disabled,true);assert.equal(h.get('groupSave').disabled,true);
+ assert.equal(h.get('turnAdvanced').attrs.open,undefined);assert.equal(h.get('groupAdvanced').attrs.open,undefined);
+ await h.api.loadView('settings');assert.ok(h.calls.every(call=>call.method==='GET'));assert.equal(h.get('turnTimingMode').value,'adaptive');assert.equal(h.get('groupReplyMode').value,'auto');
+ const modes=h.get('conversationTurnPanel').querySelectorAll('[data-timing-mode]');assert.deepEqual(modes.map(b=>b.dataset.timingMode),['adaptive','fixed','instant']);assert.equal(modes[0].attrs['aria-pressed'],'true');
+ const groups=h.get('groupRulesPanel').querySelectorAll('[data-group-mode]');assert.deepEqual(groups.map(b=>b.dataset.groupMode),['auto','addressed','quiet','light']);
+ assert.equal(groups.at(-1).parentNode.id,'groupAdvanced');assert.equal(h.get('turnFixedFields').classList.contains('hidden'),true);assert.equal(h.get('groupLegacyFields').classList.contains('hidden'),true);
+ assert.match(h.get('turnAdaptiveExamples').textContent,/轻松闲聊/);assert.match(h.get('turnAdaptiveExamples').textContent,/问题已经完整/);assert.match(h.get('turnAdaptiveExamples').textContent,/继续补充/);assert.match(h.get('turnAdaptiveExamples').textContent,/急事/);
+});
+
+test('mode changes preserve an explicit collection pause and bubble preference and never grant other capabilities',async()=>{
+ const h=harness();h.setTurns({message_collection_enabled:false,natural_bubbles_enabled:false});await h.api.loadTurns();assert.equal(h.get('turnPausedNotice').classList.contains('hidden'),false);
+ for(const mode of ['fixed','instant','adaptive']){
+  await h.button(`[data-timing-mode="${mode}"]`,'conversationTurnPanel').fire('click');const before=h.calls.length;assert.equal(h.get('turnTimingMode').value,mode);assert.equal(h.calls.length,before);
+  await h.click('turnSave');const body=h.requests('/api/companion').filter(call=>call.method==='POST').at(-1).body;
+  assert.equal(body.reply_timing_mode,mode);assert.equal(body.message_collection_enabled,false);assert.equal(body.natural_bubbles_enabled,false);assert.equal('collection_seconds' in body,mode==='fixed');if(mode==='fixed')assert.equal(body.collection_seconds,10);
+  assert.ok(!['enabled','proactive_enabled','activity_sensing_enabled','persona_profile','rhythm','group_reply_mode','owner_qq'].some(key=>key in body));assert.equal(h.get('turnPausedNotice').classList.contains('hidden'),false);
+ }
+ assert.ok(h.calls.every(call=>['/api/companion'].includes(call.url)));
+});
+
+test('all three group modes save just the selected rule and names, leaving legacy rate choices out',async()=>{
+ const h=harness();await h.api.loadTurns();
+ for(const mode of ['addressed','quiet','auto']){
+  await h.button(`[data-group-mode="${mode}"]`,'groupRulesPanel').fire('click');assert.equal(h.get('groupReplyMode').value,mode);await h.click('groupSave');
+  assert.deepEqual(h.requests('/api/companion').filter(call=>call.method==='POST').at(-1).body,{group_reply_mode:mode,group_wake_words:'小鱼'});
+ }
+ assert.match(h.get('groupModeHelp').textContent,/热闹/);assert.ok(h.calls.every(call=>call.url==='/api/companion'));
+});
+
+test('existing light mode retains its numbers while the recommended mode needs no legacy tuning',async()=>{
+ const h=harness();h.setTurns({group_reply_mode:'light',group_cooldown_seconds:240,group_hourly_limit:4,group_participation_probability:2});await h.api.loadTurns();
+ assert.equal(h.get('groupLegacyFields').classList.contains('hidden'),false);assert.equal(h.button('[data-group-mode="light"]','groupRulesPanel').attrs['aria-pressed'],'true');await h.click('groupSave');
+ assert.deepEqual(h.requests('/api/companion').filter(call=>call.method==='POST').at(-1).body,{group_reply_mode:'light',group_wake_words:'小鱼',group_cooldown_seconds:240,group_hourly_limit:4,group_participation_probability:2});
+ h.get('groupProbability').value='invalid';await h.get('groupProbability').fire('input');await h.button('[data-group-mode="auto"]','groupRulesPanel').fire('click');await h.click('groupSave');
+ assert.deepEqual(h.requests('/api/companion').filter(call=>call.method==='POST').at(-1).body,{group_reply_mode:'auto',group_wake_words:'小鱼'});assert.equal(h.get('groupLegacyFields').classList.contains('hidden'),true);
+});
+
+test('a dirty group draft survives saving rhythm settings and a dirty rhythm draft survives saving group settings',async()=>{
+ const h=harness();await h.api.loadTurns();await h.button('[data-group-mode="quiet"]','groupRulesPanel').fire('click');h.get('groupWakeWords').value='大肥鱼,鱼鱼';await h.get('groupWakeWords').fire('input');
+ await h.button('[data-timing-mode="instant"]','conversationTurnPanel').fire('click');await h.click('turnSave');assert.equal(h.get('groupReplyMode').value,'quiet');assert.equal(h.get('groupWakeWords').value,'大肥鱼,鱼鱼');assert.match(h.get('groupNotice').textContent,/未保存/);
+ await h.button('[data-timing-mode="fixed"]','conversationTurnPanel').fire('click');h.get('turnWaitSeconds').value='17';await h.get('turnWaitSeconds').fire('input');await h.click('groupSave');
+ assert.equal(h.get('turnTimingMode').value,'fixed');assert.equal(h.get('turnWaitSeconds').value,'17');assert.match(h.get('turnNotice').textContent,/未保存/);
+});
+
+test('selection changed during a pending save stays unsaved and a second save cannot race it',async()=>{
+ const h=harness();await h.api.loadTurns();await h.button('[data-timing-mode="fixed"]','conversationTurnPanel').fire('click');const gate=h.defer('/api/companion'),saving=h.click('turnSave');await gate.entered;
+ assert.equal(h.get('groupSave').disabled,true);await h.click('groupSave');assert.equal(h.requests('/api/companion').filter(call=>call.method==='POST').length,1);
+ await h.button('[data-timing-mode="instant"]','conversationTurnPanel').fire('click');await h.button('[data-group-mode="quiet"]','groupRulesPanel').fire('click');gate.release();await saving;
+ assert.equal(h.get('turnTimingMode').value,'instant');assert.equal(h.get('groupReplyMode').value,'quiet');assert.match(h.get('turnNotice').textContent,/尚未保存/);assert.match(h.get('groupNotice').textContent,/未保存/);assert.equal(h.get('groupSave').disabled,false);
+});
+
+test('a failed save is not retried and releases both save controls without erasing the draft',async()=>{
+ const h=harness();await h.api.loadTurns();await h.button('[data-timing-mode="instant"]','conversationTurnPanel').fire('click');const gate=h.defer('/api/companion'),saving=h.click('turnSave');await gate.entered;gate.reject(new Error('保存失败，请稍后重试'));await saving;
+ assert.equal(h.requests('/api/companion').filter(call=>call.method==='POST').length,1);assert.equal(h.get('turnTimingMode').value,'instant');assert.equal(h.get('turnSave').disabled,false);assert.equal(h.get('groupSave').disabled,false);assert.match(h.toasts.at(-1),/保存失败/);
+});
+
+test('invalid modes and invalid active advanced values fail locally without any POST',async()=>{
+ const h=harness();await h.api.loadTurns();h.get('turnTimingMode').value='admin';await h.click('turnSave');assert.match(h.toasts.at(-1),/请选择/);
+ h.get('groupReplyMode').value='__proto__';await h.click('groupSave');assert.match(h.toasts.at(-1),/请选择/);
+ await h.button('[data-timing-mode="fixed"]','conversationTurnPanel').fire('click');h.get('turnWaitSeconds').value='';await h.click('turnSave');assert.match(h.toasts.at(-1),/固定等待/);
+ await h.button('[data-group-mode="light"]','groupRulesPanel').fire('click');h.get('groupProbability').value='21';await h.click('groupSave');assert.match(h.toasts.at(-1),/参与机会/);assert.equal(h.requests('/api/companion').filter(call=>call.method==='POST').length,0);
+});
+
+test('read failures leave saves disabled and a late read cannot replace newly selected modes',async()=>{
+ const h=harness(),failed=h.defer('/api/companion'),reading=h.api.loadTurns();await failed.entered;failed.reject(new Error('暂时无法读取'));await assert.rejects(reading,/无法读取/);
+ await h.click('turnSave');assert.equal(h.requests('/api/companion').filter(call=>call.method==='POST').length,0);assert.equal(h.get('turnSave').disabled,true);
+ await h.api.loadTurns();const gate=h.defer('/api/companion'),late=h.api.loadTurns();await gate.entered;await h.button('[data-group-mode="quiet"]','groupRulesPanel').fire('click');await h.button('[data-timing-mode="instant"]','conversationTurnPanel').fire('click');gate.release();await late;
+ assert.equal(h.get('groupReplyMode').value,'quiet');assert.equal(h.get('turnTimingMode').value,'instant');
+});
+
+test('recent decisions are bounded, escaped, content-free, and heartbeat does not imply account authorization',async()=>{
+ const h=harness(),bad='<img src=x onerror=alert(1)>',secret='PRIVATE_CHAT_BODY_AND_QQ';h.setTurns({persona_profile:'gentle',rhythm:{worker_running:false,recent:[null,...Array.from({length:12},()=>({at:1762220000,reason_label:bad,reason:'urgent',wait_seconds:1.25,profile:'gentle',group:true,content:secret,qq:secret,umo:secret}))]}});await h.api.loadTurns();
+ assert.equal(h.get('turnRecentDecisions').querySelectorAll('li').length,8);assert.doesNotMatch(h.get('turnRecentDecisions').innerHTML,/<img src=x|PRIVATE_CHAT_BODY_AND_QQ/);assert.match(h.get('turnRecentDecisions').innerHTML,/&lt;img/);assert.match(h.get('turnRecentDecisions').textContent,/等待 1.3 秒/);assert.match(h.get('turnRecentDecisions').textContent,/温柔陪伴/);
+ assert.match(h.get('turnRuntimeNotice').textContent,/不能据此确认/);assert.match(h.get('turnPersonaRhythm').textContent,/温柔陪伴/);
+ h.setTurns({rhythm:{worker_running:true,recent:[]}});await h.api.loadTurns();assert.match(h.get('turnRuntimeNotice').textContent,/真实会话权限/);assert.match(h.get('turnRecentDecisions').textContent,/没有近期决策/);
+});
+
+test('all five saved persona profiles explain their different rhythms without writing a persona or permission',async()=>{
+ const h=harness();for(const [profile,name] of [['natural','自然朋友'],['classic','经典肥鱼'],['gentle','温柔陪伴'],['playful','元气搭子'],['study','冷静学伴']]){h.setTurns({persona_profile:profile});await h.api.loadTurns();assert.match(h.get('turnPersonaRhythm').textContent,new RegExp(name));}
+ assert.ok(h.calls.every(call=>call.url==='/api/companion'&&call.method==='GET'));
+});
+
+test('a successful settings write followed by a failed refresh reports the saved result and never resubmits',async()=>{
+ const h=harness();await h.api.loadTurns();await h.button('[data-timing-mode="instant"]','conversationTurnPanel').fire('click');const write=h.defer('/api/companion'),saving=h.click('turnSave');await write.entered;
+ const refresh=h.defer('/api/companion');write.release();await refresh.entered;refresh.reject(new Error('读取失败'));await saving;
+ assert.equal(h.requests('/api/companion').filter(call=>call.method==='POST').length,1);assert.equal(h.get('turnTimingMode').value,'instant');assert.match(h.get('turnNotice').textContent,/设置已保存/);assert.match(h.get('turnNotice').textContent,/无法刷新/);assert.equal(h.get('turnSave').disabled,false);
+});
+
+test('applying a persona refreshes its matching rhythm without replacing an unsaved mode',async()=>{
+ const h=harness();await h.api.loadView('settings');await h.button('[data-timing-mode="instant"]','conversationTurnPanel').fire('click');await h.button('[data-persona-preview]').fire('click');h.setTurns({persona_profile:'gentle'});await h.save();
+ assert.match(h.get('turnPersonaRhythm').textContent,/温柔陪伴/);assert.equal(h.get('turnTimingMode').value,'instant');assert.match(h.get('turnNotice').textContent,/未保存/);assert.equal(h.requests('/api/personas/apply').length,1);
 });
