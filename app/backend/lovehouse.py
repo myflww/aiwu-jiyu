@@ -7,6 +7,7 @@ import http.client
 import json
 import os
 import re
+import stat
 import subprocess
 import time
 from ctypes import wintypes
@@ -38,6 +39,22 @@ class LoveHouseError(RuntimeError):
 
 
 def _find_exe() -> Path | None:
+    try:
+        configured = config_store.load().get("lovehouse_executable")
+        if isinstance(configured, str) and 0 < len(configured) <= 4096:
+            path = Path(configured)
+            if path.is_absolute() and path.name.casefold() == "lovehouse.exe":
+                redirected = False
+                for candidate in (path, *path.parents):
+                    info = candidate.lstat()
+                    if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+                        redirected = True
+                        break
+                if not redirected and path.is_file():
+                    return path
+    except (OSError, ValueError, TypeError, AttributeError):
+        # Invalid optional metadata must not hide the normal install locations.
+        pass
     for path in EXE_CANDIDATES:
         if path.is_file():
             return path
@@ -91,16 +108,18 @@ def detect() -> dict:
     exe = _find_exe()
     port = _port()
     health = _health(port) if exe or DATA_DIR.exists() else None
+    health = health if _valid_health(health) else None
     version = _read_version(exe)
     if health and health.get("version"):
         version = health["version"]
     return {
-        "installed": bool(exe),
+        "installed": bool(exe or health),
+        "has_exe": bool(exe),
         "exe": str(exe) if exe else "",
         "data_dir": str(DATA_DIR),
         "version": version,
         "latest": KNOWN_LATEST,
-        "update_available": bool(version and version != KNOWN_LATEST),
+        "update_available": _older_version(version, KNOWN_LATEST),
         "running": bool(health),
         "port": port if health else 0,
         "health": health or {},
@@ -108,6 +127,29 @@ def detect() -> dict:
         "plugin_config": (ASTRBOT / "data" / "config" / PLUGIN_CONFIG).is_file(),
         "organizer_note": "记忆整理模型需要在爱之屋的“记忆整理”里单独配置",
     }
+
+
+def _valid_health(value) -> bool:
+    # A migrated installation can be online without an executable at any of
+    # our fixed paths. A generic HTTP 200 JSON response is not service proof.
+    return (isinstance(value, dict) and value.get("ok") is True
+            and value.get("name") == "爱之屋记忆服务"
+            and isinstance(value.get("version"), str) and 0 < len(value["version"].strip()) <= 80
+            and not any(ord(char) < 32 for char in value["version"])
+            and value.get("protocol_version", "0.4.0") == "0.4.0")
+
+
+def _older_version(installed: str, latest: str) -> bool:
+    def key(value):
+        if not isinstance(value, str) or len(value) > 80:
+            return None
+        match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)(?:(a|b|rc)(\d+))?", value or "")
+        if not match:
+            return None
+        return tuple(int(match[i]) for i in (1, 2, 3)) + (
+            {"a": 0, "b": 1, "rc": 2, None: 3}[match[4]], int(match[5] or 0))
+    current, available = key(installed), key(latest)
+    return current is not None and available is not None and current < available
 
 
 def start() -> dict:
