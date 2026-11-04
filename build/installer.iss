@@ -1,5 +1,5 @@
 ﻿#ifndef AppVersion
-  #define AppVersion "1.6.0"
+  #define AppVersion "1.6.1"
 #endif
 #ifndef BundleDir
   #define BundleDir SourcePath + "..\dist\release\AiwuJiyu-" + AppVersion + "-Windows-x64"

@@ -23,7 +23,7 @@
     const target=$("view-lovehouse");if(!target)return;
     const panel=document.createElement("section");panel.id="growthPanel";panel.className="experience-panel growth-panel";
     panel.innerHTML=`<div class="exp-heading"><img src="/assets/ui/states/dafeiyu-remembering-v140.png" alt="大肥鱼翻看相处手记"><div><small>相处过的事，要能改变下一次相处</small><h2>成长手记</h2><p>记住明确反馈，从真实经历提出想法；事实、猜测和尝试分别保留。</p></div></div>
-      <label class="perm-row"><input id="growthEnabled" type="checkbox" disabled><div><b>让相处慢慢影响她</b><span class="small">自动记下明确偏好；有证据的低影响语气建议可短期试行。不会开启活动感知、主动联系或新增模型请求。</span></div></label>
+      <label class="perm-row"><input id="growthEnabled" type="checkbox" disabled><div><b>让相处慢慢影响她</b><span class="small">自动记下明确偏好；有证据的语气建议可短期试行。反思沿用当前对话工具回合，可能增加本轮模型用量；不另开后台推理任务。</span></div></label>
       <p id="growthSummary" class="exp-hint" role="status">正在查看学习状态…</p>
       <div class="row wrap"><button type="button" class="soft" id="growthInspect">看看最近学到了什么</button><button type="button" class="text-button" id="growthRefresh">刷新状态</button></div>
       <div id="growthEntries" class="growth-entries"></div>
