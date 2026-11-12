@@ -6,7 +6,7 @@
 
 <img src="assets/ui/dafeiyu-daily.webp" alt="大肥鱼日常手绘立绘" width="280">
 
-[下载 Windows 版](https://github.com/myflww/aiwu-jiyu/releases) · [动态对话](docs/1.6.0动态对话.md) · [记忆与成长](docs/经历记忆与表达成长.md) · [使用说明](docs/使用说明.md) · [反馈问题](https://github.com/myflww/aiwu-jiyu/issues) · [参与改进](CONTRIBUTING.md)
+[推荐下载 Windows 版 · 1.6.2](https://github.com/myflww/aiwu-jiyu/releases/latest) · [动态对话](docs/1.6.0动态对话.md) · [记忆与成长](docs/经历记忆与表达成长.md) · [使用说明](docs/使用说明.md) · [反馈问题](https://github.com/myflww/aiwu-jiyu/issues) · [参与改进](CONTRIBUTING.md)
 
 ## 能做什么
 
@@ -38,7 +38,7 @@
 3. 填写 DeepSeek API Key 和模型，在手机 QQ 切到小号后扫码登录。
 4. 填写你日常聊天使用的 QQ 主号，完成设置。在首页确认在线，再用主号给小号发消息。
 
-**长期记忆需要另装[爱之屋](https://github.com/myflww/love-house/releases)。** 本程序不会把“开启记忆插件”当成已经安装了记忆服务。装好爱之屋后，还要启动服务、选择记忆库、登记会话，并在爱之屋内配置记忆整理模型。完整步骤见[使用说明](docs/使用说明.md#连接长期记忆)。
+**长期记忆需要另装[爱之屋](https://github.com/myflww/love-house/releases/latest)。** 本程序不会把“开启记忆插件”当成已经安装了记忆服务。装好爱之屋后，还要启动服务、选择记忆库、登记会话，并在爱之屋内配置记忆整理模型。完整步骤见[使用说明](docs/使用说明.md#连接长期记忆)。
 
 插件显示“已保存，重启对话服务后生效”时，点击“应用更改 · 重启对话”。这会短暂停止对话服务，QQ 连接保持在线。
 
