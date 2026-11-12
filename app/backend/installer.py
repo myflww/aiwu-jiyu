@@ -14,6 +14,7 @@ import time
 import zipfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from backend import config_store, downloader, plugins, processes
 from backend.paths import (
@@ -50,6 +51,7 @@ NAPCAT_MIRRORS = [
 ]
 NAPCAT_SHA256 = "77397ac38d66f46383e48f08f35d5f9d37ec575c22069f62d6c600e73b4521ed"
 PYPI_INDEX = "https://mirrors.cernet.edu.cn/pypi/web/simple"
+PYPI_FALLBACKS = ["https://pypi.tuna.tsinghua.edu.cn/simple", "https://pypi.org/simple"]
 PYTHON_VERSION = "3.13.14"
 PYTHON_INSTALLER_URL = (
     f"https://www.python.org/ftp/python/{PYTHON_VERSION}/"
@@ -98,12 +100,13 @@ class InstallState:
 STATE = InstallState()
 
 
-def _download(url: str, dest: Path, mirrors: list[str] | None = None) -> None:
+def _download(url: str, dest: Path, mirrors: list[str] | None = None, sha256: str | None = None) -> None:
     downloader.download(
         url,
         dest,
         log=lambda line: STATE.update(line=line),
         mirrors=mirrors,
+        sha256=sha256,
     )
 
 
@@ -150,7 +153,7 @@ def _ensure_uv() -> Path:
     STATE.update(step="准备安装器", progress=8, line="下载 uv...")
     with tempfile.TemporaryDirectory() as tmp:
         archive = Path(tmp) / "uv.zip"
-        _download(UV_URL, archive, UV_MIRRORS)
+        _download(UV_URL, archive, UV_MIRRORS, UV_SHA256)
         digest = _sha256(archive)
         STATE.update(line=f"uv SHA256: {digest}")
         if digest.lower() != UV_SHA256:
@@ -164,8 +167,71 @@ def _ensure_uv() -> Path:
     return uv
 
 
+def _python_usable(executable: Path) -> bool:
+    if not executable.is_file():
+        return False
+    try:
+        result = subprocess.run(
+            [str(executable), "-I", "-c",
+             "import sys, struct, ssl, venv; print(f'{sys.version_info.major}.{sys.version_info.minor}:{struct.calcsize(\"P\") * 8}')"],
+            capture_output=True, text=True, timeout=15,
+            creationflags=NO_WINDOW if sys.platform == "win32" else 0,
+        )
+        return result.returncode == 0 and result.stdout.strip() == "3.13:64"
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _python_candidates() -> list[Path]:
+    candidates = [Path(sys.base_prefix) / "python.exe"]
+    for variable, suffix in (("LOCALAPPDATA", "Programs/Python/Python313"),
+                             ("PROGRAMFILES", "Python313")):
+        if os.environ.get(variable):
+            candidates.append(Path(os.environ[variable]) / suffix / "python.exe")
+    try:
+        result = subprocess.run(
+            ["py", "-3.13", "-I", "-c", "import sys; print(sys.base_prefix)"],
+            capture_output=True, text=True, timeout=15,
+            creationflags=NO_WINDOW if sys.platform == "win32" else 0,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            candidates.append(Path(result.stdout.strip()) / "python.exe")
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return list(dict.fromkeys(candidates))
+
+
+def _reuse_existing_python() -> bool:
+    for executable in _python_candidates():
+        if executable.resolve() == (PYTHON_DIR / "python.exe").resolve() or not _python_usable(executable):
+            continue
+        STATE.update(line=f"复用已验证的 Python 3.13 x64：{executable.parent}")
+        PYTHON_DIR.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="python-copy-", dir=PYTHON_DIR.parent) as tmp:
+            staged = Path(tmp) / "python"
+            try:
+                shutil.copytree(executable.parent, staged)
+            except OSError as exc:
+                STATE.update(line=f"本机 Python 复制失败，尝试其他候选或安装器：{exc}")
+                continue
+            if not _python_usable(staged / "python.exe"):
+                STATE.update(line="本机 Python 复制后校验失败，原运行时已保留，尝试其他候选或安装器")
+                continue
+            previous = Path(tmp) / "previous"
+            if PYTHON_DIR.exists():
+                PYTHON_DIR.replace(previous)
+            try:
+                staged.replace(PYTHON_DIR)
+            except Exception:
+                if previous.exists():
+                    previous.replace(PYTHON_DIR)
+                raise
+        return True
+    return False
+
+
 def _install_python() -> None:
-    if (PYTHON_DIR / "python.exe").exists():
+    if _python_usable(PYTHON_DIR / "python.exe") or _reuse_existing_python():
         return
     cache = APP_HOME / "downloads" / f"python-{PYTHON_VERSION}-amd64.exe"
     if not cache.exists():
@@ -187,22 +253,22 @@ def _install_python() -> None:
             "Include_test=0",
         ]
     )
-    if code not in (0, 3010):
+    if code not in (0, 3010, 1603):
         raise RuntimeError(f"Python 安装失败，退出码 {code}")
-    if not (PYTHON_DIR / "python.exe").exists():
-        candidates = [
-            Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Python" / "Python313" / "python.exe",
-            Path(os.environ.get("PROGRAMFILES", "")) / "Python313" / "python.exe",
-        ]
-        installed = next((path for path in candidates if path.exists()), None)
-        if not installed:
-            raise RuntimeError("Python 安装完成，但找不到 python.exe")
-        STATE.update(line=f"安装器未使用自定义目录，复制 {installed.parent} 到 {PYTHON_DIR}")
-        if PYTHON_DIR.exists():
-            shutil.rmtree(PYTHON_DIR)
-        shutil.copytree(installed.parent, PYTHON_DIR)
-    if not (PYTHON_DIR / "python.exe").exists():
-        raise RuntimeError("Python 运行时不可用")
+    if _python_usable(PYTHON_DIR / "python.exe") or _reuse_existing_python():
+        return
+    raise RuntimeError(f"Python 安装退出码 {code}，未找到可用的 Python 3.13 x64；请检查安装器日志后重试")
+
+
+def _pypi_indexes() -> list[str]:
+    override = os.environ.get("DAFEIYU_PYPI_INDEX", "").strip()
+    if override:
+        parsed = urlsplit(override)
+        if (parsed.scheme not in ("http", "https") or not parsed.hostname
+                or parsed.username is not None or parsed.password is not None
+                or parsed.query or parsed.fragment):
+            raise RuntimeError("DAFEIYU_PYPI_INDEX 需要不含凭据或查询参数的 HTTP(S) 软件源地址")
+    return [override] if override else [PYPI_INDEX, *PYPI_FALLBACKS]
 
 
 def _install_astrbot(uv: Path, config: dict) -> None:
@@ -212,28 +278,26 @@ def _install_astrbot(uv: Path, config: dict) -> None:
     if not python.exists():
         raise RuntimeError("Python 运行时不存在，无法创建 AstrBot 环境")
     STATE.update(step="创建 AstrBot 环境", progress=30)
-    env = {"UV_DEFAULT_INDEX": PYPI_INDEX, "UV_HTTP_TIMEOUT": "120"}
+    indexes = _pypi_indexes()
+    env = {"UV_DEFAULT_INDEX": indexes[0], "UV_HTTP_TIMEOUT": "120"}
     if not (venv / "Scripts" / "python.exe").exists():
         code = _run([str(uv), "venv", "--python", str(python), str(venv)], env=env)
         if code != 0:
             raise RuntimeError(f"创建 venv 失败，退出码 {code}")
     venv_python = venv / "Scripts" / "python.exe"
     STATE.update(step="安装 AstrBot 4.29.4", progress=38)
-    code = _run(
-        [
-            str(uv),
-            "pip",
-            "install",
-            "--python",
-            str(venv_python),
-            "AstrBot==4.29.4",
-            "--index-url",
-            PYPI_INDEX,
-        ],
-        env=env,
-    )
-    if code != 0:
-        raise RuntimeError(f"安装 AstrBot 失败，退出码 {code}")
+    for attempt, index in enumerate(indexes, 1):
+        STATE.update(line=f"安装 AstrBot：尝试软件源 {attempt}/{len(indexes)}")
+        code = _run(
+            [str(uv), "pip", "install", "--python", str(venv_python),
+             "AstrBot==4.29.4", "--index-url", index],
+            env={**env, "UV_DEFAULT_INDEX": index},
+        )
+        if code == 0:
+            break
+        STATE.update(line=f"软件源 {attempt} 安装失败，退出码 {code}")
+    else:
+        raise RuntimeError(f"所有软件源安装 AstrBot 均失败，最后退出码 {code}；可设置 DAFEIYU_PYPI_INDEX 后重试")
     runner_text = (
         '"""Relocatable AstrBot launcher for the dafeiyu runtime."""\n\n'
         "from astrbot.cli.__main__ import cli\n\n"
@@ -248,8 +312,11 @@ def _install_napcat() -> None:
         return
     STATE.update(step="下载 NapCat", progress=70)
     cache = APP_HOME / "downloads" / "NapCat.Shell.Windows.Node.zip"
+    if cache.exists() and _sha256(cache).lower() != NAPCAT_SHA256:
+        STATE.update(line="NapCat 缓存校验失败，删除损坏缓存并重新下载")
+        cache.unlink()
     if not cache.exists():
-        _download(NAPCAT_URL, cache, NAPCAT_MIRRORS)
+        _download(NAPCAT_URL, cache, NAPCAT_MIRRORS, NAPCAT_SHA256)
     digest = _sha256(cache)
     STATE.update(line=f"NapCat SHA256: {digest}")
     if digest.lower() != NAPCAT_SHA256:
