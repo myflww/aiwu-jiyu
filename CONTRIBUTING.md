@@ -30,6 +30,14 @@ py -3.13 -m venv build/.venv
 
 需要真实集成验证时，为测试单独指定 `DAFEIYU_HOME`，使用自己的测试账号和 API Key。不要把真实测试数据放进仓库，也不要让测试操作已有的日常服务。
 
+首次准备运行环境时，会优先验证本机 Python 3.13 x64，再复制到程序自己的运行目录。Python 安装器返回 1603 时仍会尝试这一兜底；没有兼容运行时则保留明确失败。AstrBot 安装依次尝试 CERNET、清华和 PyPI 官方源；需要指定其他源时，在启动前设置 `DAFEIYU_PYPI_INDEX`，此时仅使用该地址。该变量接受不含凭据、查询参数或片段的 HTTP(S) 地址：
+
+```powershell
+$env:DAFEIYU_PYPI_INDEX = "https://pypi.tuna.tsinghua.edu.cn/simple"
+```
+
+运行时文件下载每个源约有 180 秒预算，并设置 15 秒网络超时；分片等待期间每 10 秒报告一次进度。分片范围、长度或固定 SHA-256 不符时会清理本次临时文件并换源，已有损坏的 NapCat 缓存也会重新下载。Windows 源码检出须保留 `.gitattributes`，以保证随附插件的 LF 字节与清单一致；从旧 checkout 升级时应保留自己的修改，再重新检出这些资源。
+
 ## 验证要求
 
 修改后运行与改动有关的检查。后端完整验证可执行：
@@ -38,6 +46,8 @@ py -3.13 -m venv build/.venv
 ./build/.venv/Scripts/python.exe -m unittest discover -s build -p "test_*.py" -v
 ./build/.venv/Scripts/python.exe build/smoke_backend.py
 ```
+
+安装流程的独立回归为 `build/test_first_install.py` 和 `build/test_install_downloads.py`。前者模拟 MSI/uv 结果，后者只连接本机临时 HTTP 服务；均不登录 QQ、不操作日常运行目录。这些检查不代替干净 Windows 环境中的完整首次安装验收。
 
 界面改动应检查首页、插件开关与待应用状态、记忆页、设置、空状态、断线状态，以及窄窗口下的布局和键盘操作。实际功能需要使用真实后端结果核验；不要用展示用假数据替代验收。
 
