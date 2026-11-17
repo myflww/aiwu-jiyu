@@ -40,6 +40,23 @@ class JsApi:
             return ""
         return str(result[0] if isinstance(result, (list, tuple)) else result)
 
+    def choose_napcat_archive(self) -> str:
+        """Select a local archive; validation and import remain in the backend."""
+        import webview
+
+        if not self._window:
+            return ""
+        try:
+            result = self._window.create_file_dialog(
+                webview.OPEN_DIALOG, allow_multiple=False,
+                file_types=("QQ 连接原版归档 (*.zip)",),
+            )
+        except Exception:
+            return ""
+        if not result:
+            return ""
+        return str(result[0] if isinstance(result, (list, tuple)) else result)
+
 
 def _enable_dpi() -> None:
     try:

@@ -15,7 +15,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from backend import config_store, downloader, plugins, processes
+from backend import config_store, downloader, napcat_runtime, plugins, processes
 from backend.paths import (
     APP_HOME,
     ASSETS,
@@ -39,16 +39,10 @@ UV_MIRRORS = [
     "https://gh-proxy.com/https://github.com/astral-sh/uv/releases/download/"
     f"{UV_VERSION}/uv-x86_64-pc-windows-msvc.zip",
 ]
-NAPCAT_VERSION = "4.18.42"
-NAPCAT_URL = (
-    "https://ghproxy.net/https://github.com/NapNeko/NapCatQQ/releases/download/"
-    f"v{NAPCAT_VERSION}/NapCat.Shell.Windows.Node.zip"
-)
-NAPCAT_MIRRORS = [
-    "https://gh-proxy.com/https://github.com/NapNeko/NapCatQQ/releases/download/"
-    f"v{NAPCAT_VERSION}/NapCat.Shell.Windows.Node.zip",
-]
-NAPCAT_SHA256 = "77397ac38d66f46383e48f08f35d5f9d37ec575c22069f62d6c600e73b4521ed"
+NAPCAT_VERSION = napcat_runtime.VERSION
+NAPCAT_URL = napcat_runtime.ARCHIVE_URL
+NAPCAT_MIRRORS = napcat_runtime.MIRRORS
+NAPCAT_SHA256 = napcat_runtime.SHA256
 PYPI_INDEX = "https://mirrors.cernet.edu.cn/pypi/web/simple"
 PYTHON_VERSION = "3.13.14"
 PYTHON_INSTALLER_URL = (
@@ -244,22 +238,8 @@ def _install_astrbot(uv: Path, config: dict) -> None:
 
 
 def _install_napcat() -> None:
-    if (NAPCAT / "napcat.bat").exists():
-        return
-    STATE.update(step="下载 NapCat", progress=70)
-    cache = APP_HOME / "downloads" / "NapCat.Shell.Windows.Node.zip"
-    if not cache.exists():
-        _download(NAPCAT_URL, cache, NAPCAT_MIRRORS)
-    digest = _sha256(cache)
-    STATE.update(line=f"NapCat SHA256: {digest}")
-    if digest.lower() != NAPCAT_SHA256:
-        raise RuntimeError("NapCat 校验失败，已停止安装")
-    STATE.update(step="解压 NapCat", progress=78)
-    NAPCAT.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(cache) as bundle:
-        bundle.extractall(NAPCAT)
-    if not (NAPCAT / "napcat.bat").exists():
-        raise RuntimeError("NapCat 解压后缺少 napcat.bat")
+    STATE.update(step="安装 QQ 连接环境", progress=78)
+    napcat_runtime.install_napcat(log=lambda line: STATE.update(line=line), _operation_claimed=True)
 
 
 def _copy_assets() -> None:
@@ -277,11 +257,8 @@ def _init_astrbot() -> None:
 
 
 def _bootstrap(config: dict) -> None:
-    STATE.running = True
-    STATE.done = False
-    STATE.error = ""
-    STATE.step = "开始"
-    STATE.progress = 0
+    # start() already reserved the shared install/import operation lock and set
+    # running synchronously, before the new thread could be scheduled.
     try:
         ensure_dirs()
         if sys.platform == "win32" and sys.getwindowsversion().build < 19041:
@@ -289,6 +266,8 @@ def _bootstrap(config: dict) -> None:
         free = shutil.disk_usage(APP_HOME).free
         if free < 3 * 1024**3:
             raise RuntimeError(f"磁盘空间不足：至少需要 3GB，当前可用 {free / 1024**3:.1f}GB")
+        STATE.update(step="准备 QQ 连接包", progress=3)
+        napcat_runtime.prepare_napcat_archive(log=lambda line: STATE.update(line=line), _operation_claimed=True)
         uv = _ensure_uv()
         _install_python()
         _install_astrbot(uv, config)
@@ -302,14 +281,29 @@ def _bootstrap(config: dict) -> None:
         STATE.error = str(exc)
         STATE.update(line=f"安装失败: {exc}")
     finally:
-        STATE.running = False
+        with STATE.lock:
+            STATE.running = False
+        napcat_runtime.release_operation()
 
 
 def start(config: dict) -> dict:
-    if STATE.running:
-        return {"ok": False, "message": "安装正在进行", "state": STATE.snapshot()}
-    thread = threading.Thread(target=_bootstrap, args=(config,), daemon=True)
-    thread.start()
+    if not napcat_runtime.claim_operation():
+        return {"ok": False, "message": "安装或 QQ 连接包导入正在进行，请等待完成。", "state": STATE.snapshot()}
+    with STATE.lock:
+        STATE.running = True
+        STATE.done = False
+        STATE.error = ""
+        STATE.step = "开始"
+        STATE.progress = 0
+        STATE.log = []
+    try:
+        thread = threading.Thread(target=_bootstrap, args=(config,), daemon=True)
+        thread.start()
+    except Exception:
+        with STATE.lock:
+            STATE.running = False
+        napcat_runtime.release_operation()
+        raise
     return {"ok": True, "state": STATE.snapshot()}
 
 
