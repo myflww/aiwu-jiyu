@@ -87,10 +87,12 @@ def mask_key(value: str) -> str:
 
 
 def is_installed() -> bool:
+    from backend import napcat_runtime
+
     return (
         (ASTRBOT / "venv" / "Scripts" / "python.exe").exists()
         and (ASTRBOT / "run_astrbot.py").exists()
-        and (NAPCAT / "napcat.bat").exists()
+        and napcat_runtime.runtime_complete()
     )
 
 

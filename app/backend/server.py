@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from backend import autostart, config_store, installer, lovehouse, napcat_api, plugins, processes
+from backend import autostart, config_store, installer, lovehouse, napcat_api, napcat_runtime, plugins, processes
 from backend import astrbot_api
 from backend import metrics, pc_access, updater, log_retention, companion, stickers, plugin_updates
 from backend import dashboard_credentials, custom_stickers, sticker_contributions
@@ -328,6 +328,14 @@ class Handler(BaseHTTPRequestHandler):
             "/api/autostart": {"ok": True, "supported": True, "enabled": False},
             "/api/napcat/quick-login": {"ok": True, "auto_login": False, "bot_qq": "", "candidates": []},
             "/api/setup/status": {"ok": True, "running": False, "done": False, "log": []},
+            "/api/setup/napcat": {
+                "ok": True, "preview": True, "version": napcat_runtime.VERSION,
+                "installed": False, "cache_valid": False, "status": "missing",
+                "message": "界面预览不读取本机环境或下载缓存。",
+                "source_name": napcat_runtime.SOURCE_NAME, "source_url": napcat_runtime.SOURCE_URL,
+                "archive_url": napcat_runtime.ARCHIVE_URL, "archive_name": napcat_runtime.ARCHIVE_NAME,
+                "sha256": napcat_runtime.SHA256, "missing_files": [],
+            },
         }
         if path == "/api/updates/status":
             path = "/api/updates"
@@ -380,6 +388,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {"ok": True, **metrics.snapshot()})
             elif path == "/api/setup/status":
                 self._json(200, installer.snapshot())
+            elif path == "/api/setup/napcat":
+                self._json(200, {"ok": True, **napcat_runtime.inspect_napcat()})
             elif path == "/api/status":
                 self._json(200, processes.status())
             elif path == "/api/logs":
@@ -494,7 +504,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(403, {"ok": False, "message": "这是界面预览，请在正式应用中设置"})
             return
         try:
-            if path == "/api/dashboard/credentials" or path.startswith(("/api/stickers/custom/", "/api/stickers/contributions/", "/api/stickers/library/", "/api/stickers/materials/", "/api/memories/", "/api/recovery/", "/api/companion/", "/api/personas/", "/api/life/", "/api/growth/")):
+            if path in {"/api/dashboard/credentials", "/api/setup/napcat/import"} or path.startswith(("/api/stickers/custom/", "/api/stickers/contributions/", "/api/stickers/library/", "/api/stickers/materials/", "/api/memories/", "/api/recovery/", "/api/companion/", "/api/personas/", "/api/life/", "/api/growth/")):
                 expected = f"http://127.0.0.1:{self.server.server_address[1]}"
                 if self.headers.get("Origin") != expected or self.headers.get("Host") != expected.removeprefix("http://"):
                     self._json(403, {"ok": False, "message": "请在爱屋及鱼窗口中操作。"})
@@ -657,6 +667,11 @@ class Handler(BaseHTTPRequestHandler):
                 plugin_status = plugin_updates.snapshot()
                 plugin_status["can_repair"] = _plugin_repair_allowed(service, plugin_status)
                 self._json(200, {**payload, "plugin_updates": plugin_status})
+            elif path == "/api/setup/napcat/import":
+                archive_path = body.get("path")
+                if not isinstance(archive_path, str) or not archive_path.strip():
+                    raise ValueError("请先选择原版 Windows.Node.zip 文件。")
+                self._json(200, napcat_runtime.import_napcat_archive(archive_path))
             elif path == "/api/setup/install":
                 config = config_store.load()
                 config["install_dir"] = str(config_store.APP_HOME)

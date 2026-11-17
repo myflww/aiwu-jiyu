@@ -6,7 +6,9 @@
 
 <img src="assets/ui/dafeiyu-daily.webp" alt="大肥鱼日常手绘立绘" width="280">
 
-[推荐下载 Windows 版 · 1.6.2](https://github.com/myflww/aiwu-jiyu/releases/latest) · [动态对话](docs/1.6.0动态对话.md) · [记忆与成长](docs/经历记忆与表达成长.md) · [使用说明](docs/使用说明.md) · [反馈问题](https://github.com/myflww/aiwu-jiyu/issues) · [参与改进](CONTRIBUTING.md)
+[推荐下载 Windows 版 · 1.6.3](https://github.com/myflww/aiwu-jiyu/releases/latest) · [动态对话](docs/1.6.0动态对话.md) · [记忆与成长](docs/经历记忆与表达成长.md) · [使用说明](docs/使用说明.md) · [反馈问题](https://github.com/myflww/aiwu-jiyu/issues) · [参与改进](CONTRIBUTING.md)
+
+**1.6.3 · QQ 连接恢复（2026-11-17）**：NapCat [官方仓库已宣布结束](https://github.com/NapNeko/NapCatQQ)，[官方 Releases 已清空](https://github.com/NapNeko/NapCatQQ/releases)。本版保留个人 QQ 小号的私聊与群聊接入，优先复用已安装环境和原包缓存；新装改用社区保存的同一份 4.18.42 原包，并支持离线导入。已装好且能正常聊天的用户无需重装，也不需要迁移账号、聊天或记忆。社区归档提供历史文件下载，不代表官方继续维护，也不能保证未来 QQ 版本兼容或免于账号风控。[恢复步骤与固定包校验值](docs/NapCat下架与连接恢复.md)。
 
 ## 能做什么
 
@@ -34,7 +36,7 @@
 准备 **Windows 10 2004 或更新版本 / Windows 11 的 64 位电脑、一个 QQ 小号、DeepSeek API Key 和可用网络**。首次安装会下载运行环境，对话请求由你配置的模型服务处理，并按该服务的规则计费。
 
 1. 从发布页下载 Windows x64 完整包，解压后打开 `爱屋及鱼.exe`。需要桌面快捷方式时，运行包内的“安装到桌面.cmd”；若发布页提供安装程序，也可使用安装程序。
-2. 跟随向导选好运行数据目录，等待聊天服务与 QQ 连接环境准备完成。
+2. 跟随向导选好运行数据目录，等待聊天服务与 QQ 连接环境准备完成。QQ 连接包下载失败时，可从向导或失败面板导入已下载的固定版本原始 ZIP，详见[连接恢复](docs/NapCat下架与连接恢复.md)。
 3. 填写 DeepSeek API Key 和模型，在手机 QQ 切到小号后扫码登录。
 4. 填写你日常聊天使用的 QQ 主号，完成设置。在首页确认在线，再用主号给小号发消息。
 

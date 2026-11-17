@@ -5,6 +5,15 @@ let state = null;
 let wizardStep = 0;
 let wizardMaxStep = 0;
 let installTimer = null;
+let setupInstallRunning = null;
+let setupInstallRequestPending = false;
+let setupInstallError = "";
+let napcatSetupState = null;
+let napcatSetupLoading = false;
+let napcatSetupLoadError = "";
+let napcatSetupFeedback = null;
+let napcatImportPending = false;
+let napcatImportPhase = "";
 let qrTimer = null;
 let qrRefreshTimer = null;
 let logTimer = null;
@@ -62,6 +71,7 @@ function setConnectionStatus(connected) {
   if ($("localServiceLabel")) $("localServiceLabel").textContent = connected ? "本机服务已连接" : "正在重新连接";
   if (updateState) renderUpdates();
   renderDashboardShortcuts();
+  renderNapcatSetup();
 }
 
 function renderDashboardShortcuts() {
@@ -631,6 +641,156 @@ function showWizard(step) {
   renderWizard();
 }
 
+function napcatSetupMarkup() {
+  return `<div class="napcat-setup" data-napcat-setup>
+    <div class="napcat-setup-heading"><b>个人 QQ 连接包</b><span class="badge gray" data-napcat-badge>读取中</span></div>
+    <p class="napcat-source-note" data-napcat-source-note>NapCat 上游已停止发布；使用 4.18.42 原版归档，SHA256 校验。</p>
+    <p class="napcat-setup-summary" data-napcat-summary role="status">正在检测已安装文件与下载缓存…</p>
+    <details class="napcat-source-details"><summary>版本、来源与校验信息</summary><dl>
+      <dt>版本</dt><dd data-napcat-meta="version">读取中</dd>
+      <dt>下载来源</dt><dd data-napcat-meta="source">读取中</dd>
+      <dt>归档文件</dt><dd data-napcat-meta="archive">读取中</dd>
+      <dt>SHA256</dt><dd><code data-napcat-meta="sha256">读取中</code></dd>
+      <dt class="hidden" data-napcat-missing-label>缺失文件</dt><dd class="hidden" data-napcat-meta="missing"></dd>
+    </dl></details>
+    <div class="napcat-setup-actions"><button type="button" class="ghost" data-napcat-import disabled>导入离线连接包</button><button type="button" class="text-button" data-napcat-refresh>刷新检测</button></div>
+    <p class="napcat-setup-storage">离线包只导入下载缓存，不会覆盖当前 QQ 运行环境。</p>
+    <p class="napcat-setup-feedback hidden" data-napcat-feedback role="status"></p>
+  </div>`;
+}
+
+function napcatSourceLink(url, label) {
+  let safe = false;
+  try { safe = new URL(url).protocol === "https:"; } catch (_) {}
+  return safe ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)} ↗</a>` : esc(label);
+}
+
+function setupIsInstalling() {
+  return setupInstallRunning === true || setupInstallRequestPending || (wizardStep === 1 && installTimer !== null && !setupInstallError);
+}
+
+function renderNapcatSetup() {
+  const installing = setupIsInstalling();
+  const data = napcatSetupState;
+  const importDisabled = napcatSetupLoading || napcatImportPending || installing || setupInstallRunning === null || !localConnected || !!state?.preview;
+  const importReason = state?.preview ? "预览模式不导入连接包" : !localConnected ? "请先连接本机服务" : installing ? "运行环境安装中，请等待安装结束后再导入" : napcatSetupLoading || setupInstallRunning === null ? "正在检测安装状态" : "选择指定版本的原版 ZIP，校验后放入下载缓存";
+  $$("[data-napcat-setup]").forEach(panel => {
+    const badge = panel.querySelector("[data-napcat-badge]");
+    badge.textContent = napcatSetupLoading ? "检测中" : !data ? "未读取" : data.installed ? "已安装" : data.cache_valid ? "缓存已校验" : "待准备";
+    badge.className = "badge " + (!data || napcatSetupLoading ? "gray" : data.installed || data.cache_valid ? "green" : "amber");
+    panel.querySelector("[data-napcat-source-note]").textContent = `NapCat 上游已停止发布；使用 ${data?.version || "4.18.42"} 原版归档，SHA256 校验。`;
+    panel.querySelector("[data-napcat-summary]").textContent = napcatSetupLoadError || (installing ? "运行环境正在安装，离线导入暂不可用。" : data?.message || "正在检测已安装文件与下载缓存…");
+    const meta = name => panel.querySelector(`[data-napcat-meta="${name}"]`);
+    meta("version").textContent = data?.version || "等待检测";
+    meta("source").innerHTML = napcatSourceLink(data?.source_url || "", data?.source_name || "等待检测");
+    meta("archive").innerHTML = napcatSourceLink(data?.archive_url || "", data?.archive_name || "等待检测");
+    meta("sha256").textContent = data?.sha256 || "等待检测";
+    const missing = Array.isArray(data?.missing_files) ? data.missing_files : [];
+    meta("missing").textContent = missing.join("、");
+    meta("missing").classList.toggle("hidden", !missing.length);
+    panel.querySelector("[data-napcat-missing-label]").classList.toggle("hidden", !missing.length);
+    const button = panel.querySelector("[data-napcat-import]");
+    button.disabled = importDisabled;
+    button.title = importReason;
+    button.textContent = napcatImportPending ? napcatImportPhase === "verifying" ? "正在校验连接包…" : "正在选择连接包…" : "导入离线连接包";
+    button.setAttribute("aria-busy", String(napcatImportPending));
+    button.onclick = importNapcatArchive;
+    const refresh = panel.querySelector("[data-napcat-refresh]");
+    refresh.disabled = napcatSetupLoading || napcatImportPending || !localConnected;
+    refresh.onclick = () => loadNapcatSetup();
+    const feedback = panel.querySelector("[data-napcat-feedback]");
+    feedback.classList.toggle("hidden", !napcatSetupFeedback);
+    feedback.classList.toggle("error", !!napcatSetupFeedback?.error);
+    feedback.setAttribute("role", napcatSetupFeedback?.error ? "alert" : "status");
+    feedback.textContent = napcatSetupFeedback?.message || "";
+  });
+  const shortcut = $("btnNapcatPackage");
+  if (shortcut) { shortcut.disabled = !localConnected || napcatImportPending; shortcut.title = "查看 QQ 连接包来源、校验信息，或导入离线 ZIP"; }
+  if ((wizardStep === 0 || wizardStep === 1) && !$("wizard")?.classList.contains("hidden")) {
+    $("wizardNext").disabled = napcatImportPending || installing;
+  }
+}
+
+async function loadNapcatSetup(keepFeedback = false) {
+  if (napcatSetupLoading) return;
+  napcatSetupLoading = true;
+  napcatSetupLoadError = "";
+  if (!keepFeedback) napcatSetupFeedback = null;
+  renderNapcatSetup();
+  const results = await Promise.allSettled([api("/api/setup/napcat"), api("/api/setup/status")]);
+  if (results[0].status === "fulfilled") napcatSetupState = results[0].value;
+  else napcatSetupLoadError = `暂时无法读取连接包状态：${results[0].reason.message || results[0].reason}`;
+  if (results[1].status === "fulfilled") {
+    if (!setupIsInstalling() || results[1].value.running) setupInstallRunning = !!results[1].value.running;
+  } else {
+    setupInstallRunning = null;
+    napcatSetupLoadError = "暂时无法确认安装状态，请刷新检测后再导入。";
+  }
+  napcatSetupLoading = false;
+  renderNapcatSetup();
+}
+
+async function importNapcatArchive() {
+  if (napcatImportPending || napcatSetupLoading || setupIsInstalling() || setupInstallRunning !== false || !localConnected || state?.preview) return;
+  napcatImportPending = true;
+  napcatImportPhase = "selecting";
+  napcatSetupFeedback = null;
+  renderNapcatSetup();
+  try {
+    const before = await api("/api/setup/status");
+    setupInstallRunning = !!before.running;
+    if (before.running) throw new Error("运行环境正在安装，请等待安装结束后再导入。");
+    if (typeof window.pywebview?.api?.choose_napcat_archive !== "function") {
+      const name = napcatSetupState?.archive_name;
+      napcatSetupFeedback = { error: false, message: `请在桌面应用窗口中选择 ZIP。也可将${name ? `指定的 ${name}` : "指定版本的连接包 ZIP"}放入安装目录下的 downloads 文件夹，再点击“刷新检测”。` };
+      return;
+    }
+    const path = await window.pywebview.api.choose_napcat_archive();
+    if (!path) return;
+    const latest = await api("/api/setup/status");
+    setupInstallRunning = !!latest.running;
+    if (latest.running) throw new Error("运行环境正在安装，请等待安装结束后再导入。");
+    napcatImportPhase = "verifying";
+    renderNapcatSetup();
+    const result = await api("/api/setup/napcat/import", { method: "POST", body: JSON.stringify({ path }) });
+    if (result.napcat?.cache_valid !== true) throw new Error("连接包尚未通过校验，请检查所选 ZIP 后重试。");
+    napcatSetupState = result.napcat;
+    napcatSetupFeedback = { error: false, message: result.message || "离线连接包已通过 SHA256 校验并放入下载缓存，可继续安装。" };
+    if (wizardStep === 1 && setupInstallError) $("wizardNext").textContent = "继续安装";
+    await loadNapcatSetup(true);
+  } catch (err) {
+    napcatSetupFeedback = { error: true, message: err.message || String(err) };
+  } finally {
+    napcatImportPending = false;
+    napcatImportPhase = "";
+    renderNapcatSetup();
+  }
+}
+
+function openNapcatSetup() {
+  openModal("QQ 连接包", napcatSetupMarkup(), null);
+  $("modalOk").classList.add("hidden");
+  $("modalCancel").textContent = "关闭";
+  renderNapcatSetup();
+  loadNapcatSetup();
+}
+
+function showInstallFailure(error) {
+  clearInterval(installTimer);
+  installTimer = null;
+  setupInstallRunning = false;
+  setupInstallError = String(error || "安装失败");
+  setText("installTitle", "运行环境安装未完成");
+  setText("installLead", "检查下方错误后重试；连接包下载失败时，可导入指定版本的离线 ZIP。");
+  setText("installStep", "安装未完成");
+  setText("installError", `安装失败：${setupInstallError}`);
+  $("installError")?.classList.remove("hidden");
+  $("napcatInstallRecovery")?.classList.remove("hidden");
+  $("wizardNext").textContent = "重试安装";
+  renderNapcatSetup();
+  loadNapcatSetup();
+}
+
 function renderWizard() {
   const steps = $("wizardSteps");
   steps.innerHTML = STEP_NAMES.map((name, index) => {
@@ -661,21 +821,28 @@ function renderWizard() {
         <dt>需要网络</dt><dd>首次安装会联网下载，请保持连接</dd>
         <dt>需要准备</dt><dd>一个 QQ 小号、一个 DeepSeek API Key</dd>
       </dl>
+      ${napcatSetupMarkup()}
       <div class="notice" style="margin-top:16px">
         NapCat 走的是个人号协议，不要用主号登录机器人；主号只作为“主人”和白名单使用。
       </div>`;
     $("wizardBrowse").addEventListener("click", () => chooseFolder());
     $("wizardNext").textContent = state?.installed ? "使用已有运行环境" : "开始安装";
+    renderNapcatSetup();
+    loadNapcatSetup();
   } else if (wizardStep === 1) {
+    setupInstallRunning = true;
+    setupInstallError = "";
     body.innerHTML = `
-      <h2>正在安装运行环境</h2>
-      <p class="lead">我们正在下载并准备聊天所需的服务。可以先去忙别的，保持这个窗口打开就好。</p>
+      <h2 id="installTitle">正在安装运行环境</h2>
+      <p class="lead" id="installLead">正在下载并准备聊天所需的服务，请保持这个窗口打开。</p>
       <div class="progress"><span id="installBar"></span></div>
       <div class="row between" style="margin-top:10px">
         <div class="small muted" id="installStep">准备中…</div>
         <div class="small mono" id="installPercent">0%</div>
       </div>
-      <pre class="install-log" id="installLog"></pre>`;
+      <pre class="install-log" id="installLog"></pre>
+      <p class="notice napcat-install-error hidden" id="installError" role="alert"></p>
+      <div class="hidden" id="napcatInstallRecovery">${napcatSetupMarkup()}</div>`;
     $("wizardNext").disabled = true;
     startInstallPolling();
   } else if (wizardStep === 2) {
@@ -771,6 +938,7 @@ function goWizard(delta) {
 async function wizardNext() {
   try {
     if (wizardStep === 0) {
+      if (napcatImportPending || setupIsInstalling()) return;
       const dir = ($("wizardInstallDir")?.value || "").trim();
       if (!dir) throw new Error("请填写安装目录");
       if (dir !== state?.install) {
@@ -786,20 +954,31 @@ async function wizardNext() {
       }
       if (state?.installed) { wizardStep = 2; renderWizard(); return; }
       wizardStep = 1;
+      setupInstallRequestPending = true;
       renderWizard();
-      const res = await api("/api/setup/install", {
+      let res;
+      try { res = await api("/api/setup/install", {
         method: "POST",
         body: JSON.stringify({ model: { model: "deepseek-chat", api_base: "https://api.deepseek.com/v1" } }),
-      });
+      }); } finally { setupInstallRequestPending = false; }
       if (!res.ok) throw new Error(res.message || "安装启动失败");
       return;
     }
     if (wizardStep === 1) {
+      if (napcatImportPending || setupIsInstalling()) return;
+      setupInstallRunning = true;
+      setupInstallRequestPending = true;
+      setupInstallError = "";
+      setText("installTitle", "正在安装运行环境");
+      setText("installLead", "正在下载并准备聊天所需的服务，请保持这个窗口打开。");
+      $("installError")?.classList.add("hidden");
+      $("napcatInstallRecovery")?.classList.add("hidden");
       $("wizardNext").disabled = true;
-      const res = await api("/api/setup/install", {
+      let res;
+      try { res = await api("/api/setup/install", {
         method: "POST",
         body: JSON.stringify({ model: { model: "deepseek-chat", api_base: "https://api.deepseek.com/v1" } }),
-      });
+      }); } finally { setupInstallRequestPending = false; }
       if (!res.ok) throw new Error(res.message || "安装启动失败");
       startInstallPolling();
       return;
@@ -842,6 +1021,7 @@ async function wizardNext() {
       showApp();
     }
   } catch (err) {
+    if (wizardStep === 1) showInstallFailure(err.message || String(err));
     toast(err.message || String(err));
   }
 }
@@ -849,6 +1029,7 @@ async function wizardNext() {
 function startInstallPolling() {
   clearInterval(installTimer);
   const tick = async () => {
+    if (setupInstallRequestPending) return;
     try {
       const data = await api("/api/setup/status");
       const bar = $("installBar");
@@ -866,6 +1047,8 @@ function startInstallPolling() {
       if (data.done) {
         clearInterval(installTimer);
         installTimer = null;
+        setupInstallRunning = false;
+        setupInstallError = "";
         $("wizardNext").disabled = false;
         $("wizardNext").textContent = "安装完成，继续";
         toast("运行环境安装完成");
@@ -873,10 +1056,7 @@ function startInstallPolling() {
         wizardStep = 2;
         setTimeout(renderWizard, 600);
       } else if (data.error) {
-        clearInterval(installTimer);
-        installTimer = null;
-        $("wizardNext").disabled = false;
-        $("wizardNext").textContent = "重试";
+        showInstallFailure(data.error);
         toast("安装失败：" + data.error);
       }
     } catch (err) { /* transient */ }
@@ -2362,6 +2542,7 @@ function bindEvents() {
   });
   $("btnOpenAstrbot").addEventListener("click", () => openLocalDashboard("astrbot", $("btnOpenAstrbot")));
   $("btnOpenNapcat").addEventListener("click", () => openLocalDashboard("napcat", $("btnOpenNapcat")));
+  $("btnNapcatPackage").addEventListener("click", openNapcatSetup);
   $("pluginsOpenAstrbot").addEventListener("click", () => openLocalDashboard("astrbot", $("pluginsOpenAstrbot")));
   $("pluginsOpenNapcat").addEventListener("click", () => openLocalDashboard("napcat", $("pluginsOpenNapcat")));
   $("btnOpenFolder").addEventListener("click", () => api("/api/open-folder", { method: "POST", body: JSON.stringify({}) }).catch(() => {}));
